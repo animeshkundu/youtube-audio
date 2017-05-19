@@ -95,6 +95,7 @@ function processRequest(details) {
 function enableExtension() {
     chrome.browserAction.setIcon({
         path : {
+            128 : "img/icon128.png"
             38 : "img/icon38.png",
         }
     });
