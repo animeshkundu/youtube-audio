@@ -82,9 +82,9 @@ browser.runtime.getPlatformInfo().then( function (info) {
 	function sendMessage(tabId) {
 		if (tabIds.contains(tabId)) {
 			if (android) {
-				chrome.tabs.executeScript(tabId, { code : 'handleMessage({"url" : "' + tabIds.value(tabId) + '"});' });
+				browser.tabs.executeScript(tabId, { code : 'handleMessage({"url" : "' + tabIds.value(tabId) + '"});' });
 			} else {
-				chrome.tabs.sendMessage(tabId, {url: tabIds.value(tabId)});
+				browser.tabs.sendMessage(tabId, {url: tabIds.value(tabId)});
 			}
 		}
 	}
@@ -100,24 +100,24 @@ browser.runtime.getPlatformInfo().then( function (info) {
 				console.log("Sent Message : " + audioURL + " to tabId " + details.tabId);
 
 				if (android) {
-					chrome.tabs.executeScript(details.tabId, { code : 'handleMessage({"url" : "' + audioURL + '"});' });
+					browser.tabs.executeScript(details.tabId, { code : 'handleMessage({"url" : "' + audioURL + '"});' });
 				} else {
-					chrome.tabs.sendMessage(details.tabId, {url: audioURL});
+					browser.tabs.sendMessage(details.tabId, {url: audioURL});
 				}
 			}
 		}
 	}
 
 	function enableExtension() {
-	   chrome.tabs.onUpdated.addListener(sendMessage);
-		chrome.webRequest.onBeforeRequest.addListener(
+	    if (!android) browser.tabs.onUpdated.addListener(sendMessage);
+		browser.webRequest.onBeforeRequest.addListener(
 			processRequest,
 			{urls: ["<all_urls>"]},
 			["blocking"]
 		);
 
 		if (!android) {
-			chrome.browserAction.setIcon({
+			browser.browserAction.setIcon({
 				path : {
 					128 : "img/icon128.png",
 					38 : "img/icon38.png"
@@ -127,12 +127,12 @@ browser.runtime.getPlatformInfo().then( function (info) {
 	}
 
 	function disableExtension() {
-		chrome.tabs.onUpdated.removeListener(sendMessage);
-		chrome.webRequest.onBeforeRequest.removeListener(processRequest);
+		if (!android) browser.tabs.onUpdated.removeListener(sendMessage);
+		browser.webRequest.onBeforeRequest.removeListener(processRequest);
 		tabIds.clear();
 
 		if (!android) {
-			chrome.browserAction.setIcon({
+			browser.browserAction.setIcon({
 				path : {
 					38 : "img/disabled_icon38.png",
 				}
@@ -141,12 +141,12 @@ browser.runtime.getPlatformInfo().then( function (info) {
 	}
 
 	function saveSettings(disabled) {
-		chrome.storage.local.set({'youtube_audio_state': disabled});
+		browser.storage.local.set({'youtube_audio_state': disabled});
 	}
 
 	if (!android) {
-		chrome.browserAction.onClicked.addListener(function() {
-			chrome.storage.local.get('youtube_audio_state', function(values) {
+		browser.browserAction.onClicked.addListener(function() {
+			browser.storage.local.get('youtube_audio_state', function(values) {
 				var disabled = values.youtube_audio_state;
 
 				if (disabled) {
@@ -161,7 +161,7 @@ browser.runtime.getPlatformInfo().then( function (info) {
 		});
 	}
 
-	chrome.storage.local.get('youtube_audio_state', function(values) {
+	browser.storage.local.get('youtube_audio_state', function(values) {
 		var disabled = values.youtube_audio_state;
 		if (typeof disabled === "undefined") {
 			disabled = false;

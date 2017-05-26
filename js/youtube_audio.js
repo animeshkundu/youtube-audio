@@ -39,4 +39,4 @@ function handleMessage(request, sender, sendResponse) {
 	}
 }
 
-chrome.runtime.onMessage.addListener(handleMessage);
+browser.runtime.onMessage.addListener(handleMessage);
