@@ -3,7 +3,6 @@
   "version": "0.0.2",
   "manifest_version": 2,
   "description": "Stream only Audio on Youtube",
-  "offline_enabled": true,
   "icons": {
     "38": "img/icon38.png",
     "128": "img/icon128.png"
@@ -15,9 +14,11 @@
   },
   "permissions": [
     "tabs",
+	"activeTab",
     "webRequest",
     "*://*/*",
     "webRequestBlocking",
+	"webNavigation",
     "storage"
   ],
   "browser_action": {
@@ -26,8 +27,7 @@
   "content_scripts": [
     {
       "matches": [
-        "*://www.youtube.com/*",
-        "*://m.youtube.com/*"
+        "*://*.youtube.com/*"
       ],
       "js": [
         "js/youtube_audio.js"
@@ -37,5 +37,10 @@
       ],
       "run_at": "document_start"
     }
-  ]
+  ],
+  "applications": {
+    "gecko": {
+      "id": "toolkit@mozilla.org"
+    }
+  }
 }

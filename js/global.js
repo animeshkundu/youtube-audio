@@ -54,100 +54,125 @@ var map = (function() {
 
 })();
 
-function removeURLParameters(url, parameters) {
-    parameters.forEach(function(parameter) {
-        var urlparts = url.split('?');
-        if (urlparts.length >= 2) {
-            var prefix = encodeURIComponent(parameter) + '=';
-            var pars = urlparts[1].split(/[&;]/g);
-
-            for (var i = pars.length; i-- > 0;) {
-                if (pars[i].lastIndexOf(prefix, 0) !== -1) {
-                    pars.splice(i, 1);
-                }
-            }
-
-            url = urlparts[0] + '?' + pars.join('&');
-        }
-    });
-    return url;
-}
-
 var tabIds = new map();
 
-function sendMessage(tabId) {
-    if (tabIds.contains(tabId)) {
-        chrome.tabs.sendMessage(tabId, {url: tabIds.value(tabId)});
-    }
-}
+browser.runtime.getPlatformInfo().then( function (info) {
+	var android = (info.os === browser.runtime.PlatformOs.ANDROID);
+	
+	function removeURLParameters(url, parameters) {
+		parameters.forEach(function(parameter) {
+			var urlparts = url.split('?');
+			if (urlparts.length >= 2) {
+				var prefix = encodeURIComponent(parameter) + '=';
+				var pars = urlparts[1].split(/[&;]/g);
 
-function processRequest(details) {
-    if (details.url.indexOf('mime=audio') !== -1) {
-        var parametersToBeRemoved = ['range', 'rn', 'rbuf'];
-        var audioURL = removeURLParameters(details.url, parametersToBeRemoved);
-        if (tabIds.value(details.tabId) != audioURL) {
-            tabIds.insert(details.tabId, audioURL);
-            chrome.tabs.sendMessage(details.tabId, {url: audioURL});
-        }
-    }
-}
+				for (var i = pars.length; i-- > 0;) {
+					if (pars[i].lastIndexOf(prefix, 0) !== -1) {
+						pars.splice(i, 1);
+					}
+				}
 
-function enableExtension() {
-    chrome.browserAction.setIcon({
-        path : {
-            128 : "img/icon128.png"
-            38 : "img/icon38.png",
-        }
-    });
-    chrome.tabs.onUpdated.addListener(sendMessage);
-    chrome.webRequest.onBeforeRequest.addListener(
-        processRequest,
-        {urls: ["<all_urls>"]},
-        ["blocking"]
-    );
-}
+				url = urlparts[0] + '?' + pars.join('&');
+			}
+		});
+		return url;
+	}
 
-function disableExtension() {
-    chrome.browserAction.setIcon({
-        path : {
-            38 : "img/disabled_icon38.png",
-        }
-    });
-    chrome.tabs.onUpdated.removeListener(sendMessage);
-    chrome.webRequest.onBeforeRequest.removeListener(processRequest);
-    tabIds.clear();
 
-}
+	function sendMessage(tabId) {
+		if (tabIds.contains(tabId)) {
+			if (android) {
+				chrome.tabs.executeScript(tabId, { code : 'handleMessage({"url" : "' + tabIds.value(tabId) + '"});' });
+			} else {
+				chrome.tabs.sendMessage(tabId, {url: tabIds.value(tabId)});
+			}
+		}
+	}
 
-function saveSettings(disabled) {
-    chrome.storage.local.set({'youtube_audio_state': disabled});
-}
+	function processRequest(details) {
+		if (details.url.indexOf('mime=audio') !== -1) {
+			var parametersToBeRemoved = ['range', 'rn', 'rbuf'];
+			var audioURL = removeURLParameters(details.url, parametersToBeRemoved);
+			console.log(details);
 
-chrome.browserAction.onClicked.addListener(function() {
-    chrome.storage.local.get('youtube_audio_state', function(values) {
-        var disabled = values.youtube_audio_state;
+			if (tabIds.value(details.tabId) != audioURL) {
+				tabIds.insert(details.tabId, audioURL);
+				console.log("Sent Message : " + audioURL + " to tabId " + details.tabId);
 
-        if (disabled) {
-            enableExtension();
-        } else {
-            disableExtension();
-        }
+				if (android) {
+					chrome.tabs.executeScript(details.tabId, { code : 'handleMessage({"url" : "' + audioURL + '"});' });
+				} else {
+					chrome.tabs.sendMessage(details.tabId, {url: audioURL});
+				}
+			}
+		}
+	}
 
-        disabled = !disabled;
-        saveSettings(disabled);
-    });
-});
+	function enableExtension() {
+	   chrome.tabs.onUpdated.addListener(sendMessage);
+		chrome.webRequest.onBeforeRequest.addListener(
+			processRequest,
+			{urls: ["<all_urls>"]},
+			["blocking"]
+		);
 
-chrome.storage.local.get('youtube_audio_state', function(values) {
-    var disabled = values.youtube_audio_state;
-    if (typeof disabled === "undefined") {
-        disabled = false;
-        saveSettings(disabled);
-    }
+		if (!android) {
+			chrome.browserAction.setIcon({
+				path : {
+					128 : "img/icon128.png",
+					38 : "img/icon38.png"
+				}
+			});
+		}
+	}
 
-    if (disabled) {
-        disableExtension();
-    } else {
-        enableExtension();
-    }
+	function disableExtension() {
+		chrome.tabs.onUpdated.removeListener(sendMessage);
+		chrome.webRequest.onBeforeRequest.removeListener(processRequest);
+		tabIds.clear();
+
+		if (!android) {
+			chrome.browserAction.setIcon({
+				path : {
+					38 : "img/disabled_icon38.png",
+				}
+			});
+		}
+	}
+
+	function saveSettings(disabled) {
+		chrome.storage.local.set({'youtube_audio_state': disabled});
+	}
+
+	if (!android) {
+		chrome.browserAction.onClicked.addListener(function() {
+			chrome.storage.local.get('youtube_audio_state', function(values) {
+				var disabled = values.youtube_audio_state;
+
+				if (disabled) {
+					enableExtension();
+				} else {
+					disableExtension();
+				}
+
+				disabled = !disabled;
+				saveSettings(disabled);
+			});
+		});
+	}
+
+	chrome.storage.local.get('youtube_audio_state', function(values) {
+		var disabled = values.youtube_audio_state;
+		if (typeof disabled === "undefined") {
+			disabled = false;
+			saveSettings(disabled);
+		}
+
+		if (disabled) {
+			disableExtension();
+		} else {
+			enableExtension();
+		}
+	});
+
 });
