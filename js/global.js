@@ -75,6 +75,16 @@ function removeURLParameters(url, parameters) {
 
 var tabIds = new map();
 
+function reloadTab() {
+    chrome.tabs.query({'active': true, 'lastFocusedWindow': true}, function (tabs) {
+        var pattern = /\.youtube\./;
+        var url = tabs[0].url;
+
+        if (pattern.test(url))
+            chrome.tabs.reload();
+    });
+}
+
 function sendMessage(tabId) {
     if (tabIds.contains(tabId)) {
         chrome.tabs.sendMessage(tabId, {url: tabIds.value(tabId)});
@@ -95,8 +105,8 @@ function processRequest(details) {
 function enableExtension() {
     chrome.browserAction.setIcon({
         path : {
-            128 : "img/icon128.png"
-            38 : "img/icon38.png",
+            128 : "img/icon128.png",
+            38 : "img/icon38.png"
         }
     });
     chrome.tabs.onUpdated.addListener(sendMessage);
@@ -116,7 +126,6 @@ function disableExtension() {
     chrome.tabs.onUpdated.removeListener(sendMessage);
     chrome.webRequest.onBeforeRequest.removeListener(processRequest);
     tabIds.clear();
-
 }
 
 function saveSettings(disabled) {
@@ -135,6 +144,7 @@ chrome.browserAction.onClicked.addListener(function() {
 
         disabled = !disabled;
         saveSettings(disabled);
+        reloadTab();
     });
 });
 

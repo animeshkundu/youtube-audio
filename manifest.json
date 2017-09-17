@@ -1,6 +1,6 @@
 {
   "name": "Youtube Audio",
-  "version": "0.0.2",
+  "version": "0.0.2.2",
   "manifest_version": 2,
   "description": "Stream only Audio on Youtube",
   "offline_enabled": true,
