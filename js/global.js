@@ -125,6 +125,8 @@ function disableExtension() {
     });
     chrome.tabs.onUpdated.removeListener(sendMessage);
     chrome.webRequest.onBeforeRequest.removeListener(processRequest);
+//    for (tabIds)
+//    chrome.tabs.sendMessage(tabId, {url: ""});
     tabIds.clear();
 }
 
