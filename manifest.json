@@ -25,6 +25,7 @@
   },
   "content_scripts": [
     {
+      "all_frames": true,
       "matches": [
         "*://www.youtube.com/*",
         "*://m.youtube.com/*"
