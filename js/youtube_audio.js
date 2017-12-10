@@ -1,8 +1,4 @@
-var oldUrl;
 var makeSetAudioURL = function(videoElement, url) {
-    if (oldUrl === undefined) {
-        oldUrl = videoElement.src;
-    }
     if (videoElement.src  != url) {
         videoElement.pause();
         videoElement.src = url;
