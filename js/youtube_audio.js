@@ -13,6 +13,7 @@ chrome.runtime.onMessage.addListener(
         let videoElement = document.getElementsByTagName('video')[0];
         videoElement.onloadeddata = makeSetAudioURL(videoElement, url);
         let audioOnlyDivs = document.getElementsByClassName('audio_only_div');
+        // Append alert text
         if (audioOnlyDivs.length == 0) {
             let extensionAlert = document.createElement('div');
             extensionAlert.className = 'audio_only_div';
@@ -25,7 +26,13 @@ chrome.runtime.onMessage.addListener(
 
             extensionAlert.appendChild(alertText);
             let parent = videoElement.parentNode.parentNode;
-            parent.appendChild(extensionAlert);
+
+            // Append alert only if options specify to do so
+            chrome.storage.local.get('disable_video_text', function(values) {
+              var disableVideoText = (values.disable_video_text ? true : false);
+              if (!disableVideoText)
+                parent.appendChild(extensionAlert);
+            });
         }
         else if (url == "") {
             for(div in audioOnlyDivs) {
