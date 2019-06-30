@@ -7,11 +7,6 @@
     "38": "img/icon38.png",
     "128": "img/icon128.png"
   },
-  "applications": {
-    "gecko": {
-      "id": "youtube-audio@whompingwalr.us"
-    }
-  },
   "background": {
     "scripts": [
       "js/global.js"
