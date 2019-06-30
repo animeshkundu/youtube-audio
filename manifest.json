@@ -1,11 +1,16 @@
 {
   "name": "Youtube Audio",
-  "version": "0.0.2.3",
+  "version": "0.0.2.4",
   "manifest_version": 2,
   "description": "Stream only Audio on Youtube",
   "icons": {
     "38": "img/icon38.png",
     "128": "img/icon128.png"
+  },
+  "applications": {
+    "gecko": {
+      "id": "youtube-audio@whompingwalr.us"
+    }
   },
   "background": {
     "scripts": [
@@ -15,7 +20,7 @@
   "permissions": [
     "tabs",
     "webRequest",
-    "*://*youtube.com*",
+    "*://*/*",
     "webRequestBlocking",
     "storage"
   ],
@@ -37,5 +42,10 @@
       ],
       "run_at": "document_start"
     }
-  ]
+  ],
+  "options_ui": {
+    "page": "html/options.html",
+    "browser_style": true,
+    "chrome_style": true
+  }
 }
