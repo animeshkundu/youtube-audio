@@ -1,8 +1,9 @@
 {
   "name": "Youtube Audio",
-  "version": "0.0.2.4",
+  "version": "0.0.2.5",
   "manifest_version": 2,
   "description": "Stream only Audio on Youtube",
+  "homepage_url": "https://github.com/animeshkundu/youtube-audio",
   "icons": {
     "38": "img/icon38.png",
     "128": "img/icon128.png"
@@ -26,8 +27,7 @@
     {
       "all_frames": true,
       "matches": [
-        "*://www.youtube.com/*",
-        "*://m.youtube.com/*"
+        "*://*.youtube.com/*"
       ],
       "js": [
         "js/youtube_audio.js"

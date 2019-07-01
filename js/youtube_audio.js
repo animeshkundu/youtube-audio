@@ -1,9 +1,12 @@
+chrome.runtime.sendMessage('enable-youtube-audio');
+
 var makeSetAudioURL = function(videoElement, url) {
-    if (videoElement.src  != url) {
-        videoElement.pause();
+    if (videoElement.src != url) {
+		var paused = videoElement.paused;
         videoElement.src = url;
-        videoElement.currentTime = 0;
-        videoElement.play();
+		if (paused === false) {
+			videoElement.play();
+		}
     }
 };
 
@@ -11,10 +14,11 @@ chrome.runtime.onMessage.addListener(
     function (request, sender, sendResponse) {
         let url = request.url;
         let videoElement = document.getElementsByTagName('video')[0];
-        videoElement.onloadeddata = makeSetAudioURL(videoElement, url);
+		videoElement.onloadeddata = makeSetAudioURL(videoElement, url);
+
         let audioOnlyDivs = document.getElementsByClassName('audio_only_div');
         // Append alert text
-        if (audioOnlyDivs.length == 0) {
+        if (audioOnlyDivs.length == 0 && url.includes('mime=audio')) {
             let extensionAlert = document.createElement('div');
             extensionAlert.className = 'audio_only_div';
 
@@ -30,7 +34,7 @@ chrome.runtime.onMessage.addListener(
             // Append alert only if options specify to do so
             chrome.storage.local.get('disable_video_text', function(values) {
               var disableVideoText = (values.disable_video_text ? true : false);
-              if (!disableVideoText)
+              if (!disableVideoText && parent.getElementsByClassName("audio_only_div").length == 0)
                 parent.appendChild(extensionAlert);
             });
         }
