@@ -38,17 +38,13 @@ chrome.runtime.onMessage.addListener(
             
             let thumbnailImage = document.createElement('img');
             thumbnailImage.className = 'youtube_thumbnail';
-            thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1] + '/maxresdefault.jpg';
-            
-            youtubeThumbnail.addEventListener('locationchange', function() {
-            	thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1].split('&')[0] + '/maxresdefault.jpg';
-            });
+            thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1] + '/0.jpg';
             
             // An observer to detect url change on YouTube
             var observer = new MutationObserver(function(mutations) {
 				mutations.forEach(function(mutationRecord) {
 					if (mutationRecord.target.style.display == 'none') {
-            			thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1].split('&')[0] + '/maxresdefault.jpg';
+            			thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1].split('&')[0] + '/0.jpg';
 					}
 				});
 			});
