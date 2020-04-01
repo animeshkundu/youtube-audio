@@ -10,6 +10,8 @@ var makeSetAudioURL = function(videoElement, url) {
     }
 };
 
+// Note: I just put the thumbnail together with the audio only text.
+
 chrome.runtime.onMessage.addListener(
     function (request, sender, sendResponse) {
         let url = request.url;
@@ -30,12 +32,43 @@ chrome.runtime.onMessage.addListener(
 
             extensionAlert.appendChild(alertText);
             let parent = videoElement.parentNode.parentNode;
+            
+            let youtubeThumbnail = document.createElement('div');
+            youtubeThumbnail.className = 'youtube_thumbnail_div';
+            
+            let thumbnailImage = document.createElement('img');
+            thumbnailImage.className = 'youtube_thumbnail';
+            thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1] + '/maxresdefault.jpg';
+            
+            youtubeThumbnail.addEventListener('locationchange', function() {
+            	thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1] + '/maxresdefault.jpg';
+            });
+            
+            // An observer to detect url change on YouTube
+            var observer = new MutationObserver(function(mutations) {
+				mutations.forEach(function(mutationRecord) {
+					if (mutationRecord.target.style.display == 'none') {
+            			thumbnailImage.src = 'https://img.youtube.com/vi/' + document.location.href.split('=')[1] + '/maxresdefault.jpg';
+					}
+				});
+			});
+            
+            youtubeThumbnail.appendChild(thumbnailImage);
 
             // Append alert only if options specify to do so
             chrome.storage.local.get('disable_video_text', function(values) {
               var disableVideoText = (values.disable_video_text ? true : false);
               if (!disableVideoText && parent.getElementsByClassName("audio_only_div").length == 0)
-                parent.appendChild(extensionAlert);
+                parent.insertBefore(extensionAlert, parent.children[2]);
+            });
+            
+            chrome.storage.local.get('disable_youtube_thumbnail', function(values) {
+              var disableYoutubeThumbnail = (values.disable_youtube_thumbnail ? true : false);
+              if (!disableYoutubeThumbnail && parent.getElementsByClassName('youtube_thumbnail_div').length == 0) {
+              	var target = document.getElementsByClassName('ytp-cued-thumbnail-overlay')[0];
+              	observer.observe(target, { attributes : true, attributeFilter : ['style'] });
+                parent.insertBefore(youtubeThumbnail, parent.children[2]);
+              }
             });
         }
         else if (url == "") {
