@@ -16,7 +16,10 @@
   "permissions": [
     "tabs",
     "webRequest",
-    "*://*/*",
+    "*://*.youtube.com/*",
+    "*://*.ggpht.com/*",
+    "*://*.googlevideo.com/*",
+    "*://i.ytimg.com/*",
     "webRequestBlocking",
     "storage"
   ],
