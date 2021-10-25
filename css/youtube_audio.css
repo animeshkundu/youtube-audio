@@ -1,9 +1,8 @@
 .audio_only_div {
-    z-index: 9999;
     background-color: #272B2E;
     color: #CC6633;
     cursor: pointer;
-    position: relative;
+    position: absolute;
     top: 50%;
     transform: translateY(-50%);
     height: 50%;
@@ -19,4 +18,17 @@
     top: 50%;
     transform: translateY(-50%);
     text-align: center;
+}
+
+.youtube_thumbnail_div {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+.youtube_thumbnail {
+	position: absolute;
+    width: 100%;
+    top: 50%;
+    transform: translateY(-50%);
 }
