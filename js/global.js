@@ -36,7 +36,7 @@ function processRequest(details) {
 	}
 
     if (details.url.indexOf('mime=audio') !== -1 && !details.url.includes('live=1')) {
-        var parametersToBeRemoved = ['range', 'rn', 'rbuf'];
+        var parametersToBeRemoved = ['range', 'rn', 'rbuf', 'ump'];
         var audioURL = removeURLParameters(details.url, parametersToBeRemoved);
         chrome.tabs.sendMessage(details.tabId, {url: audioURL});
     }
