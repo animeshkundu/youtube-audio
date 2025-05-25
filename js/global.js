@@ -1,4 +1,17 @@
 const tabIds = new Set();
+const AD_PATTERNS = [
+    "doubleclick.net",
+    "googlesyndication.com",
+    "/pagead/",
+    "/ads?",
+    "/ads/",
+    "/ad_status.js",
+    "ad.youtube.com",
+    "googleads.g.doubleclick.net",
+    "stats.g.doubleclick.net",
+    "youtube.com/api/stats/ads",
+    "youtube.com/csi_204?action_type=ad"
+];
 
 function removeURLParameters(url, parameters) {
     parameters.forEach(function(parameter) {
@@ -35,6 +48,12 @@ function processRequest(details) {
 		return;
 	}
 
+    for (const pattern of AD_PATTERNS) {
+        if (details.url.includes(pattern)) {
+            return {cancel: true};
+        }
+    }
+
     if (details.url.indexOf('mime=audio') !== -1 && !details.url.includes('live=1')) {
         var parametersToBeRemoved = ['range', 'rn', 'rbuf'];
         var audioURL = removeURLParameters(details.url, parametersToBeRemoved);
@@ -51,7 +70,14 @@ function enableExtension() {
     });
     chrome.webRequest.onBeforeRequest.addListener(
         processRequest,
-        {urls: ["<all_urls>"]},
+        {urls: [
+            "*://*.youtube.com/*",
+            "*://*.youtube-nocookie.com/*",
+            "*://*.doubleclick.net/*",
+            "*://*.googlesyndication.com/*",
+            "*://*.googleads.g.doubleclick.net/*",
+            "*://*.stats.g.doubleclick.net/*"
+        ]},
         ["blocking"]
     );
 }

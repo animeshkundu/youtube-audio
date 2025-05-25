@@ -1,0 +1,68 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main, master ] # Adjust if your main branch has a different name
+    tags:
+      - 'v*.*.*' # Also trigger on version tags
+  pull_request:
+    branches: [ main, master ] # Adjust if your main branch has a different name
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x] # Test on a couple of LTS Node versions
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm' # Cache npm dependencies
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run tests
+      run: npm test
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') # Only package on tagged pushes
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Package extension
+      run: |
+        # Create a temporary directory to hold the files to be zipped
+        # This helps in creating a clean zip file without parent directories (like 'app/')
+        # and allows us to select specific files and folders.
+        mkdir staging_dir
+        cp manifest.json staging_dir/
+        # Copy directories if they exist
+        if [ -d "html" ]; then cp -r html staging_dir/; fi
+        if [ -d "css" ]; then cp -r css staging_dir/; fi
+        if [ -d "js" ]; then cp -r js staging_dir/; fi
+        if [ -d "img" ]; then cp -r img staging_dir/; fi
+        # Copy files if they exist
+        if [ -f "LICENSE" ]; then cp LICENSE staging_dir/; fi
+        if [ -f "README.md" ]; then cp README.md staging_dir/; fi
+        
+        # Create the zip file from the staging directory
+        # The -j option junks paths, but we want to preserve paths relative to staging_dir
+        (cd staging_dir && zip -r ../youtube-audio-extension.zip .)
+
+    - name: Upload extension package
+      uses: actions/upload-artifact@v4
+      with:
+        name: youtube-audio-extension-package
+        path: youtube-audio-extension.zip

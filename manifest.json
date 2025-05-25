@@ -16,7 +16,12 @@
   "permissions": [
     "tabs",
     "webRequest",
-    "*://*/*",
+    "*://*.youtube.com/*",
+    "*://*.youtube-nocookie.com/*",
+    "*://*.doubleclick.net/*",
+    "*://*.googlesyndication.com/*",
+    "*://*.googleads.g.doubleclick.net/*",
+    "*://*.stats.g.doubleclick.net/*",
     "webRequestBlocking",
     "storage"
   ],
