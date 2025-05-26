@@ -1,9 +1,16 @@
 {
+  "name": "youtube-audio",
+  "version": "1.0.0",
+  "description": "Firefox extension to disable video playback on YouTube, focusing on audio.",
+  "scripts": {
+    "test": "jest",
+    "lint": "web-ext lint --source-dir ./",
+    "start:firefox": "web-ext run --source-dir ./",
+    "build": "web-ext build --source-dir ./ --overwrite-dest"
+  },
   "devDependencies": {
     "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0"
-  },
-  "scripts": {
-    "test": "jest"
+    "jest-environment-jsdom": "^29.7.0",
+    "web-ext": "^8.0.0"
   }
 }
