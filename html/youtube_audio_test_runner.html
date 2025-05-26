@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>Youtube Audio Test Runner</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #testResults p { margin: 5px 0; }
+        #testResults h3 { margin-top: 20px; margin-bottom: 5px; }
+        #videoPlayerContainer { border: 1px solid #ccc; padding: 10px; margin-top: 10px; min-height: 300px; }
+        #testVideo { background-color: #000; }
+    </style>
+</head>
+<body>
+    <h1>Youtube Audio Test Runner</h1>
+    
+    <!-- Container for the video element and where audio_only_div will be appended -->
+    <div id="videoPlayerContainer">
+        <video id="testVideo" style="width:300px; height:150px;" controls muted playsinline></video>
+    </div>
+
+    <div id="testResults">
+        <h2>Test Results:</h2>
+    </div>
+
+    <script>
+        // Basic Test Runner & Assertions
+        const testResultsDiv = document.getElementById('testResults');
+        let testsPassed = 0;
+        let testsFailed = 0;
+        let currentTestName = '';
+
+        function assert(condition, message) {
+            const p = document.createElement('p');
+            const fullMessage = `${currentTestName || "Setup"}: ${message}`; // Add context
+            if (condition) {
+                p.innerHTML = `<span style="color:green;">PASS:</span> ${fullMessage}`;
+                testsPassed++;
+            } else {
+                p.innerHTML = `<span style="color:red;">FAIL:</span> ${fullMessage}`;
+                testsFailed++;
+                console.error(`FAIL: ${fullMessage}`);
+                if (condition instanceof Error || (typeof condition === 'object' && condition !== null && condition.message)) {
+                    console.error(condition.stack || condition.message);
+                }
+            }
+            testResultsDiv.appendChild(p);
+        }
+
+        async function test(name, fn) {
+            currentTestName = name;
+            const h3 = document.createElement('h3');
+            h3.textContent = name;
+            testResultsDiv.appendChild(h3);
+            try {
+                await fn();
+            } catch (e) {
+                assert(false, `Test "${name}" threw an error: ${e.message} ${e.stack ? e.stack : ''}`);
+            }
+            currentTestName = ''; // Reset after test
+        }
+        
+        function summary() {
+             const p = document.createElement('p');
+             p.innerHTML = `<strong>Summary: ${testsPassed} passed, ${testsFailed} failed.</strong>`;
+             testResultsDiv.appendChild(p);
+             if (testsFailed > 0) {
+                console.warn(`Test Summary: ${testsPassed} passed, ${testsFailed} failed.`);
+             } else {
+                console.log(`Test Summary: All ${testsPassed} tests passed!`);
+             }
+        }
+
+        // Mock chrome APIs for youtube_audio.js
+        let mockChromeRuntimeOnMessageCallback = null;
+        let mockChromeStorageData = {};
+
+        globalThis.chrome = globalThis.chrome || {};
+        globalThis.chrome.runtime = globalThis.chrome.runtime || {
+            sendMessage: (message) => {
+                // console.log('[Mock chrome.runtime.sendMessage] Called with:', message);
+            },
+            onMessage: {
+                addListener: (callback) => {
+                    // console.log('[Mock chrome.runtime.onMessage.addListener] Listener added.');
+                    mockChromeRuntimeOnMessageCallback = callback;
+                },
+                removeListener: (callback) => {
+                    if (mockChromeRuntimeOnMessageCallback === callback) {
+                        mockChromeRuntimeOnMessageCallback = null;
+                    }
+                }
+            }
+        };
+        globalThis.chrome.storage = globalThis.chrome.storage || {
+            local: {
+                get: (keys, callback) => {
+                    // console.log('[Mock chrome.storage.local.get] Requested:', keys);
+                    const result = {};
+                    const defaults = (typeof keys === 'object' && !Array.isArray(keys)) ? keys : {};
+                    const keyList = Array.isArray(keys) ? keys : Object.keys(defaults);
+                    
+                    keyList.forEach(key => {
+                        result[key] = mockChromeStorageData.hasOwnProperty(key) ? mockChromeStorageData[key] : defaults[key];
+                    });
+                    // console.log('[Mock chrome.storage.local.get] Returning:', result);
+                    if (typeof callback === 'function') {
+                        setTimeout(() => callback(result), 0); // Simulate async
+                    } else {
+                        return Promise.resolve(result); // Should not be used by youtube_audio.js
+                    }
+                },
+                set: (items, callback) => { // Not directly used by youtube_audio.js but good to have
+                    // console.log('[Mock chrome.storage.local.set] Setting:', items);
+                    Object.assign(mockChromeStorageData, items);
+                    if (typeof callback === 'function') {
+                         setTimeout(() => callback(), 0);
+                    }
+                    return Promise.resolve();
+                }
+            },
+            onChanged: { // Not used by youtube_audio.js but good for completeness
+                addListener: () => {},
+                removeListener: () => {}
+            }
+        };
+        
+        // Mock window.location (search property) for tests
+        globalThis.mockLocation = {
+            _search: '',
+            get search() {
+                return this._search;
+            },
+            set search(value) {
+                this._search = value;
+                // Attempt to update the actual window.location for the script under test
+                try {
+                    Object.defineProperty(window, 'location', {
+                        value: { ...window.location, search: value, href: `http://www.youtube.com/watch${value}` },
+                        writable: true,
+                        configurable: true
+                    });
+                } catch (e) {
+                    // console.warn("Could not redefine window.location for mock:", e);
+                }
+            }
+        };
+        
+        // Fallback for scripts that might read directly from window.location instead of the mock
+        // This is done in the test script via a helper for more control per test.
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Test scripts will run after this.
+        });
+    </script>
+
+    <!-- Scripts to be tested and the test script itself -->
+    <!-- js/sponsorblock.js is not needed here as we are testing youtube_audio.js in isolation -->
+    <script src="../js/youtube_audio.js"></script> 
+    <script src="../js/youtube_audio.test.js"></script>
+</body>
+</html>

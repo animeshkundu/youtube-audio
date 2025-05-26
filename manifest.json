@@ -10,6 +10,7 @@
   },
   "background": {
     "scripts": [
+      "js/adblocker.js",
       "js/global.js"
     ]
   },
@@ -36,6 +37,7 @@
         "*://*.youtube-nocookie.com/*"
       ],
       "js": [
+        "js/sponsorblock.js",
         "js/youtube_audio.js"
       ],
       "css": [

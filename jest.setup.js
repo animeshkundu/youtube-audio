@@ -1,5 +1,14 @@
 // Mock for Chrome Extension APIs
 
+// Polyfill TextEncoder/TextDecoder for Node.js environment if not present
+const util = require('util');
+if (typeof global.TextEncoder === 'undefined') {
+  global.TextEncoder = util.TextEncoder;
+}
+if (typeof global.TextDecoder === 'undefined') {
+  global.TextDecoder = util.TextDecoder;
+}
+
 global.chrome = {
   tabs: {
     get: jest.fn((tabId, callback) => {
@@ -67,6 +76,27 @@ global.chrome = {
 // Helper to reset mocks before each test
 beforeEach(() => {
   jest.clearAllMocks();
+  
+  // Ensure global.fetch is defined and is a Jest mock
+  if (typeof global.fetch !== 'function' || !jest.isMockFunction(global.fetch)) {
+    global.fetch = jest.fn();
+  }
+  // Reset fetch mock to its default implementation
+  global.fetch.mockImplementation((url) => {
+    if (url.includes('easylist.txt') || url.includes('fanboy-annoyance.txt')) {
+      // Provide a minimal, valid ad list for testing processRequest
+      return Promise.resolve({
+        ok: true,
+        text: () => Promise.resolve('||doubleclick.net^\n/adsense/script.js'),
+      });
+    }
+    // Default for other fetches (e.g., sponsor.ajay.app)
+    return Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve(""), 
+      json: () => Promise.resolve([]), // SponsorBlock expects an array 
+    });
+  });
 
   // Reset specific mock implementations for storage.local.get if needed
   global.chrome.storage.local.get.mockImplementation((keys, callback) => {

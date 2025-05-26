@@ -1,5 +1,12 @@
 // Test suite for js/youtube_audio.js (Sponsor Skipping Functionality)
 
+// Polyfill TextEncoder/TextDecoder if not available (might be needed for some Node versions with JSDOM)
+if (typeof TextEncoder === 'undefined' || typeof TextDecoder === 'undefined') {
+  const util = require('util');
+  global.TextEncoder = util.TextEncoder;
+  global.TextDecoder = util.TextDecoder;
+}
+
 const fs = require('fs');
 const path = require('path');
 

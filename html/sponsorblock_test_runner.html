@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>SponsorBlock Test Runner</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        #testResults p { margin: 5px 0; }
+        #testResults h3 { margin-top: 20px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1>SponsorBlock Test Runner</h1>
+    <video id="testVideo" style="width:300px; height:150px;" controls muted playsinline></video>
+    <div id="testResults">
+        <h2>Test Results:</h2>
+    </div>
+
+    <script>
+        // Basic Test Runner & Assertions
+        const testResultsDiv = document.getElementById('testResults');
+        let testsPassed = 0;
+        let testsFailed = 0;
+        let currentTestName = '';
+
+        function assert(condition, message) {
+            const p = document.createElement('p');
+            const fullMessage = `${currentTestName}: ${message}`;
+            if (condition) {
+                p.innerHTML = `<span style="color:green;">PASS:</span> ${fullMessage}`;
+                testsPassed++;
+            } else {
+                p.innerHTML = `<span style="color:red;">FAIL:</span> ${fullMessage}`;
+                testsFailed++;
+                // Log details for easier debugging in browser console
+                console.error(`FAIL: ${fullMessage}`);
+                // If an error object is passed as condition
+                if (condition instanceof Error) {
+                    console.error(condition.stack || condition.message);
+                }
+            }
+            testResultsDiv.appendChild(p);
+        }
+
+        async function test(name, fn) {
+            currentTestName = name;
+            const h3 = document.createElement('h3');
+            h3.textContent = name;
+            testResultsDiv.appendChild(h3);
+            try {
+                await fn(); // Support async test functions
+            } catch (e) {
+                assert(false, `Test threw an error: ${e.message} ${e.stack ? e.stack : ''}`);
+            }
+        }
+        
+        function summary() {
+             const p = document.createElement('p');
+             p.innerHTML = `<strong>Summary: ${testsPassed} passed, ${testsFailed} failed.</strong>`;
+             testResultsDiv.appendChild(p);
+             if (testsFailed > 0) {
+                console.warn(`Test Summary: ${testsPassed} passed, ${testsFailed} failed.`);
+             } else {
+                console.log(`Test Summary: All ${testsPassed} tests passed!`);
+             }
+        }
+
+        // --- Global Mocks Setup ---
+        // These are simplified and will be configured by sponsorblock.test.js for specific tests.
+        
+        // Mock chrome.storage.local
+        let mockStorageData = {};
+        let storageChangeListeners = [];
+
+        globalThis.chrome = globalThis.chrome || {};
+        globalThis.chrome.storage = globalThis.chrome.storage || { 
+            local: {
+                get: (keys, callback) => {
+                    // console.log('[Mock chrome.storage.local.get] Requested:', keys);
+                    const result = {};
+                    const defaults = (typeof keys === 'object' && !Array.isArray(keys)) ? keys : {};
+                    const keyList = Array.isArray(keys) ? keys : Object.keys(defaults);
+                    
+                    keyList.forEach(key => {
+                        result[key] = mockStorageData.hasOwnProperty(key) ? mockStorageData[key] : defaults[key];
+                    });
+                    // console.log('[Mock chrome.storage.local.get] Returning:', result);
+                    if (typeof callback === 'function') {
+                        // Simulate async behavior
+                        setTimeout(() => callback(result), 0);
+                    } else {
+                        return Promise.resolve(result);
+                    }
+                },
+                set: (items, callback) => {
+                    // console.log('[Mock chrome.storage.local.set] Setting:', items);
+                    const changes = {};
+                    for (const key in items) {
+                        if (mockStorageData[key] !== items[key]) {
+                            changes[key] = { oldValue: mockStorageData[key], newValue: items[key] };
+                        }
+                        mockStorageData[key] = items[key];
+                    }
+                    if (typeof callback === 'function') {
+                        // Simulate async behavior
+                        setTimeout(() => callback(), 0);
+                    }
+                    // Simulate onChanged event
+                    if (Object.keys(changes).length > 0) {
+                        storageChangeListeners.forEach(listener => listener(changes, 'local'));
+                    }
+                    return Promise.resolve();
+                },
+                clear: (callback) => {
+                    mockStorageData = {};
+                     if (typeof callback === 'function') {
+                        setTimeout(() => callback(), 0);
+                    }
+                    return Promise.resolve();
+                }
+            },
+            onChanged: {
+                addListener: (listener) => {
+                    // console.log('[Mock chrome.storage.onChanged.addListener] Listener added.');
+                    storageChangeListeners.push(listener);
+                },
+                removeListener: (listener) => {
+                    storageChangeListeners = storageChangeListeners.filter(l => l !== listener);
+                }
+            }
+        };
+
+        // Mock global.fetch
+        let mockFetchHandler = () => Promise.resolve({ ok: true, json: () => Promise.resolve([]), text: () => Promise.resolve('') });
+        globalThis.fetch = async (url, options) => {
+            // console.log('[Mock fetch] Called with URL:', url, 'Options:', options);
+            return mockFetchHandler(url, options);
+        };
+
+        // Mock window.location (search property)
+        // The actual sponsorblock.js uses `window.location.search`
+        // We'll make a mock object that sponsorblock.test.js can control.
+        globalThis.mockLocation = {
+            _search: '',
+            get search() {
+                return this._search;
+            },
+            set search(value) {
+                this._search = value;
+                // Update JSDOM's window.location as well if possible, though direct assignment works for the test script
+                // This part is tricky as sponsorblock.js directly reads window.location
+            }
+        };
+        // To make sponsorblock.js see the mock location, it would ideally read from globalThis.mockLocation.
+        // If it directly reads `window.location.search`, we might need to spy/redirect that,
+        // or the test file will have to carefully manage when sponsorblock.js is loaded/re-eval'd.
+        // For now, sponsorblock.test.js will set `globalThis.mockLocation.search` and `window.location.search` via a helper.
+
+        // Mock console for cleaner output in the HTML runner (optional)
+        // const originalConsoleLog = console.log;
+        // const originalConsoleError = console.error;
+        // console.log = (...args) => { 
+        //     originalConsoleLog(...args); 
+        //     // You could also redirect these to the testResultsDiv if desired 
+        // };
+        // console.error = (...args) => { 
+        //     originalConsoleError(...args); 
+        // };
+
+        // Mock video element interactions if needed beyond the actual element
+        // e.g., for testing event listener additions/removals without full script re-eval
+        globalThis.mockVideoElementAPIs = {
+            addEventListener: [],
+            removeEventListener: []
+        };
+        const actualVideoElement = document.getElementById('testVideo');
+        // actualVideoElement.addEventListener = (...args) => {
+        //     mockVideoElementAPIs.addEventListener.push(args);
+        //     HTMLMediaElement.prototype.addEventListener.apply(actualVideoElement, args);
+        // };
+        // actualVideoElement.removeEventListener = (...args) => {
+        //     mockVideoElementAPIs.removeEventListener.push(args);
+        //     HTMLMediaElement.prototype.removeEventListener.apply(actualVideoElement, args);
+        // };
+
+        // Ensure DOM is ready before loading test scripts that might interact with it.
+        document.addEventListener('DOMContentLoaded', () => {
+            // Scripts will be loaded and executed after this point by the browser.
+        });
+    </script>
+
+    <!-- Scripts to be tested and the test script itself -->
+    <script src="../js/sponsorblock.js"></script> 
+    <script src="../js/sponsorblock.test.js"></script>
+</body>
+</html>

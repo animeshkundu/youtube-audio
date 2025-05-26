@@ -1,91 +1,11 @@
-chrome.runtime.sendMessage('enable-youtube-audio');
+// This script is now focused on the audio-only mode functionality.
+// SponsorBlock logic has been moved to js/sponsorblock.js
 
-let sponsorSegments = [];
-let currentVideoId = null;
-let videoElement = null;
-let lastSkippedSegmentUUID = null; // To prevent immediate re-skip of the same segment
+chrome.runtime.sendMessage('enable-youtube-audio'); // Inform background script this content script is active
 
-function getVideoId() {
+function getCurrentVideoIdForThumbnail() {
     const params = new URLSearchParams(window.location.search);
     return params.get('v');
-}
-
-async function fetchSponsorSegments(videoId) {
-    const apiUrl = `https://sponsor.ajay.app/api/skipSegments?videoID=${videoId}&category=sponsor&category=intro&category=outro&category=selfpromo&category=interaction`;
-    try {
-        const response = await fetch(apiUrl);
-        if (response.ok) {
-            const data = await response.json();
-            return data.map(segment => ({ // Ensure we get an array of objects as expected
-                UUID: segment.UUID,
-                startTime: segment.segment[0],
-                endTime: segment.segment[1],
-                category: segment.category
-            }));
-        } else {
-            console.error("SponsorBlock API request failed:", response.status, response.statusText);
-            return [];
-        }
-    } catch (error) {
-        console.error("Error fetching sponsor segments:", error);
-        return [];
-    }
-}
-
-async function initSponsorSkipping() {
-    const videoId = getVideoId();
-    if (videoId && videoId !== currentVideoId) {
-        currentVideoId = videoId;
-        console.log(`Fetching sponsor segments for video ID: ${videoId}`);
-        sponsorSegments = await fetchSponsorSegments(videoId);
-        console.log("Sponsor segments:", sponsorSegments);
-
-        if (videoElement) { // Remove listener from old video element if any
-            videoElement.removeEventListener('timeupdate', checkSponsorSegments);
-        }
-        
-        videoElement = document.querySelector('video'); // Get the primary video element
-        if (videoElement) {
-            videoElement.addEventListener('timeupdate', checkSponsorSegments);
-            lastSkippedSegmentUUID = null; // Reset for new video
-        }
-    } else if (!videoId) {
-        // If not on a video page or video ID is gone
-        if (videoElement) {
-            videoElement.removeEventListener('timeupdate', checkSponsorSegments);
-        }
-        currentVideoId = null;
-        sponsorSegments = [];
-        videoElement = null;
-        lastSkippedSegmentUUID = null;
-    }
-}
-
-function checkSponsorSegments() {
-    if (!videoElement || !sponsorSegments || sponsorSegments.length === 0) {
-        return;
-    }
-    const currentTime = videoElement.currentTime;
-    for (const segment of sponsorSegments) {
-        // Check if current time is within the segment and it's not the segment we just skipped
-        if (currentTime > segment.startTime && currentTime < segment.endTime) {
-            if (lastSkippedSegmentUUID !== segment.UUID) {
-                console.log(`Skipping sponsor segment: ${segment.category} from ${segment.startTime} to ${segment.endTime}`);
-                videoElement.currentTime = segment.endTime + 0.25; // Add small buffer
-                lastSkippedSegmentUUID = segment.UUID; 
-                // When a skip occurs, the timeupdate event will fire again. 
-                // We set lastSkippedSegmentUUID to prevent an immediate re-evaluation and potential loop for the same segment.
-                // Reset lastSkippedSegmentUUID if current time moves significantly away from the skipped segment
-                // or after a short timeout, to allow re-skipping if the user seeks back.
-                // For simplicity now, we'll rely on the currentTime moving past endTime.
-                // A more robust solution might involve a timeout to clear lastSkippedSegmentUUID.
-                break; // Exit loop after skipping one segment
-            }
-        } else if (currentTime > segment.endTime + 1 && lastSkippedSegmentUUID === segment.UUID) {
-            // If playback has moved past the segment we last skipped, clear it so it can be skipped again if needed
-            lastSkippedSegmentUUID = null;
-        }
-    }
 }
 
 var makeSetAudioURL = function(videoElement, url) {
@@ -100,42 +20,91 @@ var makeSetAudioURL = function(videoElement, url) {
 
 chrome.runtime.onMessage.addListener(
     function (request, sender, sendResponse) {
-        let url = request.url;
-        let videoElement = document.getElementsByTagName('video')[0];
-		videoElement.onloadeddata = makeSetAudioURL(videoElement, url);
+        // Ensure the message is intended for this script (optional, but good practice)
+        if (request.hasOwnProperty('url')) { 
+            let url = request.url;
+            // It's possible multiple video elements exist, especially with previews or ads.
+            // Try to get the main video element.
+            let videoElement = document.querySelector('video.html5-main-video');
+            if (!videoElement) {
+                // Fallback for embedded videos or different YouTube UI
+                const videoElements = document.getElementsByTagName('video');
+                if (videoElements.length > 0) {
+                    videoElement = videoElements[0]; // Assume the first one is the main one
+                }
+            }
 
-        let audioOnlyDivs = document.getElementsByClassName('audio_only_div');
-        // Append alert text
-        if (audioOnlyDivs.length == 0 && url.includes('mime=audio')) {
-            let extensionAlert = document.createElement('div');
-            extensionAlert.className = 'audio_only_div';
+            if (videoElement) {
+                // Check if onloadeddata already has our function to prevent multiple assignments if message comes rapidly
+                if (videoElement.onloadeddata !== makeSetAudioURL) { // Compare function references
+                    videoElement.onloadeddata = function() { // Wrap to ensure correct execution context
+                        makeSetAudioURL(videoElement, url);
+                    };
+                }
+                // Call directly in case data is already loaded or src change itself triggers logic
+                makeSetAudioURL(videoElement, url); 
 
-            let alertText = document.createElement('p');
-            alertText.className = 'alert_text';
-            alertText.innerHTML = 'Youtube Audio Extension is running. It disables the video stream and uses only the audio stream' +
-                ' which saves battery life and bandwidth / data when you just want to listen to just songs. If you want to watch' +
-                ' video also, click on the extension icon and refresh your page.';
 
-            extensionAlert.appendChild(alertText);
-            let parent = videoElement.parentNode.parentNode;
+                let audioOnlyDivs = document.getElementsByClassName('audio_only_div');
+                // Append alert text or thumbnail
+                if (audioOnlyDivs.length == 0 && url.includes('mime=audio')) {
+                    let extensionAlert = document.createElement('div');
+                    extensionAlert.className = 'audio_only_div';
+                    extensionAlert.innerHTML = ''; // Clear previous contents
 
-            // Append alert only if options specify to do so
-            chrome.storage.local.get('disable_video_text', function(values) {
-              var disableVideoText = (values.disable_video_text ? true : false);
-              if (!disableVideoText && parent.getElementsByClassName("audio_only_div").length == 0)
-                parent.appendChild(extensionAlert);
-            });
-        }
-        else if (url == "") {
-            for(div in audioOnlyDivs) {
-                div.parentNode.removeChild(div);
+                    const videoId = getCurrentVideoIdForThumbnail();
+                    let thumbnailUrl = null;
+                    if (videoId) {
+                        thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+                    }
+
+                    if (thumbnailUrl) {
+                        let albumArtImg = document.createElement('img');
+                        albumArtImg.src = thumbnailUrl;
+                        albumArtImg.style.display = 'block';
+                        albumArtImg.style.maxWidth = '80%';
+                        albumArtImg.style.maxHeight = '250px';
+                        albumArtImg.style.margin = '20px auto';
+                        albumArtImg.style.borderRadius = '8px';
+                        extensionAlert.appendChild(albumArtImg);
+                    }
+                    
+                    let alertText = document.createElement('p');
+                    alertText.className = 'alert_text';
+                    if (thumbnailUrl) {
+                        alertText.innerHTML = 'Audio-only mode. Video stream disabled to save resources.';
+                    } else {
+                        alertText.innerHTML = 'Youtube Audio Extension is running. It disables the video stream and uses only the audio stream' +
+                            ' which saves battery life and bandwidth / data when you just want to listen to just songs. If you want to watch' +
+                            ' video also, click on the extension icon and refresh your page.';
+                    }
+                    extensionAlert.appendChild(alertText);
+                    
+                    // Try to find a good parent for the alert.
+                    // videoElement.parentNode.parentNode might be too generic or change.
+                    // A more stable approach might be to find a known YouTube UI container.
+                    let parent = videoElement.closest('#movie_player') || videoElement.parentNode.parentNode;
+                    if (parent) {
+                         // Append alert only if options specify to do so
+                        chrome.storage.local.get('disable_video_text', function(values) {
+                        var disableVideoText = (values.disable_video_text ? true : false);
+                        if (!disableVideoText && parent.getElementsByClassName("audio_only_div").length == 0)
+                            parent.appendChild(extensionAlert);
+                        });
+                    } else {
+                        // console.warn("Youtube Audio: Could not find a suitable parent to append the alert message.");
+                    }
+
+                } else if (url == "" && audioOnlyDivs.length > 0) { // If URL is empty string, it means revert to video
+                    for (let i = audioOnlyDivs.length - 1; i >= 0; i--) {
+                        audioOnlyDivs[i].parentNode.removeChild(audioOnlyDivs[i]);
+                    }
+                }
+            } else {
+                // console.warn("Youtube Audio: No video element found on the page to set audio URL.");
             }
         }
     }
 );
 
-// Initial call
-initSponsorSkipping();
-
-// Periodically check for navigation changes
-setInterval(initSponsorSkipping, 1000);
+// console.log("Youtube Audio (audio-only mode) content script loaded.");
