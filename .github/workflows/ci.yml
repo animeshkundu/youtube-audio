@@ -52,9 +52,9 @@ jobs:
       - name: Check coverage threshold
         run: |
           if [ -f coverage/coverage-summary.json ]; then
-            COVERAGE=$(cat coverage/coverage-summary.json | jq '.total.lines.pct')
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
             echo "Current coverage: $COVERAGE%"
-            if (( $(echo "$COVERAGE < 90" | bc -l) )); then
+            if (( $(awk "BEGIN {print ($COVERAGE < 90)}") )); then
               echo "❌ Coverage is $COVERAGE%, minimum required is 90%"
               exit 1
             else
@@ -106,7 +106,7 @@ jobs:
         run: |
           echo "Validating manifest.json..."
           if [ -f manifest.json ]; then
-            cat manifest.json | jq . > /dev/null
+            jq . manifest.json > /dev/null
             echo "✅ manifest.json is valid JSON"
           else
             echo "❌ manifest.json not found"

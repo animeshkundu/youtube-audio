@@ -100,10 +100,10 @@ check_coverage() {
     if npm run test:coverage 2>/dev/null; then
         # Check if coverage report exists
         if [ -f "coverage/coverage-summary.json" ]; then
-            COVERAGE=$(cat coverage/coverage-summary.json | jq '.total.lines.pct')
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
             log_info "Current coverage: $COVERAGE%"
             
-            if (( $(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+            if (( $(awk "BEGIN {print ($COVERAGE < $COVERAGE_THRESHOLD)}") )); then
                 log_error "❌ Coverage is $COVERAGE%, minimum required is $COVERAGE_THRESHOLD%"
                 return 1
             else
@@ -123,12 +123,12 @@ validate_manifest() {
     cd "$PROJECT_ROOT"
     
     if [ -f "manifest.json" ]; then
-        if cat manifest.json | jq . > /dev/null 2>&1; then
+        if jq . manifest.json > /dev/null 2>&1; then
             log_info "✅ manifest.json is valid JSON"
             
             # Check required fields
-            NAME=$(cat manifest.json | jq -r '.name')
-            VERSION=$(cat manifest.json | jq -r '.version')
+            NAME=$(jq -r '.name' manifest.json)
+            VERSION=$(jq -r '.version' manifest.json)
             log_info "  Extension: $NAME v$VERSION"
         else
             log_error "❌ manifest.json is invalid JSON"
