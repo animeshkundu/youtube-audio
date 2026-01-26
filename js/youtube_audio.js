@@ -11,7 +11,7 @@ var makeSetAudioURL = function(videoElement, url) {
 };
 
 chrome.runtime.onMessage.addListener(
-    function (request, sender, sendResponse) {
+    function (request, _sender, _sendResponse) {
         let url = request.url;
         let videoElement = document.getElementsByTagName('video')[0];
 		videoElement.onloadeddata = makeSetAudioURL(videoElement, url);
@@ -39,7 +39,8 @@ chrome.runtime.onMessage.addListener(
             });
         }
         else if (url == "") {
-            for(div in audioOnlyDivs) {
+            for(var i = 0; i < audioOnlyDivs.length; i++) {
+                var div = audioOnlyDivs[i];
                 div.parentNode.removeChild(div);
             }
         }
