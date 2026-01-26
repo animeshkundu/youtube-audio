@@ -9,33 +9,18 @@
     "128": "img/icon128.png"
   },
   "background": {
-    "scripts": [
-      "js/global.js"
-    ]
+    "scripts": ["js/global.js"]
   },
-  "permissions": [
-    "tabs",
-    "webRequest",
-    "*://*/*",
-    "webRequestBlocking",
-    "storage"
-  ],
+  "permissions": ["tabs", "webRequest", "*://*/*", "webRequestBlocking", "storage"],
   "browser_action": {
     "default_title": "Youtube Audio"
   },
   "content_scripts": [
     {
       "all_frames": true,
-      "matches": [
-        "*://*.youtube.com/*",
-        "*://*.youtube-nocookie.com/*"
-      ],
-      "js": [
-        "js/youtube_audio.js"
-      ],
-      "css": [
-        "css/youtube_audio.css"
-      ],
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+      "js": ["js/youtube_audio.js"],
+      "css": ["css/youtube_audio.css"],
       "run_at": "document_start"
     }
   ],

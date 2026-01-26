@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+    <!-- Primary Meta Tags -->
+    <title>YouTube Audio - Stream Only Audio from YouTube | Save Battery & Bandwidth</title>
+    <meta
+      name="title"
+      content="YouTube Audio - Stream Only Audio from YouTube | Save Battery & Bandwidth"
+    />
+    <meta
+      name="description"
+      content="YouTube Audio is a browser extension that disables video and streams only audio from YouTube. Save battery life, bandwidth, and data while listening to music, podcasts, and more."
+    />
+    <meta
+      name="keywords"
+      content="youtube, audio only, browser extension, firefox, chrome, save battery, save bandwidth, music, podcast, webextension"
+    />
+    <meta name="author" content="Animesh Kundu" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://animeshkundu.github.io/youtube-audio/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://animeshkundu.github.io/youtube-audio/" />
+    <meta property="og:title" content="YouTube Audio - Stream Only Audio from YouTube" />
+    <meta
+      property="og:description"
+      content="Save battery and bandwidth by streaming only audio from YouTube. Perfect for music and podcasts."
+    />
+    <meta
+      property="og:image"
+      content="https://animeshkundu.github.io/youtube-audio/images/og-image.svg"
+    />
+    <meta property="og:site_name" content="YouTube Audio" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://animeshkundu.github.io/youtube-audio/" />
+    <meta property="twitter:title" content="YouTube Audio - Stream Only Audio from YouTube" />
+    <meta
+      property="twitter:description"
+      content="Save battery and bandwidth by streaming only audio from YouTube. Perfect for music and podcasts."
+    />
+    <meta
+      property="twitter:image"
+      content="https://animeshkundu.github.io/youtube-audio/images/og-image.svg"
+    />
+
+    <!-- AI/LLM Crawlers -->
+    <meta
+      name="ai:description"
+      content="YouTube Audio is a browser extension for Firefox and Chrome that allows users to stream only audio from YouTube videos. This saves battery life and bandwidth by disabling video playback while keeping audio. Features include: one-click toggle to enable/disable, audio-only notification overlay, customizable settings, cross-browser support (Firefox and Chrome), and minimal resource usage."
+    />
+
+    <!-- Structured Data for Search Engines -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "YouTube Audio",
+        "description": "Browser extension to stream only audio from YouTube videos, saving battery and bandwidth",
+        "applicationCategory": "BrowserApplication",
+        "operatingSystem": ["Firefox", "Chrome"],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "author": {
+          "@type": "Person",
+          "name": "Animesh Kundu"
+        },
+        "softwareVersion": "0.0.2.5",
+        "license": "https://opensource.org/licenses/MIT",
+        "codeRepository": "https://github.com/animeshkundu/youtube-audio"
+      }
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="images/favicon.svg" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+      <div class="container">
+        <a href="#" class="logo">
+          <span class="logo-icon">🎵</span>
+          <span class="logo-text">YouTube Audio</span>
+        </a>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+          <a href="#how-it-works">How It Works</a>
+          <a href="#faq">FAQ</a>
+          <a
+            href="https://github.com/animeshkundu/youtube-audio"
+            class="github-link"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+              <path
+                d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
+              />
+            </svg>
+            <span>GitHub</span>
+          </a>
+        </div>
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+      <div class="hero-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+      </div>
+      <div class="container">
+        <div class="hero-badge">
+          <span class="badge-icon">🔋</span>
+          <span>Save Battery & Bandwidth</span>
+        </div>
+        <h1 class="hero-title">Stream <span class="highlight">only audio</span> from YouTube</h1>
+        <p class="hero-subtitle">
+          A lightweight browser extension that disables video and streams audio-only. Perfect for
+          music, podcasts, and background listening.
+        </p>
+
+        <!-- Demo -->
+        <div class="demo-container">
+          <div class="demo-card">
+            <div class="demo-header">
+              <div class="demo-icon before">📺</div>
+              <div class="demo-label">Before</div>
+            </div>
+            <div class="demo-content">
+              <p>Video + Audio streaming</p>
+              <ul class="demo-list negative">
+                <li>High battery drain</li>
+                <li>High data usage</li>
+                <li>Heats up device</li>
+              </ul>
+            </div>
+          </div>
+          <div class="demo-arrow">→</div>
+          <div class="demo-card active">
+            <div class="demo-header">
+              <div class="demo-icon after">🎵</div>
+              <div class="demo-label">With YouTube Audio</div>
+            </div>
+            <div class="demo-content">
+              <p>Audio-only streaming</p>
+              <ul class="demo-list positive">
+                <li>Extended battery life</li>
+                <li>Reduced data usage</li>
+                <li>Cool & quiet device</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTA Button -->
+        <div class="cta-buttons">
+          <a
+            href="https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/"
+            class="btn btn-primary"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg class="btn-icon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+              <path
+                d="M21.634 7.17c-.043-.063-.094-.132-.169-.202-.9-.851-1.898-1.347-2.969-1.492 0 0-.163-.018-.482-.018-.37 0-.745.018-1.129.036-1.009.041-1.929.087-2.752.087-1.129 0-2.197-.074-3.201-.17-.423-.039-.842-.081-1.256-.087a7.07 7.07 0 0 0-1.009.033c-1.072.146-2.069.641-2.969 1.492-.075.07-.126.139-.169.202C4.5 8.26 4.5 9.492 4.5 10.786V12c0 6.627 5.373 12 12 12s12-5.373 12-12v-1.214c0-1.294 0-2.526-1.034-3.616zM9.333 15.111H7.11V9.778h2.223v5.333zm3.889 0h-2.223V9.778h2.223v5.333zm3.889 0h-2.223V9.778h2.223v5.333z"
+              />
+            </svg>
+            Install for Firefox
+          </a>
+          <a href="#install" class="btn btn-secondary"> Other Browsers </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+      <div class="container">
+        <div class="section-header">
+          <h2>Why use <span class="highlight">YouTube Audio</span>?</h2>
+          <p>Simple, efficient, and battery-friendly</p>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">🔋</div>
+            <h3>Save Battery</h3>
+            <p>
+              Video decoding is one of the biggest battery drains. By streaming audio only, your
+              laptop or phone stays cooler and lasts longer.
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">📶</div>
+            <h3>Save Bandwidth</h3>
+            <p>
+              Audio streams are much smaller than video. Save data on metered connections and enjoy
+              faster streaming even on slow networks.
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🎯</div>
+            <h3>One-Click Toggle</h3>
+            <p>
+              Simply click the extension icon to enable or disable. No complicated settings - just
+              instant control over your streaming.
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🌡️</div>
+            <h3>Reduce Heat</h3>
+            <p>
+              Without video decoding, your device stays cool. Perfect for long listening sessions or
+              when your device is already working hard.
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">🔒</div>
+            <h3>Privacy Focused</h3>
+            <p>
+              No tracking, no analytics, no external servers. The extension works entirely locally
+              in your browser.
+            </p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3>Lightweight</h3>
+            <p>
+              Minimal footprint, zero performance impact. The extension only activates when you're
+              on YouTube.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install Section -->
+    <section class="install" id="install">
+      <div class="container">
+        <div class="section-header">
+          <h2>Install <span class="highlight">YouTube Audio</span></h2>
+          <p>Available for Firefox. More browsers coming soon!</p>
+        </div>
+        <div class="install-options">
+          <div class="install-card primary">
+            <div class="install-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path
+                  d="M21.634 7.17c-.043-.063-.094-.132-.169-.202-.9-.851-1.898-1.347-2.969-1.492 0 0-.163-.018-.482-.018-.37 0-.745.018-1.129.036-1.009.041-1.929.087-2.752.087-1.129 0-2.197-.074-3.201-.17-.423-.039-.842-.081-1.256-.087a7.07 7.07 0 0 0-1.009.033c-1.072.146-2.069.641-2.969 1.492-.075.07-.126.139-.169.202C4.5 8.26 4.5 9.492 4.5 10.786V12c0 6.627 5.373 12 12 12s12-5.373 12-12v-1.214c0-1.294 0-2.526-1.034-3.616z"
+                />
+              </svg>
+            </div>
+            <h3>Firefox</h3>
+            <p>Recommended • Full support</p>
+            <a
+              href="https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/"
+              class="btn btn-primary"
+              target="_blank"
+              rel="noopener"
+            >
+              Install Now
+            </a>
+          </div>
+          <div class="install-card">
+            <div class="install-icon chrome">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path
+                  d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 4.5a7.5 7.5 0 1 1 0 15 7.5 7.5 0 0 1 0-15z"
+                />
+              </svg>
+            </div>
+            <h3>Chrome</h3>
+            <p>Coming soon</p>
+            <a
+              href="https://github.com/animeshkundu/youtube-audio"
+              class="btn btn-outline"
+              target="_blank"
+              rel="noopener"
+            >
+              View on GitHub
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="how-it-works" id="how-it-works">
+      <div class="container">
+        <div class="section-header">
+          <h2>How it <span class="highlight">works</span></h2>
+          <p>Simple and automatic</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <h3>Install the Extension</h3>
+            <p>Add YouTube Audio to your browser from the Firefox Add-ons store.</p>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <h3>Visit YouTube</h3>
+            <p>Navigate to any YouTube video you want to listen to.</p>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <h3>Enjoy Audio-Only</h3>
+            <p>The extension automatically streams audio only. Toggle with one click if needed.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq" id="faq">
+      <div class="container">
+        <div class="section-header">
+          <h2>Frequently Asked <span class="highlight">Questions</span></h2>
+        </div>
+        <div class="faq-list">
+          <div class="faq-item">
+            <button class="faq-question">
+              <span>Does it work with all YouTube videos?</span>
+              <span class="faq-icon">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Yes, it works with regular YouTube videos. However, live streams are not supported
+                as they require real-time video synchronization.
+              </p>
+            </div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-question">
+              <span>How much bandwidth does it save?</span>
+              <span class="faq-icon">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Audio streams are typically 10-20x smaller than video. A 1080p video might use 5-10
+                Mbps, while audio uses only 128-256 Kbps.
+              </p>
+            </div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-question">
+              <span>Can I toggle between audio and video?</span>
+              <span class="faq-icon">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Yes! Simply click the extension icon to disable audio-only mode, then refresh the
+                page to watch the video normally.
+              </p>
+            </div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-question">
+              <span>Is it safe and private?</span>
+              <span class="faq-icon">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Absolutely. The extension works entirely locally in your browser. It doesn't collect
+                any data, has no analytics, and communicates with no external servers.
+              </p>
+            </div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-question">
+              <span>Why isn't Chrome supported yet?</span>
+              <span class="faq-icon">+</span>
+            </button>
+            <div class="faq-answer">
+              <p>
+                We're working on Chrome support! The extension architecture works on both browsers,
+                but we need a Chrome Web Store developer account to publish it. Contributions are
+                welcome!
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-content">
+          <div class="footer-brand">
+            <span class="logo-icon">🎵</span>
+            <span class="logo-text">YouTube Audio</span>
+          </div>
+          <div class="footer-links">
+            <a href="https://github.com/animeshkundu/youtube-audio" target="_blank" rel="noopener"
+              >GitHub</a
+            >
+            <a
+              href="https://github.com/animeshkundu/youtube-audio/issues"
+              target="_blank"
+              rel="noopener"
+              >Report Issue</a
+            >
+            <a
+              href="https://github.com/animeshkundu/youtube-audio/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener"
+              >MIT License</a
+            >
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p>
+            &copy; 2024 YouTube Audio. Made with ❤️ by
+            <a href="https://github.com/animeshkundu" target="_blank" rel="noopener"
+              >Animesh Kundu</a
+            >
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/main.js"></script>
+  </body>
+</html>

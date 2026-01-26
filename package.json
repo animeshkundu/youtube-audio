@@ -1,0 +1,60 @@
+{
+  "name": "youtube-audio",
+  "version": "0.0.2.5",
+  "description": "Firefox browser extension to stream only audio from YouTube videos",
+  "private": true,
+  "keywords": [
+    "youtube",
+    "audio",
+    "browser-extension",
+    "firefox",
+    "chrome",
+    "webextension"
+  ],
+  "author": "Animesh Kundu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/animeshkundu/youtube-audio.git"
+  },
+  "homepage": "https://animeshkundu.github.io/youtube-audio",
+  "bugs": {
+    "url": "https://github.com/animeshkundu/youtube-audio/issues"
+  },
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint js/ tests/",
+    "lint:fix": "eslint js/ tests/ --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "validate": "./scripts/validate.sh",
+    "prepare": "husky install || true"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.7",
+    "@babel/preset-env": "^7.23.7",
+    "babel-jest": "^29.7.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-jest": "^27.6.1",
+    "husky": "^8.0.3",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.2.4"
+  },
+  "lint-staged": {
+    "*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
