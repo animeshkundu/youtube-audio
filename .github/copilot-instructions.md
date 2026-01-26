@@ -7,6 +7,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 **YouTube Audio** is a Firefox browser extension that allows users to stream only audio from YouTube videos. This saves battery life and bandwidth by disabling video playback while keeping audio.
 
 ### Technology Stack
+
 - **Language**: JavaScript (ES6+)
 - **Platform**: Browser Extension (Firefox/Chrome)
 - **Manifest**: WebExtension Manifest V2
@@ -24,6 +25,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 ## Core Rules
 
 ### Rule 1: Documentation First
+
 > **"No spec, no code."**
 
 - Before writing code, create or update the specification in `docs/specs/`
@@ -31,6 +33,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 - Architecture changes require updates to `docs/architecture/`
 
 ### Rule 2: Check Before You Code
+
 > **"Avoid regression by learning from history."**
 
 - Check `docs/adrs/` for past decisions before proposing changes
@@ -38,15 +41,18 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 - Search the codebase for similar patterns before creating new ones
 
 ### Rule 3: Update Documentation
+
 > **"Code and docs must stay synchronized."**
 
 If you modify code, you **MUST**:
+
 - Update the corresponding spec in `docs/specs/`
 - Update architecture diagrams if structure changes
 - Create an ADR for significant decisions
 - Record a handoff in `docs/history/`
 
 ### Rule 4: Research, Don't Hallucinate
+
 > **"If you're unsure, search the internet. Do not make up APIs."**
 
 - Use web search to verify library versions and APIs
@@ -57,18 +63,21 @@ If you modify code, you **MUST**:
 ## Coding Standards
 
 ### JavaScript
+
 - Use ES6+ features (const/let, arrow functions, destructuring)
 - Prefer async/await over callbacks where possible
 - Use descriptive variable and function names
 - Add JSDoc comments for public functions
 
 ### Browser Extension Specifics
+
 - Follow WebExtension API conventions
 - Handle permissions gracefully
 - Consider cross-browser compatibility (Firefox/Chrome)
 - Test in private/incognito modes
 
 ### Testing
+
 - **90% code coverage minimum** for new code
 - Write tests before or with implementation
 - Run `./scripts/validate.sh` before committing
@@ -98,6 +107,7 @@ youtube-audio/
 ## Common Tasks
 
 ### Adding a New Feature
+
 1. Write spec in `docs/specs/SPEC-NNN-feature.md`
 2. Update architecture if needed
 3. Write tests first
@@ -107,6 +117,7 @@ youtube-audio/
 7. Record handoff in `docs/history/`
 
 ### Fixing a Bug
+
 1. Check `docs/history/` for related context
 2. Write a failing test that reproduces the bug
 3. Fix the bug
@@ -114,6 +125,7 @@ youtube-audio/
 5. Update documentation if behavior changed
 
 ### Updating Dependencies
+
 1. Research the update (breaking changes, security fixes)
 2. Create ADR documenting the decision
 3. Update `manifest.json` or `package.json`
@@ -122,16 +134,17 @@ youtube-audio/
 
 ## Quick Reference
 
-| Task | Command |
-|------|---------|
+| Task                | Command                 |
+| ------------------- | ----------------------- |
 | Run all validations | `./scripts/validate.sh` |
-| Run linter | `npm run lint` |
-| Run tests | `npm test` |
-| Check coverage | `npm run test:coverage` |
+| Run linter          | `npm run lint`          |
+| Run tests           | `npm test`              |
+| Check coverage      | `npm run test:coverage` |
 
 ## Questions?
 
 If you're unsure about something:
+
 1. Check the documentation in `docs/`
 2. Search the codebase for examples
 3. Research using web search
@@ -139,4 +152,4 @@ If you're unsure about something:
 
 ---
 
-*This repository follows the AI-Enabled Repository Standard. Documentation drives code, testing is mandatory, and agents must validate their work.*
+_This repository follows the AI-Enabled Repository Standard. Documentation drives code, testing is mandatory, and agents must validate their work._

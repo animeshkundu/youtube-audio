@@ -45,7 +45,7 @@ describe('Content Script (youtube_audio.js)', () => {
 
     it('should call play() if video was playing', () => {
       const video = createMockVideoElement();
-      
+
       // Set up video as playing (paused = false)
       Object.defineProperty(video, 'paused', {
         value: false,

@@ -1,14 +1,17 @@
 # Tooling and Pipelines Guidelines
 
 ## The Prime Directive
+
 > **Automate everything you do twice. No exceptions.**
 
 ## Principle 1: Tool Creation Rule
 
 ### The Two-Time Rule
+
 If you perform any verification, validation, or build task **twice**, you **MUST** create a script for it.
 
 ### Why Scripts?
+
 - Consistency across agents and developers
 - Reproducibility
 - Documentation through code
@@ -16,7 +19,9 @@ If you perform any verification, validation, or build task **twice**, you **MUST
 - Faster onboarding
 
 ### Script Requirements
+
 Every script must:
+
 1. Be executable (`chmod +x`)
 2. Have clear error messages
 3. Return appropriate exit codes
@@ -24,6 +29,7 @@ Every script must:
 5. Work in CI environment
 
 ### Script Template
+
 ```bash
 #!/bin/bash
 # Script: [name]
@@ -49,9 +55,9 @@ log_error() {
 # Main logic
 main() {
     log_info "Starting [task]..."
-    
+
     # Your code here
-    
+
     log_info "Completed successfully"
 }
 
@@ -61,6 +67,7 @@ main "$@"
 ## Principle 2: CI/CD Priority
 
 ### Pipeline Priority Order
+
 When setting up CI/CD, implement in this order:
 
 1. **Lint** - Fast feedback on code quality
@@ -71,6 +78,7 @@ When setting up CI/CD, implement in this order:
 6. **Deploy** - Only after all checks pass
 
 ### GitHub Actions Structure
+
 ```yaml
 name: CI
 
@@ -83,19 +91,19 @@ on:
 jobs:
   lint:
     # First - fastest feedback
-  
+
   build:
     # Second - ensure it compiles
     needs: lint
-  
+
   test:
     # Third - verify behavior
     needs: build
-  
+
   security:
     # Fourth - check for vulnerabilities
     needs: test
-  
+
   deploy:
     # Last - only after all checks
     needs: [lint, build, test, security]
@@ -103,7 +111,9 @@ jobs:
 ```
 
 ### Required Checks
+
 Every PR must pass:
+
 - [ ] Linting (ESLint/Prettier for JS)
 - [ ] Build succeeds
 - [ ] Tests pass
@@ -114,9 +124,11 @@ Every PR must pass:
 ## Principle 3: Standard Scripts
 
 ### Required Scripts
+
 Every project must have these scripts in `scripts/`:
 
 #### `validate.sh`
+
 **Purpose**: Run all validation checks locally
 
 ```bash
@@ -141,6 +153,7 @@ echo "✅ All validations passed!"
 ```
 
 #### `setup.sh`
+
 **Purpose**: Set up development environment
 
 ```bash
@@ -159,6 +172,7 @@ echo "✅ Setup complete!"
 ```
 
 #### `lint.sh`
+
 **Purpose**: Run linting with auto-fix option
 
 ```bash
@@ -175,6 +189,7 @@ fi
 ```
 
 ### Script Documentation
+
 Maintain `scripts/README.md`:
 
 ```markdown
@@ -182,25 +197,28 @@ Maintain `scripts/README.md`:
 
 ## Available Scripts
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| validate.sh | Run all checks | `./scripts/validate.sh` |
-| setup.sh | Setup dev environment | `./scripts/setup.sh` |
-| lint.sh | Run linter | `./scripts/lint.sh [--fix]` |
+| Script      | Purpose               | Usage                       |
+| ----------- | --------------------- | --------------------------- |
+| validate.sh | Run all checks        | `./scripts/validate.sh`     |
+| setup.sh    | Setup dev environment | `./scripts/setup.sh`        |
+| lint.sh     | Run linter            | `./scripts/lint.sh [--fix]` |
 ```
 
 ## Principle 4: Tooling Standards
 
 ### Required Development Tools
-| Tool | Purpose | Configuration File |
-|------|---------|-------------------|
-| ESLint | JavaScript linting | `.eslintrc.js` |
-| Prettier | Code formatting | `.prettierrc` |
-| Jest | Testing | `jest.config.js` |
-| Husky | Git hooks | `.husky/` |
+
+| Tool     | Purpose            | Configuration File |
+| -------- | ------------------ | ------------------ |
+| ESLint   | JavaScript linting | `.eslintrc.js`     |
+| Prettier | Code formatting    | `.prettierrc`      |
+| Jest     | Testing            | `jest.config.js`   |
+| Husky    | Git hooks          | `.husky/`          |
 
 ### Configuration Files
+
 Keep all configuration in project root:
+
 ```
 project/
 ├── .eslintrc.js
@@ -212,6 +230,7 @@ project/
 ```
 
 ### Version Pinning
+
 All tools must be version-pinned in `package.json`:
 
 ```json
@@ -227,6 +246,7 @@ All tools must be version-pinned in `package.json`:
 ## CI/CD Workflow Template
 
 ### Complete GitHub Actions Workflow
+
 ```yaml
 name: CI
 
@@ -280,6 +300,7 @@ jobs:
 ```
 
 ## Summary
+
 1. **Automate on second occurrence** - Script everything repeatable
 2. **CI/CD is mandatory** - Lint → Build → Test → Deploy
 3. **Standard scripts** - validate.sh, setup.sh, lint.sh

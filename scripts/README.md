@@ -4,11 +4,11 @@ This folder contains automation scripts for development and CI/CD.
 
 ## Available Scripts
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `validate.sh` | Run all validation checks | `./scripts/validate.sh` |
-| `setup.sh` | Setup development environment | `./scripts/setup.sh` |
-| `lint.sh` | Run linter (with optional fix) | `./scripts/lint.sh [--fix]` |
+| Script        | Purpose                        | Usage                       |
+| ------------- | ------------------------------ | --------------------------- |
+| `validate.sh` | Run all validation checks      | `./scripts/validate.sh`     |
+| `setup.sh`    | Setup development environment  | `./scripts/setup.sh`        |
+| `lint.sh`     | Run linter (with optional fix) | `./scripts/lint.sh [--fix]` |
 
 ## Quick Start
 
@@ -28,6 +28,7 @@ This folder contains automation scripts for development and CI/CD.
 ### validate.sh
 
 Runs the complete validation suite:
+
 1. Validates `manifest.json` syntax
 2. Checks for required extension files
 3. Runs ESLint for code quality
@@ -36,12 +37,14 @@ Runs the complete validation suite:
 6. Checks code coverage (90% threshold)
 
 **Exit codes:**
+
 - `0`: All validations passed
 - `1`: One or more validations failed
 
 ### setup.sh
 
 Sets up the development environment:
+
 1. Verifies Node.js and npm are installed
 2. Installs npm dependencies
 3. Makes scripts executable
@@ -50,6 +53,7 @@ Sets up the development environment:
 ### lint.sh
 
 Runs the linter with optional auto-fix:
+
 ```bash
 # Check only
 ./scripts/lint.sh
@@ -63,6 +67,7 @@ Runs the linter with optional auto-fix:
 When adding a new script:
 
 1. Use the standard template:
+
 ```bash
 #!/bin/bash
 # Script: [name]
@@ -103,6 +108,7 @@ chmod +x scripts/*.sh
 ### "npm command not found"
 
 Ensure Node.js is installed:
+
 ```bash
 node --version
 npm --version

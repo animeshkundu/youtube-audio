@@ -25,12 +25,15 @@ YouTube Audio is a browser extension that disables video playback and streams on
 ## Installation
 
 ### Firefox (Recommended)
+
 Install directly from the [Firefox Add-ons Store](https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/).
 
 ### Chrome
+
 Coming soon! Contributions welcome.
 
 ### From Source
+
 1. Clone the repository
 2. Open Firefox and navigate to `about:debugging`
 3. Click "This Firefox" → "Load Temporary Add-on"
@@ -39,10 +42,12 @@ Coming soon! Contributions welcome.
 ## Development
 
 ### Prerequisites
+
 - Node.js 18+
 - npm
 
 ### Setup
+
 ```bash
 # Install dependencies
 npm install
@@ -61,6 +66,7 @@ npm run format
 ```
 
 ### Project Structure
+
 ```
 youtube-audio/
 ├── js/                     # Extension source code

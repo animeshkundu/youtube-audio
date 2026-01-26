@@ -2,11 +2,7 @@ module.exports = {
   testEnvironment: 'jsdom',
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.js', '**/*.spec.js'],
-  collectCoverageFrom: [
-    'js/**/*.js',
-    '!js/**/*.min.js',
-    '!**/node_modules/**',
-  ],
+  collectCoverageFrom: ['js/**/*.js', '!js/**/*.min.js', '!**/node_modules/**'],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'json-summary'],
   // Coverage threshold relaxed for legacy browser extension code

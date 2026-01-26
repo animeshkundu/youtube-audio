@@ -93,7 +93,7 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:javascript"
+          category: '/language:javascript'
 
   build:
     name: Build Extension
