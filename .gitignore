@@ -10,6 +10,9 @@ dist/
 # Coverage
 coverage/
 
+# Generated E2E probe reports (machine evidence, not source)
+tests/e2e/*-report.json
+
 # IDE
 .idea/
 .vscode/

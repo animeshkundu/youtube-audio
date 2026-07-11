@@ -5,6 +5,7 @@ import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
   buildAndroidVrPlayerRequest,
   getPlayability,
+  isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
   type PlayerResponse,
@@ -210,6 +211,11 @@ export default defineUnlistedScript(() => {
         respond({ ok: false, reason: 'unplayable' });
         return;
       }
+      if (isLiveStream(playerResponse)) {
+        // A live-edge audio url is not a finite downloadable file.
+        respond({ ok: false, reason: 'live' });
+        return;
+      }
       const format = pickBestAudioFormat(playerResponse);
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
@@ -326,6 +332,13 @@ export default defineUnlistedScript(() => {
 
       if (!settings.audioOnlyEnabled) {
         emitStatus('active');
+        return;
+      }
+      // Live/DVR broadcasts return OK + an audio url, but that url is a live-edge segment that
+      // stalls when hijacked as a progressive <video>.src. Leave YouTube's native player in control
+      // (the audio graph armed above still applies loudness/EQ to normal playback).
+      if (isLiveStream(playerResponse)) {
+        emitStatus('fallback', 'live');
         return;
       }
       const audioUrl = pickBestAudioUrl(playerResponse);

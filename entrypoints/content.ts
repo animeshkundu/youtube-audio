@@ -423,4 +423,8 @@ function updateStatusMarker(event: Event): void {
   const status = (detail as { status?: unknown }).status;
   if (typeof status === 'string' && status.length <= 24)
     document.documentElement.dataset.ytaStatus = status;
+  const reason = (detail as { reason?: unknown }).reason;
+  if (typeof reason === 'string' && reason.length <= 120)
+    document.documentElement.dataset.ytaReason = reason;
+  else delete document.documentElement.dataset.ytaReason;
 }

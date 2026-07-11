@@ -74,7 +74,8 @@ function fixtureAdaptiveFormats(origin) {
 }
 
 /** The full fixture InnerTube /player response. */
-function fixturePlayerResponse(origin, videoId) {
+function fixturePlayerResponse(origin, videoId, opts = {}) {
+  const live = !!opts.live;
   return {
     responseContext: { serviceTrackingParams: [] },
     playabilityStatus: { status: 'OK', playableInEmbed: true },
@@ -83,13 +84,20 @@ function fixturePlayerResponse(origin, videoId) {
       title: 'Fixture Watch Page',
       author: 'Fixture Artist',
       lengthSeconds: '215',
-      isLive: false,
-      isLiveContent: false,
+      isLive: live,
+      isLiveContent: live,
     },
     streamingData: {
       expiresInSeconds: '21540',
       adaptiveFormats: fixtureAdaptiveFormats(origin),
       serverAbrStreamingUrl: `${origin}/videoplayback?abr=1&source=fixture`,
+      // Live/DVR broadcasts carry manifest urls; their per-format urls are live-edge segments.
+      ...(live
+        ? {
+            hlsManifestUrl: `${origin}/hls/fixture.m3u8`,
+            dashManifestUrl: `${origin}/dash/fixture.mpd`,
+          }
+        : {}),
     },
     // Present so ad-related tests have a real shape to observe; the extension does not block ads.
     adPlacements: [
@@ -248,15 +256,15 @@ function sendText(res, status, body, contentType) {
   res.end(body);
 }
 
-/** Drain a request body (best effort) so POSTs complete cleanly. */
+/** Read a request body (best effort) so POSTs complete cleanly and /player can see the videoId. */
 function drain(req) {
   return new Promise((resolve) => {
-    let size = 0;
+    let data = '';
     req.on('data', (chunk) => {
-      size += chunk.length;
+      data += chunk;
     });
-    req.on('end', () => resolve(size));
-    req.on('error', () => resolve(size));
+    req.on('end', () => resolve(data));
+    req.on('error', () => resolve(data));
   });
 }
 
@@ -315,8 +323,8 @@ export function createFixtureServer() {
       requests.push({ method, path, query: url.search, ts: Date.now() });
     }
 
-    // Always drain the body so keep-alive sockets don't stall.
-    if (method === 'POST' || method === 'PUT') await drain(req);
+    // Always read the body so keep-alive sockets don't stall (and /player can see the videoId).
+    const body = method === 'POST' || method === 'PUT' ? await drain(req) : '';
 
     // --- Introspection -----------------------------------------------------
     if (path === '/__requests') {
@@ -332,8 +340,18 @@ export function createFixtureServer() {
       return sendText(res, 200, watchPageHtml(), 'text/html; charset=utf-8');
     }
     if (path === '/youtubei/v1/player') {
-      const videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;
-      return sendJson(res, 200, fixturePlayerResponse(origin, videoId));
+      let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;
+      if (!videoId && body) {
+        try {
+          videoId = JSON.parse(body).videoId;
+        } catch {
+          /* ignore malformed bodies */
+        }
+      }
+      // A videoId starting with "LIVE" yields a live-stream response (isLive + manifest urls) so the
+      // bench can assert the extension declines to hijack live edges. See run-bench m1:live case.
+      const live = typeof videoId === 'string' && videoId.startsWith('LIVE');
+      return sendJson(res, 200, fixturePlayerResponse(origin, videoId, { live }));
     }
     if (path.startsWith('/api/skipSegments/')) {
       const videoId = url.searchParams.get('videoID') || undefined;

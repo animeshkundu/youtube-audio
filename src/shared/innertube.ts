@@ -44,8 +44,12 @@ export interface PlayerResponse {
     title?: string;
     author?: string;
     lengthSeconds?: string;
+    isLive?: boolean;
+    isLiveContent?: boolean;
   };
   streamingData?: {
+    hlsManifestUrl?: string;
+    dashManifestUrl?: string;
     adaptiveFormats?: Array<{
       itag?: number;
       mimeType?: string;
@@ -69,6 +73,30 @@ export function getPlayability(playerResponse: unknown): Playability {
   const status = response.playabilityStatus?.status ?? null;
   const reason = response.playabilityStatus?.reason ?? null;
   return { status, reason, isPlayable: status === 'OK' };
+}
+
+/**
+ * True when the player response is a currently-live (or DVR) broadcast. The ANDROID_VR response
+ * for a live stream is `status: "OK"` and carries audio adaptiveFormats WITH urls, but those urls
+ * are live-edge segments that stall at `currentTime 0` when set as a progressive `<video>.src`.
+ * Such videos MUST fall back to YouTube's normal (DASH/HLS) player rather than be hijacked.
+ *
+ * Gated primarily on `videoDetails.isLive` (the precise "currently broadcasting" signal — NOT
+ * `isLiveContent`, which stays true for finished-stream VOD replays that audio-only handles fine).
+ * A manifest-url + isLiveContent pair is accepted as a defensive secondary signal, since post-live
+ * VOD replays expose neither manifest url.
+ */
+export function isLiveStream(playerResponse: unknown): boolean {
+  if (typeof playerResponse !== 'object' || playerResponse === null) return false;
+  const response = playerResponse as PlayerResponse;
+  if (response.videoDetails?.isLive === true) return true;
+  const manifest =
+    response.streamingData?.hlsManifestUrl ?? response.streamingData?.dashManifestUrl;
+  return (
+    response.videoDetails?.isLiveContent === true &&
+    typeof manifest === 'string' &&
+    manifest.length > 0
+  );
 }
 
 export type AudioFormat = NonNullable<

@@ -27,6 +27,8 @@ M1 adds credentialless audio-only playback, background playback, instant setting
 
 On each watch navigation, MAIN world increments a generation, extracts the video id and API key, issues the pinned ANDROID_VR request with omitted credentials, verifies `playabilityStatus.status === "OK"`, selects a direct audio URL (itag 251, then 140, then highest-bitrate audio), waits for the page video, and asks `PlayerHandle` to attach it. Stale generations abort without modifying media.
 
+**Live-stream exclusion.** A currently-live (or DVR) broadcast returns `status: "OK"` and carries audio `adaptiveFormats` with urls, but those urls are live-edge segments that stall at `currentTime 0` when set as a progressive `<video>.src`. Before hijacking, MAIN world calls `isLiveStream(playerResponse)` (true when `videoDetails.isLive`, or `isLiveContent` alongside an `hlsManifestUrl`/`dashManifestUrl`) and, if live, emits `fallback`/`live` and leaves YouTube's native DASH/HLS player in control. The audio graph (loudness/EQ) still arms on the normal element. The audio-download path applies the same exclusion (a live edge is not a finite file).
+
 `PlayerHandle` is the extension's sole `<video>.src` writer. It snapshots playback state, changes the source once, restores time/rate/volume/mute and playing state after metadata, and installs a dormant prototype setter guard. The guard only intervenes if the page assigns a non-audio source to the active element. After three interventions it opens the circuit and restores native playback. Operations never throw into page code.
 
 ### Background playback
@@ -44,7 +46,7 @@ All feature boundaries catch failures, emit a narrow status, and leave or restor
 ## Testing Strategy
 
 - Unit tests cover playability/audio selection and PlayerHandle stale-generation/circuit behavior.
-- Hermetic bench tests cover enabled/disabled fetch-to-hijack and visibility suppression.
+- Hermetic bench tests cover enabled/disabled fetch-to-hijack, live-stream fallback (no hijack), and visibility suppression.
 - A non-gating live probe checks that the real page video becomes audio-only and its clock advances.
 - Release gates: typecheck, lint, unit coverage, integration bench, and Firefox MV2 build.
 

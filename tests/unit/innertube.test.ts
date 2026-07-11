@@ -4,6 +4,7 @@ import {
   ANDROID_VR_CLIENT,
   buildAndroidVrPlayerRequest,
   getPlayability,
+  isLiveStream,
   pickBestAudioUrl,
 } from '../../src/shared/innertube';
 
@@ -107,5 +108,42 @@ describe('player response helpers', () => {
     expect(pickBestAudioUrl({})).toBeNull();
     expect(pickBestAudioUrl({ streamingData: { adaptiveFormats: {} } })).toBeNull();
     expect(pickBestAudioUrl(undefined)).toBeNull();
+  });
+});
+
+describe('isLiveStream', () => {
+  it('flags a currently-live broadcast (videoDetails.isLive)', () => {
+    expect(isLiveStream({ videoDetails: { isLive: true, isLiveContent: true } })).toBe(true);
+  });
+
+  it('flags a live/DVR broadcast that only exposes a manifest url + isLiveContent', () => {
+    expect(
+      isLiveStream({
+        videoDetails: { isLiveContent: true },
+        streamingData: { hlsManifestUrl: 'https://manifest/live.m3u8' },
+      })
+    ).toBe(true);
+    expect(
+      isLiveStream({
+        videoDetails: { isLiveContent: true },
+        streamingData: { dashManifestUrl: 'https://manifest/live.mpd' },
+      })
+    ).toBe(true);
+  });
+
+  it('does NOT flag a finished-stream VOD replay (isLiveContent but no manifest, not live)', () => {
+    expect(
+      isLiveStream({
+        videoDetails: { isLive: false, isLiveContent: true },
+        streamingData: { adaptiveFormats: [{ itag: 251, url: 'https://media/a' }] },
+      })
+    ).toBe(false);
+  });
+
+  it('does NOT flag a normal on-demand video', () => {
+    expect(isLiveStream({ videoDetails: { isLive: false, isLiveContent: false } })).toBe(false);
+    expect(isLiveStream({})).toBe(false);
+    expect(isLiveStream(null)).toBe(false);
+    expect(isLiveStream(undefined)).toBe(false);
   });
 });

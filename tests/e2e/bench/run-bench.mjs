@@ -130,6 +130,7 @@ function snapshotScript() {
   return {
     marker: document.documentElement.dataset.ytaBench || null,
     status: document.documentElement.dataset.ytaStatus || null,
+    reason: document.documentElement.dataset.ytaReason || null,
     videoSrc: v ? v.src : null,
     ready: document.documentElement.getAttribute('data-fixture-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
@@ -165,7 +166,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, probeDownload, origin, resetLog }) {
+async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, probeDownload, origin, resetLog, videoId = 'FIXTURE0001' }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
@@ -197,7 +198,7 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(`${origin}/watch?v=FIXTURE0001`);
+    await driver.get(`${origin}/watch?v=${videoId}`);
     await driver.wait(until.elementLocated(By.css('video[data-fixture-video]')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
 
@@ -310,6 +311,7 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       addonId,
       marker: snap.marker,
       status: snap.status,
+      reason: snap.reason,
       videoSrc: snap.videoSrc,
       vis,
       player,
@@ -403,6 +405,31 @@ async function main() {
         playerPost: hasPlayerPost(enabledLog),
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
+    );
+    // Regression: a live/DVR stream returns OK + an audio url, but hijacking that live-edge url as
+    // <video>.src stalls playback at 0. The extension MUST fall back to YouTube's native player.
+    const liveRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+      },
+      videoId: 'LIVESTREAM01',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm1:live-stream-falls-back-no-hijack',
+      liveRun.status === 'fallback' &&
+        liveRun.reason === 'live' &&
+        !(typeof liveRun.videoSrc === 'string' && liveRun.videoSrc.includes('/videoplayback')),
+      { status: liveRun.status, reason: liveRun.reason, videoSrc: liveRun.videoSrc }
     );
     record(
       'm2a:conservative-telemetry-policy',
