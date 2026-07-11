@@ -34,9 +34,11 @@ const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const DOWNLOAD_MESSAGE = 'yta:download-audio';
 const BUTTON_ID = 'yta-audio-only-toggle';
+const SEGMENT_BUTTON_ID = 'yta-segment-status';
 const DOWNLOAD_BUTTON_ID = 'yta-download-audio';
 const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
+const PLAYER_CONTROL_STYLE_ID = 'yta-player-control-style';
 let lyricsCleanup: () => void = () => undefined;
 
 export default defineContentScript({
@@ -55,6 +57,7 @@ export default defineContentScript({
       subscribeSettings((settings) => {
         window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
+        updateSegmentStatus(settings.enabled && settings.segmentSkipEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
         if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
@@ -238,20 +241,13 @@ function updateDistractionStyle(settings: ReturnType<typeof getSettings>): void 
 }
 
 function installPlayerControls(bridgeNonce: string): void {
+  installPlayerControlStyles();
   const attach = () => {
     const controls = document.querySelector('.ytp-right-controls, .ytp-left-controls');
     if (!controls) return;
 
     if (!document.getElementById(BUTTON_ID)) {
-      const button = document.createElement('button');
-      button.id = BUTTON_ID;
-      button.type = 'button';
-      button.className = 'ytp-button';
-      button.title = 'Toggle audio-only playback';
-      button.setAttribute('aria-label', 'Toggle audio-only playback');
-      button.style.cssText =
-        'font-size:20px;line-height:36px;text-align:center;color:#fff;background:transparent;border:0;cursor:pointer;';
-      button.textContent = '♪';
+      const button = createPlayerButton(BUTTON_ID, 'Toggle audio-only playback', '♪');
       button.addEventListener('click', () => {
         const settings = getSettings();
         void setAudioOnlyEnabled(!settings.audioOnlyEnabled).catch(() => undefined);
@@ -260,16 +256,15 @@ function installPlayerControls(bridgeNonce: string): void {
       updateToggle(getSettings().enabled && getSettings().audioOnlyEnabled);
     }
 
+    if (!document.getElementById(SEGMENT_BUTTON_ID)) {
+      const button = createPlayerButton(SEGMENT_BUTTON_ID, 'Segment skipping status', '↗');
+      button.disabled = true;
+      controls.prepend(button);
+      updateSegmentStatus(getSettings().enabled && getSettings().segmentSkipEnabled);
+    }
+
     if (!document.getElementById(DOWNLOAD_BUTTON_ID)) {
-      const button = document.createElement('button');
-      button.id = DOWNLOAD_BUTTON_ID;
-      button.type = 'button';
-      button.className = 'ytp-button';
-      button.title = 'Download audio';
-      button.setAttribute('aria-label', 'Download audio');
-      button.style.cssText =
-        'font-size:19px;line-height:36px;text-align:center;color:#fff;background:transparent;border:0;cursor:pointer;';
-      button.textContent = '↓';
+      const button = createPlayerButton(DOWNLOAD_BUTTON_ID, 'Download audio', '↓');
       button.addEventListener('click', () => {
         void requestAudioDownload(bridgeNonce, button);
       });
@@ -280,6 +275,46 @@ function installPlayerControls(bridgeNonce: string): void {
 
   attach();
   new MutationObserver(attach).observe(document.documentElement, { childList: true, subtree: true });
+}
+
+function createPlayerButton(id: string, label: string, glyph: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.id = id;
+  button.type = 'button';
+  button.className = 'ytp-button yta-player-button';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.textContent = glyph;
+  return button;
+}
+
+function installPlayerControlStyles(): void {
+  if (document.getElementById(PLAYER_CONTROL_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = PLAYER_CONTROL_STYLE_ID;
+  style.textContent = `
+    .yta-player-button {
+      min-width: 44px;
+      min-height: 44px;
+      color: #fff;
+      background: transparent;
+      border: 0;
+      font: 500 20px/44px Roboto, Arial, Helvetica, sans-serif;
+      text-align: center;
+      cursor: pointer;
+      transition: color 120ms cubic-bezier(.2,0,0,1), transform 90ms cubic-bezier(.2,0,0,1);
+    }
+    .yta-player-button:hover { transform: scale(1.06); }
+    .yta-player-button:focus-visible { outline: 2px solid #3fe0c4; outline-offset: -4px; }
+    .yta-player-button[aria-pressed="true"],
+    .yta-player-button[data-active="true"] { color: #22d3b4; }
+    .yta-player-button:disabled { cursor: default; opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      .yta-player-button { transition-duration: .001ms; }
+      .yta-player-button:hover { transform: none; }
+    }
+  `;
+  (document.head ?? document.documentElement).append(style);
 }
 
 async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonElement): Promise<void> {
@@ -355,11 +390,19 @@ function updateDownloadButton(visible: boolean): void {
   if (button) button.hidden = !visible;
 }
 
+function updateSegmentStatus(active: boolean): void {
+  const button = document.getElementById(SEGMENT_BUTTON_ID);
+  if (!button) return;
+  button.dataset.active = String(active);
+  button.setAttribute('aria-label', active ? 'Segment skipping is on' : 'Segment skipping is off');
+  button.title = active ? 'Segment skipping is on' : 'Segment skipping is off';
+}
+
 function updateToggle(active: boolean): void {
   const button = document.getElementById(BUTTON_ID);
   if (!button) return;
   button.setAttribute('aria-pressed', String(active));
-  button.style.color = active ? '#22d3b4' : '#fff';
+  button.setAttribute('aria-label', active ? 'Audio-only is on' : 'Audio-only is off');
   button.title = active ? 'Audio-only is on' : 'Audio-only is off';
 }
 

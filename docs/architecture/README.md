@@ -52,7 +52,7 @@ The MAIN-world entrypoint is the only layer intended to touch YouTube player API
 
 ### UI
 
-Popup and options are extension-owned documents built with Preact and `@preact/signals`. They share the same storage-backed enabled state. Preact is not used in background, content, or page-world code.
+Popup and options are extension-owned documents built with Preact and `@preact/signals`. They share one storage-backed settings model and reusable tokenized control kit. The desktop popup is a focused quick-control surface; the responsive options page repeats those quick controls first for Firefox Android, then exposes every setting through searchable groups and progressive disclosure. A separate local flag records the one-time onboarding panel without changing feature settings. Preact is not used in background, content, or page-world code.
 
 ## State Flow
 
