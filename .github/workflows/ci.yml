@@ -2,16 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, rebuild]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, rebuild]
+  workflow_dispatch:
+    inputs:
+      run_bench:
+        description: Run the optional Selenium Firefox bench
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    name: Lint
+  validate:
+    name: Typecheck, lint, test, and validate MV2
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,23 +28,29 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
         run: npm run lint
 
-      - name: Check formatting with Prettier
-        run: npm run format:check
+      - name: Run unit tests
+        run: npm test
 
-  test:
-    name: Test
+      - name: Build Firefox MV2
+        run: npm run build
+
+      - name: Validate Firefox MV2 package
+        run: npx web-ext lint --source-dir=.output/firefox-mv2
+
+  build-mv3:
+    name: Build Firefox MV3 capability artifact
     runs-on: ubuntu-latest
-    needs: lint
-    permissions:
-      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,112 +59,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+      - name: Build Firefox MV3
+        run: npm run build:mv3
 
-      - name: Check coverage threshold
-        run: |
-          if [ -f coverage/coverage-summary.json ]; then
-            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
-            echo "Current coverage: $COVERAGE%"
-            # Note: Coverage tracking is limited for legacy IIFE browser extension code
-            # Tests validate the core logic but direct file imports aren't possible
-            echo "✅ Tests passed (coverage tracking limited for legacy code pattern)"
-          else
-            echo "⚠️ No coverage report found - skipping threshold check"
-          fi
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 30
-
-  security:
-    name: Security Scan
+  bench:
+    name: Optional Selenium Firefox bench
+    if: github.event_name == 'workflow_dispatch' && inputs.run_bench
+    continue-on-error: true
     runs-on: ubuntu-latest
-    needs: lint
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          languages: javascript
+          node-version: '20'
+          cache: npm
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: '/language:javascript'
+      - name: Install dependencies
+        run: npm ci
 
-  build:
-    name: Build Extension
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Validate manifest.json
-        run: |
-          echo "Validating manifest.json..."
-          if [ -f manifest.json ]; then
-            jq . manifest.json > /dev/null
-            echo "✅ manifest.json is valid JSON"
-          else
-            echo "❌ manifest.json not found"
-            exit 1
-          fi
-
-      - name: Check required files
-        run: |
-          echo "Checking required extension files..."
-          required_files=(
-            "manifest.json"
-            "js/global.js"
-            "js/youtube_audio.js"
-            "css/youtube_audio.css"
-          )
-          for file in "${required_files[@]}"; do
-            if [ -f "$file" ]; then
-              echo "✅ $file exists"
-            else
-              echo "❌ $file is missing"
-              exit 1
-            fi
-          done
-
-      - name: Package extension
-        run: |
-          echo "Creating extension package..."
-          zip -r youtube-audio-extension.zip \
-            manifest.json \
-            js/ \
-            css/ \
-            html/ \
-            img/ \
-            -x "*.git*" \
-            -x "node_modules/*" \
-            -x "*.test.js"
-          echo "✅ Extension packaged successfully"
-
-      - name: Upload extension artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: youtube-audio-extension
-          path: youtube-audio-extension.zip
-          retention-days: 30
+      - name: Run integration bench
+        run: xvfb-run --auto-servernum npm run test:bench

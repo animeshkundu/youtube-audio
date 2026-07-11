@@ -7,6 +7,7 @@ This folder contains automation scripts for development and CI/CD.
 | Script         | Purpose                                                    | Usage                       |
 | -------------- | ---------------------------------------------------------- | --------------------------- |
 | `build-ext.sh` | Build WXT Firefox MV2 and package `dist/youtube-audio.xpi` | `./scripts/build-ext.sh`    |
+| `release.sh`   | Validate and AMO-sign an unlisted Firefox MV2 XPI          | `npm run release:sign`      |
 | `validate.sh`  | Run all validation checks                                  | `./scripts/validate.sh`     |
 | `setup.sh`     | Setup development environment                              | `./scripts/setup.sh`        |
 | `lint.sh`      | Run linter (with optional fix)                             | `./scripts/lint.sh [--fix]` |
@@ -25,6 +26,10 @@ This folder contains automation scripts for development and CI/CD.
 ```
 
 ## Script Details
+
+### release.sh
+
+Requires `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`. It builds Firefox MV2, runs `web-ext lint`, submits the generated extension to AMO with the unlisted channel, and copies the returned signed XPI to `dist/`. Set `FIREFOX_EXTENSION_ID` and `SELF_HOSTED_UPDATE_URL` for a real self-hosted desktop release. See `RELEASE.md`.
 
 ### validate.sh
 

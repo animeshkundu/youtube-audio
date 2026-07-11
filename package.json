@@ -26,6 +26,7 @@
     "build": "wxt build -b firefox --mv2",
     "build:mv3": "wxt build -b firefox --mv3",
     "build:ext": "./scripts/build-ext.sh",
+    "release:sign": "./scripts/release.sh",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

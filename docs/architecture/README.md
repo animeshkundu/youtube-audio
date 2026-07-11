@@ -242,8 +242,24 @@ sequenceDiagram
 
 Acquisition, bridge, validation, direct-download, and fallback failures return a bounded failure result and never alter playback.
 
+## Release and Distribution
+
+One source tree feeds two Firefox distribution identities. The self-hosted desktop channel is unlisted-signed by AMO and explicitly built with an HTTPS `SELF_HOSTED_UPDATE_URL`; its signed XPI and hashed `updates.json` are published as GitHub Release assets. The Android auto-update channel uses a distinct permanent Gecko ID, omits `update_url`, and is submitted as an AMO listing. Default builds omit `update_url` so they remain listing-compatible. AMO credentials exist only at signing time.
+
+```mermaid
+flowchart LR
+    Source[WXT source] --> Default[Default build: no update_url]
+    Source --> SelfHosted[Self-hosted build flag]
+    SelfHosted --> Unlisted[AMO unlisted signature]
+    Unlisted --> Release[GitHub Release XPI + updates.json]
+    Release --> Desktop[Firefox desktop auto-update]
+    Default --> Listed[Separate-ID AMO listing]
+    Listed --> Android[Firefox Android auto-update]
+```
+
 ## Build Outputs
 
 - `.output/firefox-mv2/`: shipping Firefox MV2 directory.
 - `.output/firefox-mv3/`: Firefox MV3 capability directory.
 - `dist/youtube-audio.xpi`: stable packaged MV2 artifact consumed by the Selenium harness.
+- `dist/youtube-audio-<version>-signed.xpi`: Mozilla-signed unlisted release artifact (created only with AMO credentials).

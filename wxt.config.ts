@@ -15,6 +15,12 @@ const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 const LRCLIB_ORIGIN = 'https://lrclib.net/*';
+const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@local';
+const SELF_HOSTED_UPDATE_URL = process.env.SELF_HOSTED_UPDATE_URL;
+
+if (SELF_HOSTED_UPDATE_URL && !SELF_HOSTED_UPDATE_URL.startsWith('https://')) {
+  throw new Error('SELF_HOSTED_UPDATE_URL must use HTTPS');
+}
 
 export default defineConfig({
   srcDir: '.',
@@ -59,8 +65,9 @@ export default defineConfig({
         : undefined,
     browser_specific_settings: {
       gecko: {
-        id: 'youtube-audio@local',
+        id: FIREFOX_EXTENSION_ID,
         strict_min_version: '128.0',
+        ...(SELF_HOSTED_UPDATE_URL ? { update_url: SELF_HOSTED_UPDATE_URL } : {}),
         data_collection_permissions: {
           required: ['none'],
         },
