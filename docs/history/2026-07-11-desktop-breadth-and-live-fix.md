@@ -68,3 +68,22 @@ typecheck ✓ · eslint 0/0 ✓ · unit 90/90 ✓ · bench 21/21 ✓ · prettier
 
 Desktop testing complete. Next: lightest mobile-Firefox emulator (Android). OpenJDK +
 android-commandlinetools already installed in the background; do not boot the emulator until now.
+
+## Addendum — cross-lab review hardening (same day)
+
+A cross-lab review of the fix (codex + gemini + opus) raised two issues with the first `isLiveStream`
+(which gated on `videoDetails.isLive` OR `isLiveContent` + a manifest url):
+1. **3-lab-confirmed bug:** `hlsManifestUrl ?? dashManifestUrl` uses `??`, which does not skip an
+   empty string — an API `hlsManifestUrl: ''` with a valid `dashManifestUrl` would slip through and
+   re-open the stall.
+2. **Empirical question:** could a finished ex-live VOD retain a manifest url and be wrongly blocked?
+
+Resolved by an empirical signal audit (`tests/e2e/probe-live-signal-audit.mjs`, n=38): currently-live
+11/11 had a manifest and **0/11** had audio `contentLength`; ex-live VOD **0/4** had a manifest and
+**4/4** had `contentLength`; normal VOD 0/23 manifest, 23/23 `contentLength`. So (2) is a non-issue
+(ANDROID_VR strips the manifest on finished streams) and, better, audio **`contentLength` is a
+perfect, causal discriminator**. `isLiveStream` was reworked to `videoDetails.isLive === true` OR
+**best audio format has no usable `contentLength`** — which eliminates the empty-string bug entirely,
+never false-positives on ex-live replays, is fail-safe, and covers a live stream with an absent
+`isLive` flag. Bench now exercises the `contentLength` path end-to-end (live fixture omits
+`contentLength`); re-verified on 4 real live streams (fall back) + 3 VOD (hijack + advance).

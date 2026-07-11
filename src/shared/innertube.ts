@@ -45,16 +45,14 @@ export interface PlayerResponse {
     author?: string;
     lengthSeconds?: string;
     isLive?: boolean;
-    isLiveContent?: boolean;
   };
   streamingData?: {
-    hlsManifestUrl?: string;
-    dashManifestUrl?: string;
     adaptiveFormats?: Array<{
       itag?: number;
       mimeType?: string;
       bitrate?: number;
       url?: string;
+      contentLength?: string;
     }>;
   };
 }
@@ -76,27 +74,31 @@ export function getPlayability(playerResponse: unknown): Playability {
 }
 
 /**
- * True when the player response is a currently-live (or DVR) broadcast. The ANDROID_VR response
- * for a live stream is `status: "OK"` and carries audio adaptiveFormats WITH urls, but those urls
- * are live-edge segments that stall at `currentTime 0` when set as a progressive `<video>.src`.
- * Such videos MUST fall back to YouTube's normal (DASH/HLS) player rather than be hijacked.
+ * True when the player response is a currently-live (or DVR) broadcast whose best audio rendition
+ * is a live-edge stream. The ANDROID_VR response for a live stream is `status: "OK"` and carries an
+ * audio adaptiveFormat WITH a url, but that url is a live-edge segment that stalls at `currentTime 0`
+ * when set as a progressive `<video>.src` (and is not a finite downloadable file). Such videos MUST
+ * fall back to YouTube's normal (DASH/HLS) player rather than be hijacked.
  *
- * Gated primarily on `videoDetails.isLive` (the precise "currently broadcasting" signal — NOT
- * `isLiveContent`, which stays true for finished-stream VOD replays that audio-only handles fine).
- * A manifest-url + isLiveContent pair is accepted as a defensive secondary signal, since post-live
- * VOD replays expose neither manifest url.
+ * Two independent signals, either sufficient:
+ *  - `videoDetails.isLive === true` — the explicit "currently broadcasting" flag (NOT `isLiveContent`,
+ *    which stays true for finished-stream VOD replays that audio-only handles fine).
+ *  - the best audio format has no `contentLength` — a live/DVR edge stream is unbounded, so its
+ *    format omits `contentLength`, whereas every finite VOD file (including an ex-live replay)
+ *    carries one. This is the direct "not a hijackable finite progressive file" signal; its failure
+ *    mode is fail-safe (fall back to normal playback), and it also covers a live stream whose
+ *    `isLive` flag is unexpectedly absent. Empirically (2026-07-11 signal audit, n=38): 11/11 live
+ *    formats lacked `contentLength`; 27/27 VOD formats (4 of them ex-live replays) had it.
  */
 export function isLiveStream(playerResponse: unknown): boolean {
   if (typeof playerResponse !== 'object' || playerResponse === null) return false;
-  const response = playerResponse as PlayerResponse;
-  if (response.videoDetails?.isLive === true) return true;
-  const manifest =
-    response.streamingData?.hlsManifestUrl ?? response.streamingData?.dashManifestUrl;
-  return (
-    response.videoDetails?.isLiveContent === true &&
-    typeof manifest === 'string' &&
-    manifest.length > 0
-  );
+  if ((playerResponse as PlayerResponse).videoDetails?.isLive === true) return true;
+  const best = pickBestAudioFormat(playerResponse);
+  return best !== null && !hasContentLength(best);
+}
+
+function hasContentLength(format: AudioFormat): boolean {
+  return typeof format.contentLength === 'string' && Number(format.contentLength) > 0;
 }
 
 export type AudioFormat = NonNullable<

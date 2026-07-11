@@ -112,36 +112,41 @@ describe('player response helpers', () => {
 });
 
 describe('isLiveStream', () => {
-  it('flags a currently-live broadcast (videoDetails.isLive)', () => {
-    expect(isLiveStream({ videoDetails: { isLive: true, isLiveContent: true } })).toBe(true);
+  const withAudio = (extra: Record<string, unknown>) => ({
+    streamingData: {
+      adaptiveFormats: [{ itag: 251, mimeType: 'audio/webm', url: 'https://media/a', ...extra }],
+    },
   });
 
-  it('flags a live/DVR broadcast that only exposes a manifest url + isLiveContent', () => {
+  it('flags a currently-live broadcast via videoDetails.isLive (even if a length is present)', () => {
     expect(
-      isLiveStream({
-        videoDetails: { isLiveContent: true },
-        streamingData: { hlsManifestUrl: 'https://manifest/live.m3u8' },
-      })
-    ).toBe(true);
-    expect(
-      isLiveStream({
-        videoDetails: { isLiveContent: true },
-        streamingData: { dashManifestUrl: 'https://manifest/live.mpd' },
-      })
+      isLiveStream({ videoDetails: { isLive: true }, ...withAudio({ contentLength: '1000' }) })
     ).toBe(true);
   });
 
-  it('does NOT flag a finished-stream VOD replay (isLiveContent but no manifest, not live)', () => {
+  it('flags a live-edge stream whose best audio format has no usable contentLength', () => {
+    expect(isLiveStream(withAudio({}))).toBe(true); // unbounded live-edge: no contentLength
+    expect(isLiveStream(withAudio({ contentLength: '0' }))).toBe(true); // zero length is not finite
+  });
+
+  it('does NOT flag a finished-stream VOD replay (finite audio file, isLiveContent-era)', () => {
     expect(
-      isLiveStream({
-        videoDetails: { isLive: false, isLiveContent: true },
-        streamingData: { adaptiveFormats: [{ itag: 251, url: 'https://media/a' }] },
-      })
+      isLiveStream({ videoDetails: { isLive: false }, ...withAudio({ contentLength: '5242880' }) })
     ).toBe(false);
   });
 
-  it('does NOT flag a normal on-demand video', () => {
-    expect(isLiveStream({ videoDetails: { isLive: false, isLiveContent: false } })).toBe(false);
+  it('does NOT flag a normal on-demand video (finite audio file)', () => {
+    expect(isLiveStream(withAudio({ contentLength: '4300000' }))).toBe(false);
+  });
+
+  it('does NOT flag when there is no audio format to hijack, and tolerates junk input', () => {
+    expect(
+      isLiveStream({
+        streamingData: {
+          adaptiveFormats: [{ itag: 137, mimeType: 'video/mp4', url: 'https://v' }],
+        },
+      })
+    ).toBe(false);
     expect(isLiveStream({})).toBe(false);
     expect(isLiveStream(null)).toBe(false);
     expect(isLiveStream(undefined)).toBe(false);

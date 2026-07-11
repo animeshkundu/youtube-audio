@@ -38,10 +38,15 @@
 
 import http from 'node:http';
 
-/** Audio + video adaptive formats for the fixture player response. */
-function fixtureAdaptiveFormats(origin) {
+/**
+ * Audio + video adaptive formats for the fixture player response. Finite VOD audio formats carry a
+ * `contentLength`; a live/DVR edge stream omits it (that omission is how the extension detects live
+ * and declines to hijack). See isLiveStream() in src/shared/innertube.ts.
+ */
+function fixtureAdaptiveFormats(origin, { live = false } = {}) {
   const media = (itag, mime) =>
     `${origin}/videoplayback?itag=${itag}&mime=${encodeURIComponent(mime)}&source=fixture`;
+  const finite = (bytes) => (live ? {} : { contentLength: String(bytes) });
   return [
     {
       itag: 140,
@@ -51,6 +56,7 @@ function fixtureAdaptiveFormats(origin) {
       audioSampleRate: '44100',
       approxDurationMs: '215000',
       url: media(140, 'audio/mp4'),
+      ...finite(3_500_000),
     },
     {
       itag: 251,
@@ -60,6 +66,7 @@ function fixtureAdaptiveFormats(origin) {
       audioSampleRate: '48000',
       approxDurationMs: '215000',
       url: media(251, 'audio/webm'),
+      ...finite(4_300_000),
     },
     {
       itag: 137,
@@ -69,6 +76,7 @@ function fixtureAdaptiveFormats(origin) {
       height: 1080,
       approxDurationMs: '215000',
       url: media(137, 'video/mp4'),
+      ...finite(60_000_000),
     },
   ];
 }
@@ -84,20 +92,14 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
       title: 'Fixture Watch Page',
       author: 'Fixture Artist',
       lengthSeconds: '215',
-      isLive: live,
-      isLiveContent: live,
+      // isLive is deliberately omitted for the live case: the bench exercises the extension's
+      // contentLength-based live detection (a live-edge audio format has no contentLength). The
+      // explicit isLive===true primary-signal path is covered by unit tests.
     },
     streamingData: {
       expiresInSeconds: '21540',
-      adaptiveFormats: fixtureAdaptiveFormats(origin),
+      adaptiveFormats: fixtureAdaptiveFormats(origin, { live }),
       serverAbrStreamingUrl: `${origin}/videoplayback?abr=1&source=fixture`,
-      // Live/DVR broadcasts carry manifest urls; their per-format urls are live-edge segments.
-      ...(live
-        ? {
-            hlsManifestUrl: `${origin}/hls/fixture.m3u8`,
-            dashManifestUrl: `${origin}/dash/fixture.mpd`,
-          }
-        : {}),
     },
     // Present so ad-related tests have a real shape to observe; the extension does not block ads.
     adPlacements: [
