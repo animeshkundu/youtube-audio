@@ -87,13 +87,12 @@ jobs:
         run: npm ci
 
       # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
-      # setup-firefox installs a real, non-snap Firefox and exposes its path. Pin to
-      # latest-esr so a same-day mainline Firefox release cannot break this GATING job.
+      # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
+      # latest mainline release (proven green): latest-esr regressed the seeded-settings
+      # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
       - name: Install Firefox (non-snap)
         id: firefox
         uses: browser-actions/setup-firefox@v1
-        with:
-          firefox-version: latest-esr
 
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
