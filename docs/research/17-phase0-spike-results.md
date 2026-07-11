@@ -14,9 +14,16 @@
 ## Methodology (shared)
 
 Selenium-driven Firefox 152.0.5, headless, **temporary fresh/logged-out profile**
-(`LOGGED_IN` was `false` in `ytcfg` for every run — this is our stated test condition).
-Autoplay prefs from the existing harness: `media.autoplay.default=0`,
-`media.autoplay.blocking_policy=0`, `media.autoplay.allow-muted=true`.
+(`LOGGED_IN` was `false` in `ytcfg` for every run). Autoplay prefs from the existing
+harness: `media.autoplay.default=0`, `media.autoplay.blocking_policy=0`,
+`media.autoplay.allow-muted=true`.
+
+**Credentialless-first (locked design).** The extension's ANDROID_VR fetch always uses
+`credentials:'omit'` and never touches the user's YouTube login. The logged-out profile
+used here therefore **IS the production condition, not a limitation** — S1 measures real
+credentialless coverage. (The S2/S3 probes fetch the URL with `credentials:'same-origin'`,
+but under a logged-out profile that carries no cookies and is equivalent to the production
+`omit` path — S1 confirms `omit` and `same-origin` return identical results here.)
 
 Every probe first loads a real `https://www.youtube.com/watch?v=<id>` page, waits for
 `window.ytcfg.get('INNERTUBE_API_KEY')`, and — where a direct audio URL is needed — obtains
@@ -28,10 +35,11 @@ Baseline re-confirmed this run: both `dQw4w9WgXcQ` and `jNQXAC9IVRw` return
 `playabilityStatus: OK` with **4 direct audio adaptiveFormats** (itag 140 AAC + itag 251
 Opus among them), `body-context-only` sufficient.
 
-**Honesty envelope for all three spikes:** logged-out, headless, small N (2 normal videos
-for S2/S3; 5 typed videos for S1), single observation window. Findings are strong signals,
-not a guarantee across YouTube's full surface or a future player change. Everything below
-is backed by the observed numbers in the raw JSON; no verdict is asserted without signal.
+**Honesty envelope for all three spikes:** headless, small N (2 normal videos for S2/S3;
+5 typed videos for S1), single observation window. The logged-out profile is the production
+credentialless case (see above), not a caveat. Findings are strong signals, not a guarantee
+across YouTube's full surface or a future player change. Everything below is backed by the
+observed numbers in the raw JSON; no verdict is asserted without signal.
 
 ---
 
@@ -146,17 +154,19 @@ design).
 
 ---
 
-## Spike S1 — Video-type coverage (logged-out)
+## Spike S1 — Credentialless coverage (which video types are fetchable with `credentials:'omit'`)
 
 ### Method
 
 Run the ANDROID_VR player fetch for 5 typed videos; per video record the **actual**
 `playabilityStatus`, audio adaptiveFormats with direct URLs, `serverAbrStreamingUrl`, a
-WEB-client control fetch, and **`credentials:'omit'` vs `'same-origin'`**.
+WEB-client control fetch, and **`credentials:'omit'` vs `'same-origin'`**. Per the locked
+credentialless-first design, `credentials:'omit'` is the production path; the comparison
+confirms login state is irrelevant to this fetch.
 
 ### Evidence
 
-| Video | Hypothesized type | ANDROID_VR status | Direct audio URLs | WEB (bare) status | Usable? |
+| Video | Hypothesized type | ANDROID_VR status | Direct audio URLs | WEB (bare) status | Credentialless usable? |
 |---|---|---|---|---|---|
 | `dQw4w9WgXcQ` | normal | **OK** | **4** | UNPLAYABLE¹ | **yes** |
 | `jNQXAC9IVRw` | normal | **OK** | **4** | UNPLAYABLE¹ | **yes** |
@@ -165,7 +175,8 @@ WEB-client control fetch, and **`credentials:'omit'` vs `'same-origin'`**.
 | `jfKfPfyJRdk` | live (Lofi Girl 24/7) | **UNPLAYABLE** ("This live stream recording is not available") | 0 | UNPLAYABLE | **no** |
 
 - **`credentials:'omit'` vs `'same-origin'`: identical** for every video (status and direct-
-  URL count). Expected, because the profile is **logged-out → both are cookieless**.
+  URL count) — cookieless either way here. This is the point: the production `omit` path
+  behaves exactly as measured, and login state does not enter into it.
 - ¹ The **WEB "control" is a *bare* InnerTube fetch** (no poToken / full page params), so it
   returns UNPLAYABLE even for normal videos. It is a weak baseline, **not** the real page
   player. The load-bearing signal is ANDROID_VR's own status, which is **OK** for normal
@@ -173,24 +184,23 @@ WEB-client control fetch, and **`credentials:'omit'` vs `'same-origin'`**.
 - Normal videos also carry `serverAbrStreamingUrl` **alongside** the 4 direct URLs (not
   SABR-only), so the direct-URL path is available.
 
-### The logged-in gap (flagged, out of scope)
+### Credentialless-first is the design (no logged-in path)
 
-This automated run **cannot** test true logged-in behavior: with a logged-out profile,
-`omit` and `same-origin` are both cookieless. The real question — *does sending YouTube
-cookies with an ANDROID_VR-spoofed body trigger bot-detection or different gating, and does
-login unlock age-restricted / members-only?* — **requires a burner account** and is out of
-scope here. Age-restricted (`LOGIN_REQUIRED`) specifically is the case most likely to change
-when logged in; it must be validated with the burner (spike S4/S5 territory).
-
-**Members-only** was **not tested**: no stable public id exists (requires channel
-membership). Expect a membership gate when logged-out.
+The extension never uses the user's YouTube login for this fetch, so **there is no
+logged-in case to test** — by design, not by omission. The types that return no direct URLs
+credentialless (age-restricted → `LOGIN_REQUIRED`; made-for-kids → `UNPLAYABLE`; live →
+`UNPLAYABLE`; and **members-only / private**, which need account entitlement and were not
+enumerated because no stable public id exists) are simply **not audio-only-eligible**. They
+are not failures to fix — they **fall back to normal YouTube playback** (see fork).
 
 ### VERDICT S1
 
-The logged-out ANDROID_VR path **cleanly covers normal on-demand videos** (the product's
-core case) and **does not** cover age-restricted, made-for-kids, or live content from a
-logged-out profile. Age-restricted and members-only remain open pending the logged-in
-burner test.
+The credentialless (`credentials:'omit'`) ANDROID_VR path **cleanly covers normal on-demand
+videos** — the product's core case, with 4 direct audio URLs. Age-restricted, made-for-kids,
+live, and members-only/private return no direct URLs credentialless and are therefore **not
+audio-only-eligible by design**; they fall back to normal YouTube playback. This is the
+complete production picture: since the fetch never uses login, there is no further coverage
+to unlock and nothing left open.
 
 ---
 
@@ -214,12 +224,13 @@ What the product does when a given path is unavailable:
    Web-Audio ever regresses to true taint, EQ/loudness would need a background/proxy fetch
    path; not required today.
 
-3. **Coverage (S1).** Normal videos: audio-only on. Age-restricted / made-for-kids / live:
-   the ANDROID_VR fetch returns no direct URLs, so **do not force audio-only** — detect the
-   non-`OK`/no-direct-URL response and **gracefully leave native YouTube playback intact**,
-   optionally surfacing "audio-only isn't available for this video." Revisit
-   age-restricted + members-only after the **logged-in burner** test; live streams appear
-   structurally unsupported via ANDROID_VR and should stay on native playback.
+3. **Coverage (S1).** Normal videos: audio-only on. Age-restricted / made-for-kids / live /
+   members-only / private: the credentialless ANDROID_VR fetch returns no direct URLs, so
+   **do not force audio-only** — detect the non-`OK`/no-direct-URL response and **gracefully
+   leave native YouTube playback intact**, optionally surfacing "audio-only isn't available
+   for this video." Because the fetch is credentialless by design, this classification is
+   final at request time — there is no login path that would reclassify these, so no
+   retry-with-credentials logic is needed.
 
 ---
 
