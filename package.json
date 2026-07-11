@@ -25,6 +25,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "build:ext": "./scripts/build-ext.sh",
+    "test:e2e": "npm run build:ext && node tests/e2e/verify-firefox.mjs",
     "lint": "eslint js/ tests/",
     "lint:fix": "eslint js/ tests/ --fix",
     "format": "prettier --write .",
@@ -39,11 +41,14 @@
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-jest": "^27.6.1",
+    "geckodriver": "^6.1.0",
     "husky": "^8.0.3",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "lint-staged": "^15.2.0",
-    "prettier": "^3.2.4"
+    "prettier": "^3.2.4",
+    "selenium-webdriver": "^4.46.0",
+    "web-ext": "^10.5.0"
   },
   "lint-staged": {
     "*.js": [
@@ -55,6 +60,6 @@
     ]
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }
