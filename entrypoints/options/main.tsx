@@ -7,11 +7,15 @@ import {
   backgroundPlayEnabledSignal,
   ghostEnabledSignal,
   initializeSettings,
+  segmentSkipCategoriesSignal,
+  segmentSkipEnabledSignal,
   setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setGhostEnabled,
+  setSegmentSkipCategory,
+  setSegmentSkipEnabled,
   watchSettings,
 } from '../../src/shared/config';
 import './style.css';
@@ -39,6 +43,18 @@ function Options() {
         <button type="button" onClick={() => void setAdBlockEnabled(!adBlockEnabledSignal.value)}>
           <span><strong>Block ads</strong><small>Remove known ad descriptors from YouTube player responses.</small></span>
           <span role="switch" aria-checked={adBlockEnabledSignal.value}>{adBlockEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setSegmentSkipEnabled(!segmentSkipEnabledSignal.value)}>
+          <span><strong>Skip segments</strong><small>Use a private hash-prefix lookup to skip enabled categories.</small></span>
+          <span role="switch" aria-checked={segmentSkipEnabledSignal.value}>{segmentSkipEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setSegmentSkipCategory('sponsor', !segmentSkipCategoriesSignal.value.includes('sponsor'))}>
+          <span><strong>Sponsored segments</strong><small>Paid promotions embedded in a video.</small></span>
+          <span role="switch" aria-checked={segmentSkipCategoriesSignal.value.includes('sponsor')}>{segmentSkipCategoriesSignal.value.includes('sponsor') ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setSegmentSkipCategory('music_offtopic', !segmentSkipCategoriesSignal.value.includes('music_offtopic'))}>
+          <span><strong>Non-music segments</strong><small>Talking, credits, or other non-music sections.</small></span>
+          <span role="switch" aria-checked={segmentSkipCategoriesSignal.value.includes('music_offtopic')}>{segmentSkipCategoriesSignal.value.includes('music_offtopic') ? 'On' : 'Off'}</span>
         </button>
       </section>
       <section>

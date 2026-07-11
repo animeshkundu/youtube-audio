@@ -168,7 +168,7 @@ function watchPageHtml() {
   <div id="content">
     <div id="movie_player" class="html5-video-player ytp-hide-controls ended-mode" tabindex="-1">
       <div class="html5-video-container">
-        <video class="video-stream html5-main-video" preload="none" playsinline
+        <video class="video-stream html5-main-video" preload="auto" playsinline
                src="/native-video?mime=video/mp4" data-fixture-video="1"></video>
       </div>
       <div class="ytp-gradient-bottom"></div>
@@ -240,6 +240,44 @@ function drain(req) {
   });
 }
 
+/**
+ * A tiny valid silent WAV (8 s, 8 kHz, 8-bit mono). Firefox decodes and SEEKS WAV
+ * reliably, giving the fixture <video> a real timeline so the segment-skip test can
+ * assert an actual currentTime seek. ~64 KB; still no third-party codec dependency.
+ */
+function silentWav(seconds = 8, sampleRate = 8000) {
+  const dataSize = seconds * sampleRate;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate, 28); // byte rate
+  buffer.writeUInt16LE(1, 32); // block align
+  buffer.writeUInt16LE(8, 34); // bits per sample
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+  buffer.fill(128, 44); // silence (8-bit unsigned midpoint)
+  return buffer;
+}
+
+const FIXTURE_WAV = silentWav();
+
+function sendMedia(res, status, buffer) {
+  res.writeHead(status, {
+    'content-type': 'audio/wav',
+    'access-control-allow-origin': '*',
+    'accept-ranges': 'bytes',
+    'cache-control': 'no-store',
+    'content-length': buffer.length,
+  });
+  res.end(buffer);
+}
+
 export function createFixtureServer() {
   /** @type {{ method: string, path: string, query: string, ts: number }[]} */
   const requests = [];
@@ -281,10 +319,11 @@ export function createFixtureServer() {
       const videoId = url.searchParams.get('videoID') || undefined;
       return sendJson(res, 200, fixtureSkipSegments(videoId));
     }
-    if (path === '/videoplayback') {
-      // Media stub. Not a decodable stream (the bench uses JS-driven signals, not real
-      // media decoding); it exists so the URL resolves and the request is logged.
-      return sendText(res, 200, 'FIXTURE_MEDIA_STUB', 'application/octet-stream');
+    if (path === '/videoplayback' || path === '/native-video') {
+      // A tiny valid silent WAV gives the <video> a real, seekable timeline so the
+      // segment-skip test can assert an actual currentTime seek. Still JS-signal-driven
+      // (no third-party codec); the URL resolves and the request is logged.
+      return sendMedia(res, 200, FIXTURE_WAV);
     }
     if (path === '/youtubei/v1/log_event' || path.startsWith('/api/stats/')) {
       // Telemetry endpoints: succeed with no content.

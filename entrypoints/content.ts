@@ -8,6 +8,7 @@ import {
   subscribeSettings,
   watchSettings,
 } from '../src/shared/config';
+import { isSponsorCategory } from '../src/shared/sponsorblock';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
 // builds, so the marker below is dead-code-eliminated and never runs on real YouTube.
@@ -21,6 +22,9 @@ const MATCHES = [
 ];
 const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
+const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
+const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
+const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const BUTTON_ID = 'yta-audio-only-toggle';
 
 export default defineContentScript({
@@ -41,6 +45,9 @@ export default defineContentScript({
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
+      document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
+        void handleSponsorRequest(event, bridgeNonce);
+      });
       // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
       document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
@@ -54,6 +61,46 @@ export default defineContentScript({
     }
   },
 });
+
+async function handleSponsorRequest(event: Event, bridgeNonce: string): Promise<void> {
+  const detail = (event as CustomEvent<unknown>).detail;
+  if (typeof detail !== 'object' || detail === null) return;
+  const candidate = detail as {
+    nonce?: unknown;
+    requestId?: unknown;
+    videoId?: unknown;
+    categories?: unknown;
+  };
+  if (
+    candidate.nonce !== bridgeNonce ||
+    typeof candidate.requestId !== 'string' ||
+    candidate.requestId.length > 64 ||
+    typeof candidate.videoId !== 'string' ||
+    !/^[A-Za-z0-9_-]{6,20}$/.test(candidate.videoId) ||
+    !Array.isArray(candidate.categories) ||
+    !candidate.categories.every(isSponsorCategory)
+  ) {
+    return;
+  }
+
+  let segments: unknown = [];
+  try {
+    segments = await browser.runtime.sendMessage({
+      type: SPONSOR_SEGMENTS_MESSAGE,
+      videoId: candidate.videoId,
+      categories: candidate.categories,
+      ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
+    });
+  } catch {
+    // An unavailable background context disables skipping without affecting playback.
+  }
+  document.dispatchEvent(
+    new CustomEvent(SPONSOR_RESPONSE_EVENT, {
+      // Firefox does not expose non-string CustomEvent detail from an isolated world to MAIN.
+      detail: JSON.stringify({ nonce: bridgeNonce, requestId: candidate.requestId, segments }),
+    })
+  );
+}
 
 function installPlayerToggle(): void {
   const attach = () => {

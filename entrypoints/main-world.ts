@@ -5,9 +5,16 @@ import { PlayerHandle } from '../src/shared/player';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
+import {
+  isSponsorCategory,
+  type SponsorCategory,
+  type SponsorSegment,
+} from '../src/shared/sponsorblock';
 
 const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
+const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
+const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const VIDEO_WAIT_MS = 8_000;
 
 type PlaybackStatus = 'idle' | 'fetching' | 'active' | 'fallback' | 'disabled';
@@ -17,6 +24,8 @@ interface PageSettings {
   audioOnlyEnabled: boolean;
   backgroundPlayEnabled: boolean;
   adBlockEnabled: boolean;
+  segmentSkipEnabled: boolean;
+  segmentSkipCategories: readonly SponsorCategory[];
 }
 
 interface YouTubeConfig {
@@ -30,6 +39,8 @@ declare global {
   }
 }
 
+declare const __BENCH__: boolean;
+
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
   const bridgeNonce = readAndClearBridgeNonce();
@@ -38,11 +49,16 @@ export default defineUnlistedScript(() => {
     audioOnlyEnabled: false,
     backgroundPlayEnabled: false,
     adBlockEnabled: false,
+    segmentSkipEnabled: false,
+    segmentSkipCategories: [],
   };
   let generation = player.navigate();
   let visibilityCleanup: () => void = () => undefined;
   let scriptletCleanup: () => void = () => undefined;
+  let segmentSkipCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
+  let segmentSkipGeneration = 0;
+  let lastSkipKey = '';
 
   const emitStatus = (status: PlaybackStatus, reason?: string) => {
     document.dispatchEvent(
@@ -68,6 +84,7 @@ export default defineUnlistedScript(() => {
         .catch(() => undefined);
     }
     generation = player.navigate();
+    restartSegmentSkipping();
     if (!settings.enabled || !settings.audioOnlyEnabled) {
       emitStatus('disabled');
       return;
@@ -87,8 +104,51 @@ export default defineUnlistedScript(() => {
 
   observeYouTubeSpa(() => {
     generation = player.navigate();
+    restartSegmentSkipping();
     if (settings.enabled && settings.audioOnlyEnabled) void activateAudioOnly(generation);
   });
+
+  function restartSegmentSkipping(): void {
+    const videoId = settings.enabled && settings.segmentSkipEnabled ? getVideoId() : null;
+    const categories = settings.segmentSkipCategories;
+    // Skip redundant restarts (settings echoes, duplicate SPA "initial" ticks): re-triggering
+    // for identical (video, categories) state would cancel an in-flight install via the
+    // generation guard below. Only restart when the effective state actually changes.
+    const key = videoId && categories.length > 0 ? `${videoId}|${categories.join(',')}` : '';
+    if (key === lastSkipKey) return;
+    lastSkipKey = key;
+    const operationGeneration = ++segmentSkipGeneration;
+    segmentSkipCleanup();
+    segmentSkipCleanup = () => undefined;
+    if (!videoId || categories.length === 0) return;
+    void requestSponsorSegments(videoId, categories)
+      .then(async (segments) => {
+        if (operationGeneration !== segmentSkipGeneration || segments.length === 0) return;
+        const mediaElement = await waitForCurrentVideo(operationGeneration);
+        if (!mediaElement || operationGeneration !== segmentSkipGeneration) return;
+        segmentSkipCleanup = installSegmentSkipping(mediaElement, segments);
+      })
+      .catch(() => undefined);
+  }
+
+  async function waitForCurrentVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
+    const existing = document.querySelector<HTMLMediaElement>('video');
+    if (existing) return existing;
+    return new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (operationGeneration !== segmentSkipGeneration) finish(null);
+        const video = document.querySelector<HTMLMediaElement>('video');
+        if (video) finish(video);
+      });
+      const timeout = window.setTimeout(() => finish(null), VIDEO_WAIT_MS);
+      const finish = (video: HTMLMediaElement | null) => {
+        window.clearTimeout(timeout);
+        observer.disconnect();
+        resolve(video);
+      };
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    });
+  }
 
   async function activateAudioOnly(operationGeneration: number): Promise<void> {
     try {
@@ -158,11 +218,132 @@ export default defineUnlistedScript(() => {
   }
 });
 
+function requestSponsorSegments(
+  videoId: string,
+  categories: readonly SponsorCategory[]
+): Promise<readonly SponsorSegment[]> {
+  return new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const bridgeNonce = readBridgeNonceForRequest();
+    if (!bridgeNonce) {
+      resolve([]);
+      return;
+    }
+    let settled = false;
+    const finish = (segments: readonly SponsorSegment[]) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      document.removeEventListener(SPONSOR_RESPONSE_EVENT, handleResponse);
+      resolve(segments);
+    };
+    const handleResponse = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail !== 'string') return;
+      let candidate: { nonce?: unknown; requestId?: unknown; segments?: unknown };
+      try {
+        const parsed: unknown = JSON.parse(detail);
+        if (typeof parsed !== 'object' || parsed === null) return;
+        candidate = parsed;
+      } catch {
+        return;
+      }
+      if (candidate.nonce !== bridgeNonce || candidate.requestId !== requestId) return;
+      finish(parseSponsorSegments(candidate.segments));
+    };
+    const timeout = window.setTimeout(() => finish([]), VIDEO_WAIT_MS);
+    document.addEventListener(SPONSOR_RESPONSE_EVENT, handleResponse);
+    document.dispatchEvent(
+      new CustomEvent(SPONSOR_REQUEST_EVENT, {
+        detail: { nonce: bridgeNonce, requestId, videoId, categories },
+      })
+    );
+  });
+}
+
+let sponsorBridgeNonce: string | null = null;
+
+function readBridgeNonceForRequest(): string | null {
+  return sponsorBridgeNonce;
+}
+
+function installSegmentSkipping(
+  video: HTMLMediaElement,
+  segments: readonly SponsorSegment[]
+): () => void {
+  const handled = new Set<number>();
+  if (__BENCH__) document.documentElement.dataset.ytaSkipArmed = String(segments.length);
+  const onTimeUpdate = () => {
+    try {
+      if (video.readyState < 1) return;
+      const currentTime = video.currentTime;
+      // A segment counts as handled only once playback has actually moved past its end, so a
+      // seek that fails to stick (e.g. a media reset during load) is retried, not consumed.
+      for (let index = 0; index < segments.length; index += 1) {
+        const seg = segments[index];
+        if (seg && currentTime >= seg.segment[1]) handled.add(index);
+      }
+      for (let index = 0; index < segments.length; index += 1) {
+        if (handled.has(index)) continue;
+        const segment = segments[index];
+        if (!segment) continue;
+        const [start, end] = segment.segment;
+        if (currentTime < start || currentTime >= end) continue;
+        const target =
+          Number.isFinite(video.duration) && video.duration > 0
+            ? Math.min(end, video.duration)
+            : end;
+        if (target > currentTime) video.currentTime = target;
+        return;
+      }
+    } catch {
+      // Seeking failures leave the page's current playback state untouched.
+    }
+  };
+  try {
+    video.addEventListener('timeupdate', onTimeUpdate);
+    onTimeUpdate();
+    return () => video.removeEventListener('timeupdate', onTimeUpdate);
+  } catch {
+    return () => undefined;
+  }
+}
+
+function parseSponsorSegments(value: unknown): readonly SponsorSegment[] {
+  if (!Array.isArray(value)) return [];
+  const segments: SponsorSegment[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return [];
+    const candidate = item as { segment?: unknown; category?: unknown; actionType?: unknown };
+    if (
+      !Array.isArray(candidate.segment) ||
+      candidate.segment.length !== 2 ||
+      typeof candidate.segment[0] !== 'number' ||
+      typeof candidate.segment[1] !== 'number' ||
+      !Number.isFinite(candidate.segment[0]) ||
+      !Number.isFinite(candidate.segment[1]) ||
+      candidate.segment[0] < 0 ||
+      candidate.segment[1] <= candidate.segment[0] ||
+      !isSponsorCategory(candidate.category) ||
+      candidate.actionType !== 'skip'
+    ) {
+      return [];
+    }
+    segments.push({
+      segment: [candidate.segment[0], candidate.segment[1]],
+      category: candidate.category,
+      actionType: 'skip',
+    });
+  }
+  return segments;
+}
+
 function readAndClearBridgeNonce(): string | null {
   try {
     const el = document.documentElement;
     const nonce = el.dataset.ytaBridge ?? null;
     delete el.dataset.ytaBridge;
+    sponsorBridgeNonce = nonce;
     return nonce;
   } catch {
     return null;
@@ -208,7 +389,10 @@ function parseSettings(value: unknown): PageSettings | null {
     typeof candidate.enabled !== 'boolean' ||
     typeof candidate.audioOnlyEnabled !== 'boolean' ||
     typeof candidate.backgroundPlayEnabled !== 'boolean' ||
-    typeof candidate.adBlockEnabled !== 'boolean'
+    typeof candidate.adBlockEnabled !== 'boolean' ||
+    typeof candidate.segmentSkipEnabled !== 'boolean' ||
+    !Array.isArray(candidate.segmentSkipCategories) ||
+    !candidate.segmentSkipCategories.every(isSponsorCategory)
   ) {
     return null;
   }
@@ -217,6 +401,8 @@ function parseSettings(value: unknown): PageSettings | null {
     audioOnlyEnabled: candidate.audioOnlyEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
     adBlockEnabled: candidate.adBlockEnabled,
+    segmentSkipEnabled: candidate.segmentSkipEnabled,
+    segmentSkipCategories: candidate.segmentSkipCategories,
   };
 }
 

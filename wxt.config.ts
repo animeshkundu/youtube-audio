@@ -13,6 +13,7 @@ const YOUTUBE_MATCHES = [
 // Production builds (BENCH unset) never include these hosts. See tests/e2e/bench/.
 const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
+const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 
 export default defineConfig({
   srcDir: '.',
@@ -36,12 +37,22 @@ export default defineConfig({
       'storage',
       'downloads',
       ...(manifestVersion === 2
-        ? [...YOUTUBE_MATCHES, '*://*.googlevideo.com/*', ...(BENCH ? BENCH_MATCHES : [])]
+        ? [
+            ...YOUTUBE_MATCHES,
+            '*://*.googlevideo.com/*',
+            SPONSORBLOCK_ORIGIN,
+            ...(BENCH ? BENCH_MATCHES : []),
+          ]
         : []),
     ],
     host_permissions:
       manifestVersion === 3
-        ? [...YOUTUBE_MATCHES, '*://*.googlevideo.com/*', ...(BENCH ? BENCH_MATCHES : [])]
+        ? [
+            ...YOUTUBE_MATCHES,
+            '*://*.googlevideo.com/*',
+            SPONSORBLOCK_ORIGIN,
+            ...(BENCH ? BENCH_MATCHES : []),
+          ]
         : undefined,
     browser_specific_settings: {
       gecko: {
@@ -53,8 +64,7 @@ export default defineConfig({
       },
       gecko_android: {},
     },
-    // Add with their features, after explicit user disclosure:
-    // https://sponsor.ajay.app/*
+    // Add with its feature, after explicit user disclosure:
     // https://lrclib.net/*
   }),
   hooks: {

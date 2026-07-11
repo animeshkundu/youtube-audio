@@ -10,7 +10,13 @@ import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import { getExtensionPlatform } from '../src/shared/platform';
 import { shouldBlock } from '../src/shared/telemetry';
 import { loadRescueConfig } from '../src/shared/rescue';
-import { getSponsorSegments } from '../src/shared/sponsorblock';
+import {
+  hashVideoIdPrefix,
+  isSponsorCategory,
+  selectSegments,
+  type SponsorCategory,
+  type SponsorSegment,
+} from '../src/shared/sponsorblock';
 
 declare const __BENCH__: boolean;
 
@@ -21,6 +27,8 @@ const YOUTUBE_REQUESTS = [
   '*://m.youtube.com/*',
   ...(__BENCH__ ? ['http://127.0.0.1/*', 'http://localhost/*'] : []),
 ];
+const SPONSORBLOCK_BASE_URL = 'https://sponsor.ajay.app';
+const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const PLAYER_RESPONSE_REQUESTS = [
   '*://*.youtube.com/youtubei/v1/player*',
   '*://*.youtube.com/youtubei/v1/next*',
@@ -101,6 +109,63 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
   }
 }
 
+async function fetchSponsorSegments(
+  videoId: string,
+  categories: readonly SponsorCategory[],
+  benchOrigin?: string
+): Promise<readonly SponsorSegment[]> {
+  try {
+    const prefix = await hashVideoIdPrefix(videoId);
+    const baseUrl = __BENCH__ && benchOrigin ? benchOrigin : SPONSORBLOCK_BASE_URL;
+    const response = await fetch(`${baseUrl}/api/skipSegments/${prefix}`, {
+      method: 'GET',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+    });
+    if (!response.ok) return [];
+    return selectSegments(await response.json(), videoId, categories);
+  } catch {
+    return [];
+  }
+}
+
+function parseSponsorRequest(
+  value: unknown
+): { videoId: string; categories: readonly SponsorCategory[]; benchOrigin?: string } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as {
+    type?: unknown;
+    videoId?: unknown;
+    categories?: unknown;
+    benchOrigin?: unknown;
+  };
+  if (candidate.type !== SPONSOR_SEGMENTS_MESSAGE) return null;
+  if (
+    typeof candidate.videoId !== 'string' ||
+    !/^[A-Za-z0-9_-]{6,20}$/.test(candidate.videoId) ||
+    !Array.isArray(candidate.categories)
+  ) {
+    return null;
+  }
+  const categories = candidate.categories.filter(isSponsorCategory);
+  if (categories.length !== candidate.categories.length) return null;
+  let benchOrigin: string | undefined;
+  if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
+    try {
+      const origin = new URL(candidate.benchOrigin);
+      if (
+        origin.protocol === 'http:' &&
+        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
+      ) {
+        benchOrigin = origin.origin;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return { videoId: candidate.videoId, categories, ...(benchOrigin ? { benchOrigin } : {}) };
+}
+
 function joinChunks(chunks: readonly Uint8Array[]): Uint8Array {
   const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   const output = new Uint8Array(length);
@@ -118,12 +183,17 @@ export default defineBackground({
     try {
       getExtensionPlatform();
       void loadRescueConfig;
-      void getSponsorSegments;
       settings = await initializeSettings();
       subscribeSettings((nextSettings) => {
         settings = nextSettings;
       });
       watchSettings();
+      browser.runtime.onMessage.addListener((message: unknown) => {
+        const request = parseSponsorRequest(message);
+        return request
+          ? fetchSponsorSegments(request.videoId, request.categories, request.benchOrigin)
+          : undefined;
+      });
       browser.webRequest.onBeforeRequest.addListener(
         blockTelemetry,
         { urls: YOUTUBE_REQUESTS },

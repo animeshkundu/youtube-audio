@@ -96,7 +96,7 @@ sequenceDiagram
 - Page-world data is untrusted. No page-message handler exists in M0.
 - The background never accepts arbitrary URLs.
 - Only YouTube page patterns and `*.googlevideo.com` are granted.
-- SponsorBlock and LRCLIB origins remain ungranted placeholders until their opt-in features land.
+- SponsorBlock access is limited to `https://sponsor.ajay.app/*`; LRCLIB remains ungranted until its feature lands.
 - Feature failures must leave native YouTube behavior intact.
 
 ## M1 Playback Flow
@@ -121,6 +121,31 @@ sequenceDiagram
 ```
 
 Failures and unsupported videos fail open to native playback. SPA navigation invalidates stale asynchronous operations before they can attach media.
+
+## M3a Segment-skip Flow
+
+The persistent background hashes each video ID and requests only the four-character SHA-256 prefix from SponsorBlock with credentials omitted and no referrer. It filters the anonymity bucket locally and returns normalized, merged ranges through the isolated content bridge. MAIN world listens on the same `<video>` used by `PlayerHandle`, seeks to a range end at most once per navigation, and discards stale work after SPA navigation. No view-count, submission, voting, or plaintext-video-ID endpoint exists.
+
+```mermaid
+sequenceDiagram
+    participant Main as MAIN world
+    participant Content as Isolated content
+    participant Background as Background
+    participant Sponsor as SponsorBlock API
+    participant Video as Shared page video
+
+    Main->>Content: nonce-authenticated video ID + categories
+    Content->>Background: fixed Sponsor segment message
+    Background->>Background: SHA-256(video ID), first 4 hex
+    Background->>Sponsor: GET /api/skipSegments/prefix (credentials omitted)
+    Sponsor-->>Background: anonymity bucket
+    Background->>Background: exact local filter + merge
+    Background-->>Main: normalized skip ranges
+    Video-->>Main: timeupdate
+    Main->>Video: seek once to segment end
+```
+
+Any hashing, network, parsing, bridge, media, or seek failure returns an empty list or no-op and leaves native playback intact.
 
 ## M2b Ad-block Flow
 

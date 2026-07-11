@@ -161,7 +161,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, seedSettings, probePlayerFromPage, origin, resetLog }) {
+async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, origin, resetLog }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
@@ -236,7 +236,49 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, origin
       });
     }
 
-    return { addonId, marker: snap.marker, status: snap.status, videoSrc: snap.videoSrc, vis, player };
+    let segmentSkip = null;
+    if (probeSegmentSkip) {
+      // Play the (silent WAV) media and watch for a currentTime jump past the fixture's
+      // [0, 5.25] sponsor segment. Natural 1x playback cannot reach 5.25 s within the poll
+      // window, so reaching it fast proves an actual skip seek (not organic advance).
+      segmentSkip = await driver.executeAsyncScript(function () {
+        const done = arguments[arguments.length - 1];
+        const video = document.querySelector('video[data-fixture-video]');
+        if (!video) {
+          done({ armed: null, skipped: false, currentTime: null, reason: 'no-video' });
+          return;
+        }
+        video.muted = true;
+        const played = video.play();
+        if (played && played.catch) played.catch(function () {});
+        const started = Date.now();
+        const deadline = started + 4000;
+        const poll = function () {
+          const armed = document.documentElement.getAttribute('data-yta-skip-armed');
+          const t = video.currentTime;
+          if (typeof t === 'number' && t >= 5.25) {
+            done({ armed: armed, skipped: true, currentTime: t, elapsedMs: Date.now() - started });
+            return;
+          }
+          if (Date.now() >= deadline) {
+            done({ armed: armed, skipped: false, currentTime: t, elapsedMs: Date.now() - started });
+            return;
+          }
+          setTimeout(poll, 150);
+        };
+        poll();
+      });
+    }
+
+    return {
+      addonId,
+      marker: snap.marker,
+      status: snap.status,
+      videoSrc: snap.videoSrc,
+      vis,
+      player,
+      segmentSkip,
+    };
   } finally {
     try {
       await driver.quit();
@@ -333,6 +375,48 @@ async function main() {
     record('m2b:enabled-prunes-player-ads', enabled.player?.ok && !enabled.player.hasAdPlacements, {
       player: enabled.player,
     });
+    // Dedicated segment-skip session: audio-only OFF so no hijack reset races the skip's
+    // one-shot seek on the (preload=auto, seekable) fixture WAV timeline.
+    const segmentSkipRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: true,
+        segmentSkipCategories: ['sponsor', 'music_offtopic'],
+      },
+      probeSegmentSkip: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const segmentSkipLog = fixture.getRequests();
+    record(
+      'm3a:segment-skip-seeks-past-sponsor',
+      segmentSkipRun.segmentSkip?.skipped === true,
+      {
+        ...segmentSkipRun.segmentSkip,
+        status: segmentSkipRun.status,
+        fetched: segmentSkipLog
+          .filter((r) => r.path.startsWith('/api/skipSegments/'))
+          .map((r) => `${r.method} ${r.path}`),
+      }
+    );
+    record(
+      'm3a:privacy-k-anon-prefix-no-viewcount',
+      enabledLog.some(
+        (r) => r.method === 'GET' && /^\/api\/skipSegments\/[0-9a-f]{4}$/.test(r.path)
+      ) && !enabledLog.some((r) => r.path.includes('viewedVideoSponsorTime')),
+      {
+        skipSegmentsRequests: enabledLog
+          .filter((r) => r.path.startsWith('/api/skipSegments/'))
+          .map((r) => `${r.method} ${r.path}`),
+        viewCountLeaks: enabledLog.filter((r) => r.path.includes('viewedVideoSponsorTime')).length,
+      }
+    );
 
     // --- ad-block disabled (all other features on) ----------------------------
     const adBlockDisabled = await runSession({

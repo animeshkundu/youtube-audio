@@ -1,5 +1,11 @@
 import { signal } from '@preact/signals';
 
+import {
+  isSponsorCategory,
+  SPONSOR_CATEGORIES,
+  type SponsorCategory,
+} from './sponsorblock';
+
 export interface ExtensionSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
@@ -7,6 +13,8 @@ export interface ExtensionSettings {
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
   adBlockEnabled: boolean;
+  segmentSkipEnabled: boolean;
+  segmentSkipCategories: readonly SponsorCategory[];
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
@@ -20,6 +28,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   ghostEnabled: true,
   aggressiveTelemetry: false,
   adBlockEnabled: true,
+  segmentSkipEnabled: true,
+  segmentSkipCategories: SPONSOR_CATEGORIES,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
@@ -28,6 +38,10 @@ export const backgroundPlayEnabledSignal = signal(DEFAULT_SETTINGS.backgroundPla
 export const ghostEnabledSignal = signal(DEFAULT_SETTINGS.ghostEnabled);
 export const aggressiveTelemetrySignal = signal(DEFAULT_SETTINGS.aggressiveTelemetry);
 export const adBlockEnabledSignal = signal(DEFAULT_SETTINGS.adBlockEnabled);
+export const segmentSkipEnabledSignal = signal(DEFAULT_SETTINGS.segmentSkipEnabled);
+export const segmentSkipCategoriesSignal = signal<readonly SponsorCategory[]>(
+  DEFAULT_SETTINGS.segmentSkipCategories
+);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -75,6 +89,23 @@ export async function setAdBlockEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, adBlockEnabled: enabled });
 }
 
+export async function setSegmentSkipEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, segmentSkipEnabled: enabled });
+}
+
+export async function setSegmentSkipCategory(
+  category: SponsorCategory,
+  enabled: boolean
+): Promise<void> {
+  const categories = new Set(currentSettings.segmentSkipCategories);
+  if (enabled) categories.add(category);
+  else categories.delete(category);
+  await persistSettings({
+    ...currentSettings,
+    segmentSkipCategories: SPONSOR_CATEGORIES.filter((item) => categories.has(item)),
+  });
+}
+
 export function subscribeSettings(listener: (settings: ExtensionSettings) => void): () => void {
   subscribers.add(listener);
   listener(getSettings());
@@ -110,6 +141,8 @@ function applySettings(settings: ExtensionSettings): void {
   ghostEnabledSignal.value = settings.ghostEnabled;
   aggressiveTelemetrySignal.value = settings.aggressiveTelemetry;
   adBlockEnabledSignal.value = settings.adBlockEnabled;
+  segmentSkipEnabledSignal.value = settings.segmentSkipEnabled;
+  segmentSkipCategoriesSignal.value = settings.segmentSkipCategories;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -138,5 +171,16 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.adBlockEnabled === 'boolean'
         ? candidate.adBlockEnabled
         : DEFAULT_SETTINGS.adBlockEnabled,
+    segmentSkipEnabled:
+      typeof candidate.segmentSkipEnabled === 'boolean'
+        ? candidate.segmentSkipEnabled
+        : DEFAULT_SETTINGS.segmentSkipEnabled,
+    segmentSkipCategories: normalizeSponsorCategories(candidate.segmentSkipCategories),
   };
+}
+
+function normalizeSponsorCategories(value: unknown): readonly SponsorCategory[] {
+  if (!Array.isArray(value)) return DEFAULT_SETTINGS.segmentSkipCategories;
+  const categories = new Set(value.filter(isSponsorCategory));
+  return SPONSOR_CATEGORIES.filter((category) => categories.has(category));
 }

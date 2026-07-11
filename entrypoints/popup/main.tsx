@@ -8,11 +8,13 @@ import {
   backgroundPlayEnabledSignal,
   ghostEnabledSignal,
   initializeSettings,
+  segmentSkipEnabledSignal,
   setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setGhostEnabled,
+  setSegmentSkipEnabled,
   watchSettings,
 } from '../../src/shared/config';
 import './style.css';
@@ -72,6 +74,12 @@ function Popup() {
         description="Remove known player ad descriptors"
         active={adBlockEnabledSignal.value}
         onToggle={() => apply(() => setAdBlockEnabled(!adBlockEnabledSignal.value))}
+      />
+      <Toggle
+        label="Skip segments"
+        description="Privately skip sponsors and non-music"
+        active={segmentSkipEnabledSignal.value}
+        onToggle={() => apply(() => setSegmentSkipEnabled(!segmentSkipEnabledSignal.value))}
       />
       <Toggle
         label="Reduce tracking"
