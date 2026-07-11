@@ -77,8 +77,13 @@ export class PlayerHandle {
     if (!descriptor?.get || !descriptor.set || descriptor.configurable === false) return;
 
     this.originalDescriptor = descriptor;
-    // The descriptor callbacks receive the media element as `this`, so retain the owner.
-    const handle = this;
+    const getActiveAudioUrl = (mediaElement: HTMLMediaElement) =>
+      mediaElement === this.mediaElement ? this.audioUrl : null;
+    const recordReassertion = () => {
+      this.reassertions += 1;
+      return this.reassertions > this.maxReassertions;
+    };
+    const openCircuit = () => this.openCircuit();
     Object.defineProperty(this.mediaPrototype, 'src', {
       configurable: true,
       enumerable: descriptor.enumerable ?? false,
@@ -86,19 +91,14 @@ export class PlayerHandle {
         return descriptor.get!.call(this) as string;
       },
       set(this: HTMLMediaElement, value: string) {
-        if (
-          this === handle.mediaElement &&
-          handle.audioUrl &&
-          typeof value === 'string' &&
-          value !== handle.audioUrl
-        ) {
-          handle.reassertions += 1;
-          if (handle.reassertions > handle.maxReassertions) {
-            handle.openCircuit();
+        const activeAudioUrl = getActiveAudioUrl(this);
+        if (activeAudioUrl && typeof value === 'string' && value !== activeAudioUrl) {
+          if (recordReassertion()) {
+            openCircuit();
             descriptor.set!.call(this, value);
             return;
           }
-          descriptor.set!.call(this, handle.audioUrl);
+          descriptor.set!.call(this, activeAudioUrl);
           return;
         }
         descriptor.set!.call(this, value);

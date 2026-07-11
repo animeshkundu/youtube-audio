@@ -14,9 +14,7 @@ module.exports = {
   plugins: ['@typescript-eslint'],
   rules: {
     '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-    // Property descriptor get/set closures legitimately need the outer instance captured
-    // as `handle`; the rule stays active (error) for every other alias.
-    '@typescript-eslint/no-this-alias': ['error', { allowedNames: ['handle'] }],
+    '@typescript-eslint/no-this-alias': 'error',
     'no-console': ['warn', { allow: ['error', 'warn'] }],
     'no-var': 'error',
     'prefer-const': 'error',
