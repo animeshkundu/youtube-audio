@@ -33,15 +33,21 @@ export default defineContentScript({
     }
 
     try {
+      const bridgeNonce = crypto.randomUUID();
       await initializeSettings();
       watchSettings();
       subscribeSettings((settings) => {
-        window.postMessage({ channel: SETTINGS_EVENT, settings }, location.origin);
+        window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
+      // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
+      document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
-      window.postMessage({ channel: SETTINGS_EVENT, settings: getSettings() }, location.origin);
+      window.postMessage(
+        { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings: getSettings() },
+        location.origin
+      );
       installPlayerToggle();
     } catch (error) {
       console.error('[YouTube Audio] Content initialization failed', error);

@@ -150,7 +150,7 @@ export class PlayerHandle {
         Object.defineProperty(this.mediaPrototype, 'src', this.originalDescriptor);
         this.originalDescriptor = undefined;
       }
-      if (mediaElement && snapshot?.src) {
+      if (mediaElement && snapshot) {
         mediaElement.src = snapshot.src;
         mediaElement.currentTime = snapshot.currentTime;
         mediaElement.playbackRate = snapshot.playbackRate;

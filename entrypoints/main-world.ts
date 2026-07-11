@@ -29,6 +29,7 @@ declare global {
 
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
+  const bridgeNonce = readAndClearBridgeNonce();
   let settings: PageSettings = {
     enabled: false,
     audioOnlyEnabled: false,
@@ -59,8 +60,10 @@ export default defineUnlistedScript(() => {
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.origin !== location.origin) return;
-    const data = event.data as { channel?: unknown; settings?: unknown } | null;
+    const data = event.data as { channel?: unknown; nonce?: unknown; settings?: unknown } | null;
     if (!data || data.channel !== SETTINGS_EVENT) return;
+    // Reject forged same-origin messages: only the content script knows this per-load nonce.
+    if (!bridgeNonce || data.nonce !== bridgeNonce) return;
     const next = parseSettings(data.settings);
     if (next) applySettings(next);
   });
@@ -138,6 +141,17 @@ export default defineUnlistedScript(() => {
   }
 });
 
+function readAndClearBridgeNonce(): string | null {
+  try {
+    const el = document.documentElement;
+    const nonce = el.dataset.ytaBridge ?? null;
+    delete el.dataset.ytaBridge;
+    return nonce;
+  } catch {
+    return null;
+  }
+}
+
 function getVideoId(): string | null {
   try {
     const id = new URL(location.href).searchParams.get('v');
@@ -191,23 +205,38 @@ function enableBackgroundPlay(): () => void {
   const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
   const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
   const swallow = (event: Event) => event.stopImmediatePropagation();
-  try {
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
-    document.addEventListener('visibilitychange', swallow, true);
-  } catch {
-    return () => undefined;
-  }
+  let hiddenPatched = false;
+  let visibilityPatched = false;
+  let listenerAdded = false;
 
-  return () => {
-    document.removeEventListener('visibilitychange', swallow, true);
+  const cleanup = () => {
+    if (listenerAdded) document.removeEventListener('visibilitychange', swallow, true);
     try {
-      if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
-      else delete (document as unknown as Record<string, unknown>).hidden;
-      if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
-      else delete (document as unknown as Record<string, unknown>).visibilityState;
+      if (hiddenPatched) {
+        if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
+        else delete (document as unknown as Record<string, unknown>).hidden;
+      }
+      if (visibilityPatched) {
+        if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+        else delete (document as unknown as Record<string, unknown>).visibilityState;
+      }
     } catch {
       // Keep the fail-open page boundary intact.
     }
   };
+
+  try {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    hiddenPatched = true;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    visibilityPatched = true;
+    document.addEventListener('visibilitychange', swallow, true);
+    listenerAdded = true;
+  } catch {
+    // Roll back any partial override so normal YouTube visibility behaviour is preserved.
+    cleanup();
+    return () => undefined;
+  }
+
+  return cleanup;
 }
