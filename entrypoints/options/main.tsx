@@ -4,6 +4,7 @@ import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   disableAutoplayNextSignal,
+  downloadEnabledSignal,
   forceQualityMaxSignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
@@ -23,6 +24,7 @@ import {
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setEqualizerBand,
+  setDownloadEnabled,
   setForceQualityMax,
   setGhostEnabled,
   setMusicSetting,
@@ -49,6 +51,10 @@ function Options() {
         <button type="button" onClick={() => void setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value)}>
           <span><strong>Background play</strong><small>Keep playback active while the page is hidden.</small></span>
           <span role="switch" aria-checked={backgroundPlayEnabledSignal.value}>{backgroundPlayEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setDownloadEnabled(!downloadEnabledSignal.value)}>
+          <span><strong>Download audio</strong><small>Show an in-player button for explicit audio downloads.</small></span>
+          <span role="switch" aria-checked={downloadEnabledSignal.value}>{downloadEnabledSignal.value ? 'On' : 'Off'}</span>
         </button>
       </section>
       <section>

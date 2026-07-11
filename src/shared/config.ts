@@ -26,6 +26,7 @@ export interface ExtensionSettings {
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
   lyricsEnabled: boolean;
+  downloadEnabled: boolean;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
@@ -36,6 +37,7 @@ export type QualityOfLifeSetting =
   | 'hideRecommendations'
   | 'hideComments';
 export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled' | 'lyricsEnabled';
+export type DownloadSetting = 'downloadEnabled';
 
 const STORAGE_KEY = 'settings';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   equalizerEnabled: false,
   equalizerBands: FLAT_EQUALIZER,
   lyricsEnabled: false,
+  downloadEnabled: false,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
@@ -77,6 +80,7 @@ export const loudnessNormalizationSignal = signal(DEFAULT_SETTINGS.loudnessNorma
 export const equalizerEnabledSignal = signal(DEFAULT_SETTINGS.equalizerEnabled);
 export const equalizerBandsSignal = signal<EqualizerBands>(DEFAULT_SETTINGS.equalizerBands);
 export const lyricsEnabledSignal = signal(DEFAULT_SETTINGS.lyricsEnabled);
+export const downloadEnabledSignal = signal(DEFAULT_SETTINGS.downloadEnabled);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -141,6 +145,10 @@ export async function setQualityOfLifeSetting(
 
 export async function setMusicSetting(setting: MusicSetting, enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, [setting]: enabled });
+}
+
+export async function setDownloadEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, downloadEnabled: enabled });
 }
 
 export async function setEqualizerBand(index: number, gain: number): Promise<void> {
@@ -209,6 +217,7 @@ function applySettings(settings: ExtensionSettings): void {
   equalizerEnabledSignal.value = settings.equalizerEnabled;
   equalizerBandsSignal.value = settings.equalizerBands;
   lyricsEnabledSignal.value = settings.lyricsEnabled;
+  downloadEnabledSignal.value = settings.downloadEnabled;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -272,6 +281,10 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.lyricsEnabled === 'boolean'
         ? candidate.lyricsEnabled
         : DEFAULT_SETTINGS.lyricsEnabled,
+    downloadEnabled:
+      typeof candidate.downloadEnabled === 'boolean'
+        ? candidate.downloadEnabled
+        : DEFAULT_SETTINGS.downloadEnabled,
   };
 }
 

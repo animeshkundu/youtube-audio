@@ -134,6 +134,8 @@ function snapshotScript() {
     ready: document.documentElement.getAttribute('data-fixture-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
     lyrics: document.documentElement.dataset.ytaLyrics || null,
+    download: document.documentElement.dataset.ytaDownload || null,
+    downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
   };
 }
 
@@ -163,7 +165,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, origin, resetLog }) {
+async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, probeDownload, origin, resetLog }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
@@ -212,6 +214,16 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
         const state = await driver.executeScript(snapshotScript);
         return state.lyrics ? state : null;
       }, 4000);
+    }
+    if (probeDownload) {
+      await driver.executeScript(function () {
+        const button = document.getElementById('yta-download-audio');
+        if (button) button.click();
+      });
+      await waitFor(async () => {
+        const state = await driver.executeScript(snapshotScript);
+        return state.download ? state : null;
+      }, 8000);
     }
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
@@ -305,6 +317,8 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       qol,
       audioGraph: snap.audioGraph,
       lyrics: snap.lyrics,
+      download: snap.download,
+      downloadButtonVisible: snap.downloadButtonVisible,
     };
   } finally {
     try {
@@ -509,6 +523,73 @@ async function main() {
       'm4:lyrics-opt-in-fetches-and-renders',
       lyricsRun.lyrics === '2' && lyricsLog.some((r) => r.path === '/api/get'),
       { marker: lyricsRun.lyrics, fetched: lyricsLog.filter((r) => r.path === '/api/get') }
+    );
+
+    const downloadDisabled = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: 'off',
+        disableAutoplayNext: false,
+        hideShorts: false,
+        hideRecommendations: false,
+        hideComments: false,
+        loudnessNormalization: false,
+        equalizerEnabled: false,
+        equalizerBands: [0, 0, 0, 0, 0],
+        lyricsEnabled: false,
+        downloadEnabled: false,
+      },
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm5:download-disabled-hides-button',
+      downloadDisabled.downloadButtonVisible === false && downloadDisabled.download === null,
+      { visible: downloadDisabled.downloadButtonVisible, marker: downloadDisabled.download }
+    );
+
+    const downloadEnabled = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: 'off',
+        disableAutoplayNext: false,
+        hideShorts: false,
+        hideRecommendations: false,
+        hideComments: false,
+        loudnessNormalization: false,
+        equalizerEnabled: false,
+        equalizerBands: [0, 0, 0, 0, 0],
+        lyricsEnabled: false,
+        downloadEnabled: true,
+      },
+      probeDownload: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const downloadData = downloadEnabled.download ? JSON.parse(downloadEnabled.download) : null;
+    record(
+      'm5:download-enabled-initiates-selected-audio',
+      downloadEnabled.downloadButtonVisible === true &&
+        downloadData?.filename === 'Fixture Watch Page.webm' &&
+        typeof downloadData?.url === 'string' &&
+        downloadData.url.includes('/videoplayback?itag=251'),
+      { visible: downloadEnabled.downloadButtonVisible, download: downloadData }
     );
 
     // --- ad-block disabled (all other features on) ----------------------------

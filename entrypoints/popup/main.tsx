@@ -7,6 +7,7 @@ import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   disableAutoplayNextSignal,
+  downloadEnabledSignal,
   ghostEnabledSignal,
   hideShortsSignal,
   equalizerEnabledSignal,
@@ -18,6 +19,7 @@ import {
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setDownloadEnabled,
   setGhostEnabled,
   setMusicSetting,
   setQualityOfLifeSetting,
@@ -75,6 +77,12 @@ function Popup() {
         description="Keep playing when YouTube is hidden"
         active={backgroundPlayEnabledSignal.value}
         onToggle={() => apply(() => setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value))}
+      />
+      <Toggle
+        label="Download audio"
+        description="Show a save button in the player"
+        active={downloadEnabledSignal.value}
+        onToggle={() => apply(() => setDownloadEnabled(!downloadEnabledSignal.value))}
       />
       <Toggle
         label="Block ads"

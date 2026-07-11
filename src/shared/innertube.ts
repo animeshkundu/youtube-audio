@@ -71,7 +71,11 @@ export function getPlayability(playerResponse: unknown): Playability {
   return { status, reason, isPlayable: status === 'OK' };
 }
 
-export function pickBestAudioUrl(playerResponse: unknown): string | null {
+export type AudioFormat = NonNullable<
+  NonNullable<PlayerResponse['streamingData']>['adaptiveFormats']
+>[number];
+
+export function pickBestAudioFormat(playerResponse: unknown): AudioFormat | null {
   if (typeof playerResponse !== 'object' || playerResponse === null) return null;
   const formats = (playerResponse as PlayerResponse).streamingData?.adaptiveFormats;
   if (!Array.isArray(formats)) return null;
@@ -87,7 +91,11 @@ export function pickBestAudioUrl(playerResponse: unknown): string | null {
     const preference = (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
     return preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0);
   });
-  return audio[0]?.url ?? null;
+  return audio[0] ?? null;
+}
+
+export function pickBestAudioUrl(playerResponse: unknown): string | null {
+  return pickBestAudioFormat(playerResponse)?.url ?? null;
 }
 
 export function buildAndroidVrPlayerRequest(

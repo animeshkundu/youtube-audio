@@ -1,5 +1,6 @@
 import { defineBackground } from 'wxt/utils/define-background';
 
+import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
 import {
   initializeSettings,
   subscribeSettings,
@@ -31,6 +32,7 @@ const SPONSORBLOCK_BASE_URL = 'https://sponsor.ajay.app';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const LYRICS_MESSAGE = 'yta:lyrics';
 const LRCLIB_BASE_URL = 'https://lrclib.net';
+const DOWNLOAD_MESSAGE = 'yta:download-audio';
 const PLAYER_RESPONSE_REQUESTS = [
   '*://*.youtube.com/youtubei/v1/player*',
   '*://*.youtube.com/youtubei/v1/next*',
@@ -239,6 +241,76 @@ async function fetchLyrics(request: NonNullable<ReturnType<typeof parseLyricsReq
   }
 }
 
+function parseDownloadRequest(
+  value: unknown
+): { url: string; filename: string; benchOrigin?: string } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as {
+    type?: unknown;
+    url?: unknown;
+    filename?: unknown;
+    benchOrigin?: unknown;
+  };
+  if (candidate.type !== DOWNLOAD_MESSAGE || !isSafeDownloadFilename(candidate.filename)) return null;
+  let benchOrigin: string | undefined;
+  if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
+    try {
+      const origin = new URL(candidate.benchOrigin);
+      if (
+        origin.protocol === 'http:' &&
+        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
+      ) {
+        benchOrigin = origin.origin;
+      }
+    } catch {
+      return null;
+    }
+  }
+  if (!isAllowedAudioUrl(candidate.url, benchOrigin)) return null;
+  return {
+    url: candidate.url,
+    filename: candidate.filename,
+    ...(benchOrigin ? { benchOrigin } : {}),
+  };
+}
+
+async function downloadAudio(
+  request: NonNullable<ReturnType<typeof parseDownloadRequest>>
+): Promise<{ ok: boolean }> {
+  try {
+    await browser.downloads.download({ url: request.url, filename: request.filename });
+    return { ok: true };
+  } catch {
+    let objectUrl: string | null = null;
+    try {
+      const response = await fetch(request.url, { credentials: 'omit' });
+      if (!response.ok) return { ok: false };
+      objectUrl = URL.createObjectURL(await response.blob());
+      const downloadId = await browser.downloads.download({
+        url: objectUrl,
+        filename: request.filename,
+      });
+      const urlToRevoke = objectUrl;
+      const onChanged = (delta: browser.downloads._OnChangedDownloadDelta) => {
+        if (delta.id !== downloadId || !delta.state?.current) return;
+        browser.downloads.onChanged.removeListener(onChanged);
+        URL.revokeObjectURL(urlToRevoke);
+      };
+      browser.downloads.onChanged.addListener(onChanged);
+      window.setTimeout(() => {
+        browser.downloads.onChanged.removeListener(onChanged);
+        URL.revokeObjectURL(urlToRevoke);
+      }, 60 * 60 * 1_000);
+      objectUrl = null;
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+}
+
 function joinChunks(chunks: readonly Uint8Array[]): Uint8Array {
   const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   const output = new Uint8Array(length);
@@ -271,7 +343,9 @@ export default defineBackground({
           );
         }
         const lyricsRequest = parseLyricsRequest(message);
-        return lyricsRequest ? fetchLyrics(lyricsRequest) : undefined;
+        if (lyricsRequest) return fetchLyrics(lyricsRequest);
+        const downloadRequest = parseDownloadRequest(message);
+        return downloadRequest ? downloadAudio(downloadRequest) : undefined;
       });
       browser.webRequest.onBeforeRequest.addListener(
         blockTelemetry,

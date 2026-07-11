@@ -8,6 +8,7 @@ import {
   subscribeSettings,
   watchSettings,
 } from '../src/shared/config';
+import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
 import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
@@ -29,7 +30,11 @@ const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const TRACK_EVENT = 'yta:track';
 const LYRICS_MESSAGE = 'yta:lyrics';
+const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
+const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
+const DOWNLOAD_MESSAGE = 'yta:download-audio';
 const BUTTON_ID = 'yta-audio-only-toggle';
+const DOWNLOAD_BUTTON_ID = 'yta-download-audio';
 const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 let lyricsCleanup: () => void = () => undefined;
@@ -50,6 +55,7 @@ export default defineContentScript({
       subscribeSettings((settings) => {
         window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
+        updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
         if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
       });
@@ -67,7 +73,7 @@ export default defineContentScript({
         { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings: getSettings() },
         location.origin
       );
-      installPlayerToggle();
+      installPlayerControls(bridgeNonce);
     } catch (error) {
       console.error('[YouTube Audio] Content initialization failed', error);
     }
@@ -231,31 +237,122 @@ function updateDistractionStyle(settings: ReturnType<typeof getSettings>): void 
   }
 }
 
-function installPlayerToggle(): void {
+function installPlayerControls(bridgeNonce: string): void {
   const attach = () => {
-    if (document.getElementById(BUTTON_ID)) return;
     const controls = document.querySelector('.ytp-right-controls, .ytp-left-controls');
     if (!controls) return;
 
-    const button = document.createElement('button');
-    button.id = BUTTON_ID;
-    button.type = 'button';
-    button.className = 'ytp-button';
-    button.title = 'Toggle audio-only playback';
-    button.setAttribute('aria-label', 'Toggle audio-only playback');
-    button.style.cssText =
-      'font-size:20px;line-height:36px;text-align:center;color:#fff;background:transparent;border:0;cursor:pointer;';
-    button.textContent = '♪';
-    button.addEventListener('click', () => {
-      const settings = getSettings();
-      void setAudioOnlyEnabled(!settings.audioOnlyEnabled).catch(() => undefined);
-    });
-    controls.prepend(button);
-    updateToggle(getSettings().enabled && getSettings().audioOnlyEnabled);
+    if (!document.getElementById(BUTTON_ID)) {
+      const button = document.createElement('button');
+      button.id = BUTTON_ID;
+      button.type = 'button';
+      button.className = 'ytp-button';
+      button.title = 'Toggle audio-only playback';
+      button.setAttribute('aria-label', 'Toggle audio-only playback');
+      button.style.cssText =
+        'font-size:20px;line-height:36px;text-align:center;color:#fff;background:transparent;border:0;cursor:pointer;';
+      button.textContent = '♪';
+      button.addEventListener('click', () => {
+        const settings = getSettings();
+        void setAudioOnlyEnabled(!settings.audioOnlyEnabled).catch(() => undefined);
+      });
+      controls.prepend(button);
+      updateToggle(getSettings().enabled && getSettings().audioOnlyEnabled);
+    }
+
+    if (!document.getElementById(DOWNLOAD_BUTTON_ID)) {
+      const button = document.createElement('button');
+      button.id = DOWNLOAD_BUTTON_ID;
+      button.type = 'button';
+      button.className = 'ytp-button';
+      button.title = 'Download audio';
+      button.setAttribute('aria-label', 'Download audio');
+      button.style.cssText =
+        'font-size:19px;line-height:36px;text-align:center;color:#fff;background:transparent;border:0;cursor:pointer;';
+      button.textContent = '↓';
+      button.addEventListener('click', () => {
+        void requestAudioDownload(bridgeNonce, button);
+      });
+      controls.prepend(button);
+      updateDownloadButton(getSettings().enabled && getSettings().downloadEnabled);
+    }
   };
 
   attach();
   new MutationObserver(attach).observe(document.documentElement, { childList: true, subtree: true });
+}
+
+async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonElement): Promise<void> {
+  if (!getSettings().enabled || !getSettings().downloadEnabled || button.disabled) return;
+  button.disabled = true;
+  button.title = 'Preparing audio download';
+  const requestId = crypto.randomUUID();
+  try {
+    const payload = await new Promise<{ url: string; filename: string }>((resolve, reject) => {
+      const finish = () => {
+        window.clearTimeout(timeout);
+        document.removeEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
+      };
+      const onResponse = (event: Event) => {
+        const detail = (event as CustomEvent<unknown>).detail;
+        if (typeof detail !== 'string') return;
+        try {
+          const parsed: unknown = JSON.parse(detail);
+          if (typeof parsed !== 'object' || parsed === null) return;
+          const candidate = parsed as {
+            nonce?: unknown;
+            requestId?: unknown;
+            ok?: unknown;
+            url?: unknown;
+            filename?: unknown;
+          };
+          if (candidate.nonce !== bridgeNonce || candidate.requestId !== requestId) return;
+          finish();
+          const benchOrigin = __BENCH__ ? location.origin : undefined;
+          if (
+            candidate.ok === true &&
+            isAllowedAudioUrl(candidate.url, benchOrigin) &&
+            isSafeDownloadFilename(candidate.filename)
+          ) {
+            resolve({ url: candidate.url, filename: candidate.filename });
+          } else {
+            reject(new Error('download-unavailable'));
+          }
+        } catch {
+          // Ignore malformed page events until the bounded timeout.
+        }
+      };
+      const timeout = window.setTimeout(() => {
+        document.removeEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
+        reject(new Error('download-timeout'));
+      }, 8_000);
+      document.addEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
+      document.dispatchEvent(
+        new CustomEvent(DOWNLOAD_REQUEST_EVENT, {
+          detail: JSON.stringify({ nonce: bridgeNonce, requestId }),
+        })
+      );
+    });
+    const response: unknown = await browser.runtime.sendMessage({
+      type: DOWNLOAD_MESSAGE,
+      ...payload,
+      ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
+    });
+    if (typeof response !== 'object' || response === null || (response as { ok?: unknown }).ok !== true) {
+      throw new Error('download-failed');
+    }
+    button.title = 'Audio download started';
+    if (__BENCH__) document.documentElement.dataset.ytaDownload = JSON.stringify(payload);
+  } catch {
+    button.title = 'Audio download failed';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function updateDownloadButton(visible: boolean): void {
+  const button = document.getElementById(DOWNLOAD_BUTTON_ID);
+  if (button) button.hidden = !visible;
 }
 
 function updateToggle(active: boolean): void {

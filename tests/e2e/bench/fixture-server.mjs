@@ -177,7 +177,7 @@ function watchPageHtml() {
         <div class="ytp-progress-bar-container">
           <div class="ytp-progress-bar" role="slider"></div>
         </div>
-        <div class="ytp-chrome-controls">
+        <div class="ytp-chrome-controls ytp-left-controls">
           <button class="ytp-play-button ytp-button" aria-label="Play"></button>
           <div class="ytp-time-display">
             <span class="ytp-time-current">0:00</span>

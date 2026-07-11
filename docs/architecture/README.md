@@ -217,6 +217,31 @@ sequenceDiagram
 
 Any graph, metadata, bridge, remote, parse, or DOM failure is a no-op. Scrobbling is out of scope because it conflicts with ghost mode.
 
+## M5 Audio Download Flow
+
+An off-by-default in-player control initiates a fresh credentialless ANDROID_VR request in MAIN world. MAIN selects the preferred direct audio format and sends a nonce-authenticated JSON-string payload through isolated content. The background independently validates the Googlevideo URL and bounded canonical filename, then uses the downloads API directly. A credentialless Blob fallback is used only when the direct handoff fails.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Content as Isolated content
+    participant Main as MAIN world
+    participant API as InnerTube
+    participant Background as Background
+    participant Downloads as Firefox downloads
+
+    User->>Content: Click Download audio
+    Content->>Main: Nonce + request ID (JSON detail)
+    Main->>API: Credentialless ANDROID_VR player POST
+    API-->>Main: Direct audio format + title
+    Main-->>Content: Validated URL + sanitized filename
+    Content->>Background: Fixed download operation
+    Background->>Background: Revalidate Googlevideo URL + filename
+    Background->>Downloads: Direct downloads.download
+```
+
+Acquisition, bridge, validation, direct-download, and fallback failures return a bounded failure result and never alter playback.
+
 ## Build Outputs
 
 - `.output/firefox-mv2/`: shipping Firefox MV2 directory.

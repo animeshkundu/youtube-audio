@@ -1,9 +1,11 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
   buildAndroidVrPlayerRequest,
   getPlayability,
+  pickBestAudioFormat,
   pickBestAudioUrl,
   type PlayerResponse,
 } from '../src/shared/innertube';
@@ -23,6 +25,8 @@ const STATUS_EVENT = 'yta:status';
 const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const TRACK_EVENT = 'yta:track';
+const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
+const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const VIDEO_WAIT_MS = 8_000;
 
 type PlaybackStatus = 'idle' | 'fetching' | 'active' | 'fallback' | 'disabled';
@@ -40,6 +44,7 @@ interface PageSettings {
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
   lyricsEnabled: boolean;
+  downloadEnabled: boolean;
 }
 
 interface YouTubeConfig {
@@ -76,6 +81,7 @@ export default defineUnlistedScript(() => {
     equalizerEnabled: false,
     equalizerBands: [],
     lyricsEnabled: false,
+    downloadEnabled: false,
   };
   let generation = player.navigate();
   let visibilityCleanup: () => void = () => undefined;
@@ -141,6 +147,81 @@ export default defineUnlistedScript(() => {
     const next = parseSettings(data.settings);
     if (next) applySettings(next);
   });
+
+  document.addEventListener(DOWNLOAD_REQUEST_EVENT, (event) => {
+    void handleDownloadRequest(event);
+  });
+
+  async function handleDownloadRequest(event: Event): Promise<void> {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (typeof detail !== 'string' || !bridgeNonce) return;
+    let requestId: string;
+    try {
+      const parsed: unknown = JSON.parse(detail);
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const candidate = parsed as { nonce?: unknown; requestId?: unknown };
+      if (
+        candidate.nonce !== bridgeNonce ||
+        typeof candidate.requestId !== 'string' ||
+        candidate.requestId.length > 64
+      ) {
+        return;
+      }
+      requestId = candidate.requestId;
+    } catch {
+      return;
+    }
+
+    const respond = (payload: Record<string, unknown>) => {
+      document.dispatchEvent(
+        new CustomEvent(DOWNLOAD_RESPONSE_EVENT, {
+          detail: JSON.stringify({ nonce: bridgeNonce, requestId, ...payload }),
+        })
+      );
+    };
+    if (!settings.enabled || !settings.downloadEnabled) {
+      respond({ ok: false, reason: 'disabled' });
+      return;
+    }
+    try {
+      const videoId = getVideoId();
+      const apiKey = getConfigString('INNERTUBE_API_KEY');
+      if (!videoId || !apiKey) {
+        respond({ ok: false, reason: 'not-a-watch-page' });
+        return;
+      }
+      const visitorData = getConfigString('VISITOR_DATA');
+      const response = await fetch(
+        `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
+        {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildAndroidVrPlayerRequest(videoId, visitorData ?? undefined)),
+        }
+      );
+      if (!response.ok) {
+        respond({ ok: false, reason: `http-${response.status}` });
+        return;
+      }
+      const playerResponse: unknown = await response.json();
+      if (!getPlayability(playerResponse).isPlayable) {
+        respond({ ok: false, reason: 'unplayable' });
+        return;
+      }
+      const format = pickBestAudioFormat(playerResponse);
+      const url = format?.url;
+      const title = (playerResponse as PlayerResponse).videoDetails?.title;
+      const benchOrigin = __BENCH__ ? location.origin : undefined;
+      if (!url || !isAllowedAudioUrl(url, benchOrigin) || typeof title !== 'string') {
+        respond({ ok: false, reason: 'no-direct-audio' });
+        return;
+      }
+      respond({ ok: true, url, filename: buildAudioFilename(title, format.itag) });
+    } catch {
+      respond({ ok: false, reason: 'request-failed' });
+    }
+  }
 
   observeYouTubeSpa(() => {
     generation = player.navigate();
@@ -245,7 +326,7 @@ export default defineUnlistedScript(() => {
         return;
       }
       const audioUrl = pickBestAudioUrl(playerResponse);
-      if (!audioUrl || !isAllowedAudioUrl(audioUrl)) {
+      if (!audioUrl || !isAllowedAudioUrl(audioUrl, __BENCH__ ? location.origin : undefined)) {
         emitStatus('fallback', 'no-direct-audio');
         return;
       }
@@ -523,20 +604,6 @@ function getConfigString(key: string): string | null {
   }
 }
 
-function isAllowedAudioUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const isBench = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
-    return (
-      (url.protocol === 'https:' &&
-        (url.hostname === 'googlevideo.com' || url.hostname.endsWith('.googlevideo.com'))) ||
-      (isBench && url.origin === location.origin)
-    );
-  } catch {
-    return false;
-  }
-}
-
 function parseSettings(value: unknown): PageSettings | null {
   if (typeof value !== 'object' || value === null) return null;
   const candidate = value as Partial<PageSettings>;
@@ -557,7 +624,8 @@ function parseSettings(value: unknown): PageSettings | null {
     !candidate.equalizerBands.every(
       (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
     ) ||
-    typeof candidate.lyricsEnabled !== 'boolean'
+    typeof candidate.lyricsEnabled !== 'boolean' ||
+    typeof candidate.downloadEnabled !== 'boolean'
   ) {
     return null;
   }
@@ -574,6 +642,7 @@ function parseSettings(value: unknown): PageSettings | null {
     equalizerEnabled: candidate.equalizerEnabled,
     equalizerBands: candidate.equalizerBands,
     lyricsEnabled: candidate.lyricsEnabled,
+    downloadEnabled: candidate.downloadEnabled,
   };
 }
 
