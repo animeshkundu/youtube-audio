@@ -1,30 +1,30 @@
 #!/bin/bash
 # Script: build-ext.sh
-# Purpose: Build a clean, installable extension package (XPI) from the working-tree
-#          source, so verification always runs against the CURRENT source, not a
-#          stale prebuilt artifact.
-# Output:  dist/youtube-audio.xpi  (+ dist/extension/ staging dir)
-set -e
+# Purpose: Build the Firefox MV2 extension and package its generated WXT output.
+# Output: dist/youtube-audio.xpi
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$ROOT"
 
-STAGE="dist/extension"
-rm -rf "$STAGE"
-mkdir -p "$STAGE"
+npm run build
 
-# Only the actual extension files (never node_modules/docs/tests/etc).
-cp manifest.json "$STAGE/"
-cp -r js css html img "$STAGE/"
+SOURCE_DIR=".output/firefox-mv2"
+ARTIFACTS_DIR="dist/web-ext-artifacts"
+rm -rf "$ARTIFACTS_DIR"
+mkdir -p "$ARTIFACTS_DIR" dist
 
-# Package via web-ext (produces a zip; an XPI is just a zip).
-node_modules/.bin/web-ext build --source-dir="$STAGE" --artifacts-dir=dist --overwrite-dest >/dev/null
+node_modules/.bin/web-ext build \
+  --source-dir="$SOURCE_DIR" \
+  --artifacts-dir="$ARTIFACTS_DIR" \
+  --overwrite-dest >/dev/null
 
-BUILT="$(ls -t dist/youtube_audio-*.zip 2>/dev/null | head -1)"
+BUILT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' -print -quit)"
 if [ -z "$BUILT" ]; then
   echo "build-ext: web-ext produced no artifact" >&2
   exit 1
 fi
+
 cp "$BUILT" dist/youtube-audio.xpi
-echo "built dist/youtube-audio.xpi from source ($(wc -c < dist/youtube-audio.xpi) bytes)"
+printf 'built dist/youtube-audio.xpi from WXT output (%s bytes)\n' "$(wc -c < dist/youtube-audio.xpi)"

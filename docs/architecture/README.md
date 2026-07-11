@@ -1,108 +1,86 @@
 # Architecture Documentation
 
-## Purpose
+## M0 Architecture
 
-This folder contains high-level system architecture documentation using Mermaid.js diagrams and design documents.
-
-## Current Architecture
-
-### YouTube Audio Browser Extension Architecture
+YouTube Audio is a Firefox-first WebExtension built from one strict-TypeScript source tree. Firefox Manifest V2 is the shipping target; Firefox Manifest V3 is emitted as a capability artifact.
 
 ```mermaid
-flowchart TD
-    subgraph Browser["Browser Environment"]
-        subgraph Extension["YouTube Audio Extension"]
-            BG[Background Script<br/>global.js]
-            CS[Content Script<br/>youtube_audio.js]
-            OP[Options Page<br/>options.js]
-        end
-
-        subgraph APIs["Browser APIs"]
-            WR[WebRequest API]
-            ST[Storage API]
-            TB[Tabs API]
-            BA[BrowserAction API]
-        end
-
-        subgraph YouTube["YouTube Page"]
-            VP[Video Player]
-            DOM[Page DOM]
-        end
+flowchart LR
+    subgraph Page[YouTube page]
+        MAIN[MAIN-world entrypoint]
+        Player[YouTube player]
     end
 
-    User([User]) -->|Click Extension Icon| BA
-    BA -->|Toggle State| BG
-    BG -->|Enable/Disable| WR
-    WR -->|Intercept Audio URL| BG
-    BG -->|Send Audio URL| CS
-    CS -->|Replace Video Source| VP
-    CS -->|Add Audio-Only Indicator| DOM
-    BG <-->|Store State| ST
-    OP <-->|Read/Write Settings| ST
-    BG <-->|Track Active Tabs| TB
+    subgraph Extension[YouTube Audio]
+        Content[Isolated content entrypoint]
+        Background[Persistent MV2 background]
+        Shared[Framework-free shared modules]
+        Popup[Preact popup]
+        Options[Preact options]
+        Storage[(Extension storage)]
+    end
+
+    Content -->|WXT injectScript| MAIN
+    MAIN -. future typed bridge .-> Content
+    MAIN -. M1 PlayerHandle .-> Player
+    Content --> Shared
+    Background --> Shared
+    Popup --> Shared
+    Options --> Shared
+    Popup <--> Storage
+    Options <--> Storage
+    Background <--> Storage
 ```
 
-### Component Responsibilities
+## Layer Responsibilities
 
-#### Background Script (`global.js`)
+### Background
 
-- Manages extension state (enabled/disabled)
-- Intercepts WebRequests to detect audio streams
-- Communicates audio URLs to content scripts
-- Handles tab lifecycle management
+The persistent MV2 background entrypoint will own privileged APIs, network adapters, downloads, and remote-service proxies. M0 only initializes configuration state; no interception logic is active.
 
-#### Content Script (`youtube_audio.js`)
+### Isolated content
 
-- Receives audio URLs from background script
-- Replaces video source with audio-only stream
-- Displays user notification overlay
-- Respects user preferences from storage
+The content entrypoint runs at `document_start` on the four supported YouTube match patterns. It injects the unlisted MAIN-world bundle and will later own validated cross-world messaging and DOM-facing features.
 
-#### Options Page (`options.js`)
+### MAIN world
 
-- Provides user preferences UI
-- Saves settings to browser storage
+The MAIN-world entrypoint is the only layer intended to touch YouTube player APIs and page-owned prototypes. M0 installs no hooks. M1 will implement the proven `<video>.src` hijack behind `PlayerHandle`.
 
-### Data Flow
+### Shared modules
+
+`src/shared/` contains framework-neutral contracts and pure logic. Feature modules are inert stubs in M0. The real ANDROID_VR request-body builder is implemented here and tested directly. `platform.ts` exposes manifest/background capability flags so later network interception and lifecycle logic can stay behind adapters.
+
+### UI
+
+Popup and options are extension-owned documents built with Preact and `@preact/signals`. They share the same storage-backed enabled state. Preact is not used in background, content, or page-world code.
+
+## State Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant BrowserAction
-    participant Background as Background Script
-    participant Storage
-    participant WebRequest
-    participant Content as Content Script
-    participant VideoPlayer
+    participant UI as Popup / Options
+    participant Signal as enabledSignal
+    participant Store as browser.storage.local
+    participant Context as Other extension contexts
 
-    User->>BrowserAction: Click icon
-    BrowserAction->>Background: Toggle state
-    Background->>Storage: Save new state
-    Background->>Background: Enable/Disable WebRequest listener
-
-    Note over Background,VideoPlayer: When extension is enabled
-
-    WebRequest->>Background: Intercept request with mime=audio
-    Background->>Background: Parse and clean URL
-    Background->>Content: Send audio URL
-    Content->>VideoPlayer: Replace src with audio URL
-    Content->>Content: Show notification overlay
+    User->>UI: Toggle protection
+    UI->>Signal: Optimistic update
+    UI->>Store: Persist setting
+    Store-->>Context: storage.onChanged
+    Context->>Signal: Synchronize value
 ```
 
-## Adding Diagrams
+## Security Boundaries
 
-### Mermaid.js Syntax
+- Page-world data is untrusted. No page-message handler exists in M0.
+- The background never accepts arbitrary URLs.
+- Only YouTube page patterns and `*.googlevideo.com` are granted.
+- SponsorBlock and LRCLIB origins remain ungranted placeholders until their opt-in features land.
+- Feature failures must leave native YouTube behavior intact.
 
-All diagrams should be written in Mermaid.js for version control and rendering in Markdown.
+## Build Outputs
 
-### Common Diagram Types
-
-- **Flowchart**: System components and relationships
-- **Sequence**: Data flow and interactions
-- **Class**: Module structures
-- **State**: State machines and transitions
-
-### Resources
-
-- [Mermaid Documentation](https://mermaid.js.org/intro/)
-- [Mermaid Live Editor](https://mermaid.live)
+- `.output/firefox-mv2/`: shipping Firefox MV2 directory.
+- `.output/firefox-mv3/`: Firefox MV3 capability directory.
+- `dist/youtube-audio.xpi`: stable packaged MV2 artifact consumed by the Selenium harness.

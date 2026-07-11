@@ -4,11 +4,12 @@ This folder contains automation scripts for development and CI/CD.
 
 ## Available Scripts
 
-| Script        | Purpose                        | Usage                       |
-| ------------- | ------------------------------ | --------------------------- |
-| `validate.sh` | Run all validation checks      | `./scripts/validate.sh`     |
-| `setup.sh`    | Setup development environment  | `./scripts/setup.sh`        |
-| `lint.sh`     | Run linter (with optional fix) | `./scripts/lint.sh [--fix]` |
+| Script         | Purpose                                                    | Usage                       |
+| -------------- | ---------------------------------------------------------- | --------------------------- |
+| `build-ext.sh` | Build WXT Firefox MV2 and package `dist/youtube-audio.xpi` | `./scripts/build-ext.sh`    |
+| `validate.sh`  | Run all validation checks                                  | `./scripts/validate.sh`     |
+| `setup.sh`     | Setup development environment                              | `./scripts/setup.sh`        |
+| `lint.sh`      | Run linter (with optional fix)                             | `./scripts/lint.sh [--fix]` |
 
 ## Quick Start
 
@@ -29,12 +30,11 @@ This folder contains automation scripts for development and CI/CD.
 
 Runs the complete validation suite:
 
-1. Validates `manifest.json` syntax
-2. Checks for required extension files
-3. Runs ESLint for code quality
-4. Runs Prettier for formatting
-5. Runs test suite
-6. Checks code coverage (90% threshold)
+1. Runs ESLint and strict TypeScript checks
+2. Checks formatting
+3. Runs real-source unit tests with the 90% coverage threshold
+4. Builds Firefox MV2 and MV3 artifacts
+5. Runs `web-ext lint` on the generated Firefox MV2 extension
 
 **Exit codes:**
 

@@ -1,48 +1,30 @@
 module.exports = {
   env: {
     browser: true,
-    es2021: true,
-    jest: true,
-    webextensions: true,
+    es2022: true,
     node: true,
+    webextensions: true,
   },
-  extends: ['eslint:recommended', 'plugin:jest/recommended', 'prettier'],
+  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended', 'prettier'],
+  parser: '@typescript-eslint/parser',
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
   },
-  plugins: ['jest'],
+  plugins: ['@typescript-eslint'],
   rules: {
-    'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
-    'no-console': 'warn',
-    'prefer-const': 'error',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    'no-console': ['warn', { allow: ['error', 'warn'] }],
     'no-var': 'error',
+    'prefer-const': 'error',
   },
-  globals: {
-    chrome: 'readonly',
-    browser: 'readonly',
-    global: 'writable',
-    createMockVideoElement: 'readonly',
-  },
+  ignorePatterns: ['.output/', '.wxt/', 'coverage/', 'dist/', 'node_modules/'],
   overrides: [
     {
-      files: ['tests/**/*.js'],
-      env: {
-        jest: true,
-        node: true,
-      },
-      globals: {
-        global: 'writable',
-        createMockVideoElement: 'readonly',
-        waitForDom: 'readonly',
-      },
-    },
-    {
-      // Legacy browser extension code - allow var for compatibility
-      files: ['js/**/*.js'],
+      files: ['tests/e2e/*.mjs'],
       rules: {
-        'no-var': 'off',
-        'prefer-const': 'off',
+        'no-unused-vars': 'off',
+        'no-empty': 'off',
       },
     },
   ],
