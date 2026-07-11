@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals';
 
+import { isQualityCap, type QualityCap } from './quality-of-life';
 import {
   isSponsorCategory,
   SPONSOR_CATEGORIES,
@@ -15,10 +16,20 @@ export interface ExtensionSettings {
   adBlockEnabled: boolean;
   segmentSkipEnabled: boolean;
   segmentSkipCategories: readonly SponsorCategory[];
+  forceQualityMax: QualityCap;
+  disableAutoplayNext: boolean;
+  hideShorts: boolean;
+  hideRecommendations: boolean;
+  hideComments: boolean;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
 export type TelemetrySetting = 'ghostEnabled' | 'aggressiveTelemetry';
+export type QualityOfLifeSetting =
+  | 'disableAutoplayNext'
+  | 'hideShorts'
+  | 'hideRecommendations'
+  | 'hideComments';
 
 const STORAGE_KEY = 'settings';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -30,6 +41,11 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   adBlockEnabled: true,
   segmentSkipEnabled: true,
   segmentSkipCategories: SPONSOR_CATEGORIES,
+  forceQualityMax: 'off',
+  disableAutoplayNext: false,
+  hideShorts: false,
+  hideRecommendations: false,
+  hideComments: false,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
@@ -42,6 +58,11 @@ export const segmentSkipEnabledSignal = signal(DEFAULT_SETTINGS.segmentSkipEnabl
 export const segmentSkipCategoriesSignal = signal<readonly SponsorCategory[]>(
   DEFAULT_SETTINGS.segmentSkipCategories
 );
+export const forceQualityMaxSignal = signal<QualityCap>(DEFAULT_SETTINGS.forceQualityMax);
+export const disableAutoplayNextSignal = signal(DEFAULT_SETTINGS.disableAutoplayNext);
+export const hideShortsSignal = signal(DEFAULT_SETTINGS.hideShorts);
+export const hideRecommendationsSignal = signal(DEFAULT_SETTINGS.hideRecommendations);
+export const hideCommentsSignal = signal(DEFAULT_SETTINGS.hideComments);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -91,6 +112,17 @@ export async function setAdBlockEnabled(enabled: boolean): Promise<void> {
 
 export async function setSegmentSkipEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, segmentSkipEnabled: enabled });
+}
+
+export async function setForceQualityMax(forceQualityMax: QualityCap): Promise<void> {
+  await persistSettings({ ...currentSettings, forceQualityMax });
+}
+
+export async function setQualityOfLifeSetting(
+  setting: QualityOfLifeSetting,
+  enabled: boolean
+): Promise<void> {
+  await persistSettings({ ...currentSettings, [setting]: enabled });
 }
 
 export async function setSegmentSkipCategory(
@@ -143,6 +175,11 @@ function applySettings(settings: ExtensionSettings): void {
   adBlockEnabledSignal.value = settings.adBlockEnabled;
   segmentSkipEnabledSignal.value = settings.segmentSkipEnabled;
   segmentSkipCategoriesSignal.value = settings.segmentSkipCategories;
+  forceQualityMaxSignal.value = settings.forceQualityMax;
+  disableAutoplayNextSignal.value = settings.disableAutoplayNext;
+  hideShortsSignal.value = settings.hideShorts;
+  hideRecommendationsSignal.value = settings.hideRecommendations;
+  hideCommentsSignal.value = settings.hideComments;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -176,6 +213,23 @@ function normalizeSettings(value: unknown): ExtensionSettings {
         ? candidate.segmentSkipEnabled
         : DEFAULT_SETTINGS.segmentSkipEnabled,
     segmentSkipCategories: normalizeSponsorCategories(candidate.segmentSkipCategories),
+    forceQualityMax: isQualityCap(candidate.forceQualityMax)
+      ? candidate.forceQualityMax
+      : DEFAULT_SETTINGS.forceQualityMax,
+    disableAutoplayNext:
+      typeof candidate.disableAutoplayNext === 'boolean'
+        ? candidate.disableAutoplayNext
+        : DEFAULT_SETTINGS.disableAutoplayNext,
+    hideShorts:
+      typeof candidate.hideShorts === 'boolean' ? candidate.hideShorts : DEFAULT_SETTINGS.hideShorts,
+    hideRecommendations:
+      typeof candidate.hideRecommendations === 'boolean'
+        ? candidate.hideRecommendations
+        : DEFAULT_SETTINGS.hideRecommendations,
+    hideComments:
+      typeof candidate.hideComments === 'boolean'
+        ? candidate.hideComments
+        : DEFAULT_SETTINGS.hideComments,
   };
 }
 

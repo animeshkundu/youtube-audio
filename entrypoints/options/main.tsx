@@ -3,9 +3,14 @@ import { render } from 'preact';
 import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
+  disableAutoplayNextSignal,
+  forceQualityMaxSignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   ghostEnabledSignal,
+  hideCommentsSignal,
+  hideRecommendationsSignal,
+  hideShortsSignal,
   initializeSettings,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
@@ -13,7 +18,9 @@ import {
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setForceQualityMax,
   setGhostEnabled,
+  setQualityOfLifeSetting,
   setSegmentSkipCategory,
   setSegmentSkipEnabled,
   watchSettings,
@@ -36,6 +43,31 @@ function Options() {
         <button type="button" onClick={() => void setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value)}>
           <span><strong>Background play</strong><small>Keep playback active while the page is hidden.</small></span>
           <span role="switch" aria-checked={backgroundPlayEnabledSignal.value}>{backgroundPlayEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+      </section>
+      <section>
+        <h2>Quality of life</h2>
+        <label>
+          <span><strong>Maximum video quality</strong><small>Cap YouTube's adaptive quality to save data.</small></span>
+          <select value={forceQualityMaxSignal.value} onChange={(event) => void setForceQualityMax(event.currentTarget.value as typeof forceQualityMaxSignal.value)}>
+            <option value="off">Off</option><option value="144p">144p</option><option value="240p">240p</option><option value="360p">360p</option><option value="480p">480p</option><option value="720p">720p</option><option value="1080p">1080p</option>
+          </select>
+        </label>
+        <button type="button" onClick={() => void setQualityOfLifeSetting('disableAutoplayNext', !disableAutoplayNextSignal.value)}>
+          <span><strong>Disable autoplay next</strong><small>Turn off YouTube's native Up next control.</small></span>
+          <span role="switch" aria-checked={disableAutoplayNextSignal.value}>{disableAutoplayNextSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setQualityOfLifeSetting('hideShorts', !hideShortsSignal.value)}>
+          <span><strong>Hide Shorts</strong><small>Hide Shorts shelves and cards on desktop and mobile.</small></span>
+          <span role="switch" aria-checked={hideShortsSignal.value}>{hideShortsSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setQualityOfLifeSetting('hideRecommendations', !hideRecommendationsSignal.value)}>
+          <span><strong>Hide recommendations</strong><small>Hide related videos beside the watch page.</small></span>
+          <span role="switch" aria-checked={hideRecommendationsSignal.value}>{hideRecommendationsSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setQualityOfLifeSetting('hideComments', !hideCommentsSignal.value)}>
+          <span><strong>Hide comments</strong><small>Hide the comments section and mobile entry point.</small></span>
+          <span role="switch" aria-checked={hideCommentsSignal.value}>{hideCommentsSignal.value ? 'On' : 'Off'}</span>
         </button>
       </section>
       <section>

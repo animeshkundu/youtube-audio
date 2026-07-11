@@ -147,6 +147,29 @@ sequenceDiagram
 
 Any hashing, network, parsing, bridge, media, or seek failure returns an empty list or no-op and leaves native playback intact.
 
+## M3b Quality-of-Life Flow
+
+The isolated content layer turns the three cosmetic settings into one extension-managed stylesheet. It replaces the style text on instant storage changes and removes it when globally disabled, without exposing settings through persistent page attributes. The MAIN-world layer feature-detects the native player API for bounded quality-cap reassertion and uses YouTube's own autonav toggle when autoplay-next suppression is enabled.
+
+```mermaid
+sequenceDiagram
+    participant Storage as Extension storage
+    participant Content as Isolated content
+    participant Main as MAIN world
+    participant Player as YouTube player
+    participant DOM as YouTube page
+
+    Storage-->>Content: QoL settings update
+    Content->>DOM: Replace one cosmetic stylesheet
+    Content->>Main: Nonce-authenticated settings payload
+    Main->>Player: Optional quality range + quality hint
+    Main->>Player: Optional native autonav toggle click
+    Player-->>Main: Quality-change event
+    Main->>Player: Bounded quality reassertion
+```
+
+Missing selectors, controls, and undocumented player methods are no-ops. No perpetual interval, page prototype patch, DOM deletion, or remote input is used.
+
 ## M2b Ad-block Flow
 
 The persistent MV2 background owns deterministic response rewriting. For enabled `/youtubei/v1/player` and `/youtubei/v1/next` POSTs, Firefox `filterResponseData` buffers the original bytes, removes only the bundled allowlist of ad descriptor keys, and emits the rewritten JSON. Any stream, decoding, parsing, or serialization failure emits the original bytes unchanged. Disabling global protection or ad blocking leaves the response filter inert.

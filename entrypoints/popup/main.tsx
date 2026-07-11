@@ -6,7 +6,9 @@ import {
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
+  disableAutoplayNextSignal,
   ghostEnabledSignal,
+  hideShortsSignal,
   initializeSettings,
   segmentSkipEnabledSignal,
   setAdBlockEnabled,
@@ -14,6 +16,7 @@ import {
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setGhostEnabled,
+  setQualityOfLifeSetting,
   setSegmentSkipEnabled,
   watchSettings,
 } from '../../src/shared/config';
@@ -80,6 +83,22 @@ function Popup() {
         description="Privately skip sponsors and non-music"
         active={segmentSkipEnabledSignal.value}
         onToggle={() => apply(() => setSegmentSkipEnabled(!segmentSkipEnabledSignal.value))}
+      />
+      <Toggle
+        label="Disable autoplay next"
+        description="Stop YouTube from starting another video"
+        active={disableAutoplayNextSignal.value}
+        onToggle={() =>
+          apply(() =>
+            setQualityOfLifeSetting('disableAutoplayNext', !disableAutoplayNextSignal.value)
+          )
+        }
+      />
+      <Toggle
+        label="Hide Shorts"
+        description="Remove Shorts shelves and cards"
+        active={hideShortsSignal.value}
+        onToggle={() => apply(() => setQualityOfLifeSetting('hideShorts', !hideShortsSignal.value))}
       />
       <Toggle
         label="Reduce tracking"

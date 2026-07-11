@@ -8,6 +8,7 @@ import {
   subscribeSettings,
   watchSettings,
 } from '../src/shared/config';
+import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
@@ -26,6 +27,7 @@ const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const BUTTON_ID = 'yta-audio-only-toggle';
+const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 
 export default defineContentScript({
   matches: MATCHES,
@@ -43,6 +45,7 @@ export default defineContentScript({
       subscribeSettings((settings) => {
         window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
+        updateDistractionStyle(settings);
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
@@ -100,6 +103,25 @@ async function handleSponsorRequest(event: Event, bridgeNonce: string): Promise<
       detail: JSON.stringify({ nonce: bridgeNonce, requestId: candidate.requestId, segments }),
     })
   );
+}
+
+function updateDistractionStyle(settings: ReturnType<typeof getSettings>): void {
+  try {
+    const css = buildDistractionStyles(settings);
+    let style = document.getElementById(DISTRACTION_STYLE_ID);
+    if (!css) {
+      style?.remove();
+      return;
+    }
+    if (!(style instanceof HTMLStyleElement)) {
+      style = document.createElement('style');
+      style.id = DISTRACTION_STYLE_ID;
+      (document.head ?? document.documentElement).append(style);
+    }
+    style.textContent = css;
+  } catch {
+    document.getElementById(DISTRACTION_STYLE_ID)?.remove();
+  }
 }
 
 function installPlayerToggle(): void {

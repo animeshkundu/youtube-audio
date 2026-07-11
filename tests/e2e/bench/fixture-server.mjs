@@ -187,6 +187,25 @@ function watchPageHtml() {
       </div>
     </div>
   </div>
+  <!-- Distraction-removal targets (custom elements render inline; CSS hides them). -->
+  <ytd-reel-shelf-renderer id="fixture-shorts">Shorts shelf</ytd-reel-shelf-renderer>
+  <ytd-watch-flexy><div id="secondary">Recommendations</div></ytd-watch-flexy>
+  <ytd-comments id="fixture-comments">Comments</ytd-comments>
+  <script>
+    // Record player quality-API calls so the QoL bench can assert forced quality.
+    window.__ytaQualityCalls = [];
+    (function () {
+      var mp = document.getElementById('movie_player');
+      if (mp) {
+        mp.setPlaybackQualityRange = function (min, max) {
+          window.__ytaQualityCalls.push({ min: min, max: max });
+        };
+        mp.setPlaybackQuality = function (q) {
+          window.__ytaQualityCalls.push({ quality: q });
+        };
+      }
+    })();
+  </script>
   <script>
     // On load the fixture page fires the same telemetry beacons a real watch page emits.
     // The bench uses this to prove the request log records traffic (and, for features,

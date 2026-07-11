@@ -161,7 +161,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, origin, resetLog }) {
+async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, origin, resetLog }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
@@ -270,6 +270,22 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       });
     }
 
+    let qol = null;
+    if (probeQol) {
+      qol = await driver.executeScript(function () {
+        const hidden = function (sel) {
+          const el = document.querySelector(sel);
+          return el ? getComputedStyle(el).display === 'none' : null;
+        };
+        return {
+          qualityCalls: window.__ytaQualityCalls || [],
+          shortsHidden: hidden('#fixture-shorts'),
+          recsHidden: hidden('#secondary'),
+          commentsHidden: hidden('#fixture-comments'),
+        };
+      });
+    }
+
     return {
       addonId,
       marker: snap.marker,
@@ -278,6 +294,7 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       vis,
       player,
       segmentSkip,
+      qol,
     };
   } finally {
     try {
@@ -311,6 +328,7 @@ async function main() {
     const control = await runSession({
       withAddon: false,
       probePlayerFromPage: true,
+      probeQol: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -473,6 +491,43 @@ async function main() {
       'm1:visibility-suppression',
       enabled.vis.swallowed === true && control.vis.swallowed === false,
       { control: control.vis, treatment: enabled.vis }
+    );
+    // --- quality-of-life (audio-only/skip off to isolate QoL) -----------------
+    const qolRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '480p',
+        disableAutoplayNext: true,
+        hideShorts: true,
+        hideRecommendations: true,
+        hideComments: true,
+      },
+      probeQol: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm3b:quality-forced-when-on',
+      (qolRun.qol?.qualityCalls || []).some(
+        (c) => c.max === 'large' || c.min === 'large' || c.quality === 'large'
+      ),
+      { qualityCalls: qolRun.qol?.qualityCalls }
+    );
+    record(
+      'm3b:distractions-hidden-when-on',
+      qolRun.qol?.shortsHidden === true &&
+        qolRun.qol?.recsHidden === true &&
+        qolRun.qol?.commentsHidden === true &&
+        control.qol?.shortsHidden === false,
+      { treatment: qolRun.qol, control: control.qol }
     );
   } finally {
     await fixture.close();

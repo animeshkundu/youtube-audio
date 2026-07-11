@@ -2,6 +2,7 @@ import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { buildAndroidVrPlayerRequest, getPlayability, pickBestAudioUrl } from '../src/shared/innertube';
 import { PlayerHandle } from '../src/shared/player';
+import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
@@ -26,11 +27,18 @@ interface PageSettings {
   adBlockEnabled: boolean;
   segmentSkipEnabled: boolean;
   segmentSkipCategories: readonly SponsorCategory[];
+  forceQualityMax: QualityCap;
+  disableAutoplayNext: boolean;
 }
 
 interface YouTubeConfig {
   get?(key: string): unknown;
   data_?: Record<string, unknown>;
+}
+
+interface YouTubePlayerElement extends HTMLElement {
+  setPlaybackQualityRange?(minimum: string, maximum?: string): void;
+  setPlaybackQuality?(quality: string): void;
 }
 
 declare global {
@@ -51,11 +59,14 @@ export default defineUnlistedScript(() => {
     adBlockEnabled: false,
     segmentSkipEnabled: false,
     segmentSkipCategories: [],
+    forceQualityMax: 'off',
+    disableAutoplayNext: false,
   };
   let generation = player.navigate();
   let visibilityCleanup: () => void = () => undefined;
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
+  let qualityOfLifeCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
@@ -85,6 +96,8 @@ export default defineUnlistedScript(() => {
     }
     generation = player.navigate();
     restartSegmentSkipping();
+    qualityOfLifeCleanup();
+    qualityOfLifeCleanup = applyQualityOfLife(settings);
     if (!settings.enabled || !settings.audioOnlyEnabled) {
       emitStatus('disabled');
       return;
@@ -105,6 +118,8 @@ export default defineUnlistedScript(() => {
   observeYouTubeSpa(() => {
     generation = player.navigate();
     restartSegmentSkipping();
+    qualityOfLifeCleanup();
+    qualityOfLifeCleanup = applyQualityOfLife(settings);
     if (settings.enabled && settings.audioOnlyEnabled) void activateAudioOnly(generation);
   });
 
@@ -217,6 +232,64 @@ export default defineUnlistedScript(() => {
     });
   }
 });
+
+function applyQualityOfLife(settings: PageSettings): () => void {
+  if (!settings.enabled) return () => undefined;
+  const qualityLabel = getQualityLabel(settings.forceQualityMax);
+  const timers: number[] = [];
+  let observedPlayer: YouTubePlayerElement | null = null;
+  const reassertQuality = () => {
+    if (!qualityLabel) return;
+    try {
+      const player = document.querySelector<YouTubePlayerElement>(
+        '#movie_player, .html5-video-player'
+      );
+      if (!player) return;
+      observedPlayer ??= player;
+      player.setPlaybackQualityRange?.(qualityLabel, qualityLabel);
+      player.setPlaybackQuality?.(qualityLabel);
+    } catch {
+      // Undocumented player APIs are optional; native ABR remains in control on failure.
+    }
+  };
+  const disableAutoplay = () => {
+    if (!settings.disableAutoplayNext) return;
+    try {
+      const toggle = document.querySelector<HTMLElement>('.ytp-autonav-toggle-button');
+      if (toggle?.getAttribute('aria-checked') === 'true') toggle.click();
+    } catch {
+      // A missing or changing native control leaves YouTube's current state untouched.
+    }
+  };
+  const apply = () => {
+    reassertQuality();
+    disableAutoplay();
+  };
+  const qualityChanged = () => reassertQuality();
+  apply();
+  for (const delay of [300, 800, 1_500, 3_000]) {
+    timers.push(window.setTimeout(apply, delay));
+  }
+  try {
+    const eventPlayer = document.querySelector<YouTubePlayerElement>(
+      '#movie_player, .html5-video-player'
+    );
+    if (eventPlayer) {
+      observedPlayer = eventPlayer;
+      eventPlayer.addEventListener('onPlaybackQualityChange', qualityChanged);
+    }
+  } catch {
+    // Timed retries still provide bounded reassertion.
+  }
+  return () => {
+    timers.forEach((timer) => window.clearTimeout(timer));
+    try {
+      observedPlayer?.removeEventListener?.('onPlaybackQualityChange', qualityChanged);
+    } catch {
+      // Cleanup failures must not affect the page.
+    }
+  };
+}
 
 function requestSponsorSegments(
   videoId: string,
@@ -392,7 +465,9 @@ function parseSettings(value: unknown): PageSettings | null {
     typeof candidate.adBlockEnabled !== 'boolean' ||
     typeof candidate.segmentSkipEnabled !== 'boolean' ||
     !Array.isArray(candidate.segmentSkipCategories) ||
-    !candidate.segmentSkipCategories.every(isSponsorCategory)
+    !candidate.segmentSkipCategories.every(isSponsorCategory) ||
+    !isQualityCap(candidate.forceQualityMax) ||
+    typeof candidate.disableAutoplayNext !== 'boolean'
   ) {
     return null;
   }
@@ -403,6 +478,8 @@ function parseSettings(value: unknown): PageSettings | null {
     adBlockEnabled: candidate.adBlockEnabled,
     segmentSkipEnabled: candidate.segmentSkipEnabled,
     segmentSkipCategories: candidate.segmentSkipCategories,
+    forceQualityMax: candidate.forceQualityMax,
+    disableAutoplayNext: candidate.disableAutoplayNext,
   };
 }
 
