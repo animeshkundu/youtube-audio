@@ -337,7 +337,7 @@ async function runSession({
 
     let qol = null;
     if (probeQol) {
-      qol = await driver.executeScript(function () {
+      const readQol = function () {
         const hidden = function (sel) {
           const el = document.querySelector(sel);
           return el ? getComputedStyle(el).display === 'none' : null;
@@ -348,7 +348,15 @@ async function runSession({
           recsHidden: hidden('#secondary'),
           commentsHidden: hidden('#fixture-comments'),
         };
-      });
+      };
+      // Poll until the MAIN-world quality-of-life pass has applied (quality forced AND a
+      // distraction hidden) so a slow CI runner cannot read the state before it runs. Falls back
+      // to the last read so a genuine failure still surfaces real detail instead of null.
+      qol =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(readQol);
+          return state.qualityCalls.length > 0 && state.shortsHidden === true ? state : null;
+        }, 8000)) || (await driver.executeScript(readQol));
     }
 
     return {
