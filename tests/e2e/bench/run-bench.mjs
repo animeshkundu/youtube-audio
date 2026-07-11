@@ -248,6 +248,7 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, origin
 
 const hasPlayerPost = (requests) =>
   requests.some((r) => r.method === 'POST' && r.path === '/youtubei/v1/player');
+const requestCount = (requests, path) => requests.filter((r) => r.path === path).length;
 
 async function main() {
   if (!SKIP_BUILD) {
@@ -318,11 +319,27 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
+    record(
+      'm2a:conservative-telemetry-policy',
+      requestCount(enabledLog, '/api/stats/qoe') === 0 &&
+        requestCount(enabledLog, '/youtubei/v1/log_event') >= 1,
+      {
+        qoeCount: requestCount(enabledLog, '/api/stats/qoe'),
+        logEventCount: requestCount(enabledLog, '/youtubei/v1/log_event'),
+        recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
+      }
+    );
 
     // --- disabled (enabled:false, faithfully seeded) --------------------------
     const disabled = await runSession({
       withAddon: true,
-      seedSettings: { enabled: false, audioOnlyEnabled: true, backgroundPlayEnabled: true },
+      seedSettings: {
+        enabled: false,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: true,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+      },
       origin,
       resetLog: () => fixture.reset(),
     });

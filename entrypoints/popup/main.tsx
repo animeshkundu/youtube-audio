@@ -2,11 +2,15 @@ import { render } from 'preact';
 import { useState } from 'preact/hooks';
 
 import {
+  aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
+  ghostEnabledSignal,
   initializeSettings,
+  setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setGhostEnabled,
   watchSettings,
 } from '../../src/shared/config';
 import './style.css';
@@ -60,6 +64,18 @@ function Popup() {
         description="Keep playing when YouTube is hidden"
         active={backgroundPlayEnabledSignal.value}
         onToggle={() => apply(() => setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value))}
+      />
+      <Toggle
+        label="Reduce tracking"
+        description="Block safe first-party telemetry"
+        active={ghostEnabledSignal.value}
+        onToggle={() => apply(() => setGhostEnabled(!ghostEnabledSignal.value))}
+      />
+      <Toggle
+        label="Aggressive privacy"
+        description="May affect history and resume position"
+        active={aggressiveTelemetrySignal.value}
+        onToggle={() => apply(() => setAggressiveTelemetry(!aggressiveTelemetrySignal.value))}
       />
       {error && <p class="error">{error}</p>}
       <button class="settings" type="button" onClick={() => browser.runtime.openOptionsPage()}>

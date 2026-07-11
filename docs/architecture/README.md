@@ -36,7 +36,7 @@ flowchart LR
 
 ### Background
 
-The persistent MV2 background entrypoint will own privileged APIs, network adapters, downloads, and remote-service proxies. M0 only initializes configuration state; no interception logic is active.
+The persistent MV2 background entrypoint owns privileged APIs, network adapters, downloads, and remote-service proxies. M2a installs an allowlist-based blocking `webRequest.onBeforeRequest` listener for first-party YouTube telemetry. Its conservative default preserves InnerTube player, attestation, Googlevideo media, `log_event`, and watch-history endpoints; errors fail open.
 
 ### Isolated content
 
@@ -69,6 +69,26 @@ sequenceDiagram
     UI->>Store: Persist setting
     Store-->>Context: storage.onChanged
     Context->>Signal: Synchronize value
+```
+
+## M2a Telemetry Flow
+
+```mermaid
+sequenceDiagram
+    participant Page as YouTube page
+    participant WebRequest as Firefox webRequest
+    participant Policy as Telemetry policy
+    participant Network as YouTube endpoint
+
+    Page->>WebRequest: First-party request
+    WebRequest->>Policy: URL + current mode
+    alt Enumerated telemetry endpoint
+        Policy-->>WebRequest: Block
+        WebRequest--xNetwork: Cancel before transmission
+    else Core, media, log_event, or unknown
+        Policy-->>WebRequest: Allow
+        WebRequest->>Network: Request continues unchanged
+    end
 ```
 
 ## Security Boundaries

@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     coverage: {
-      include: ['src/shared/innertube.ts'],
+      include: ['src/shared/innertube.ts', 'src/shared/telemetry.ts'],
       provider: 'v8',
       reporter: ['text', 'json-summary'],
       thresholds: {

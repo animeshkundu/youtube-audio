@@ -35,9 +35,14 @@ export default defineConfig({
       'webRequestBlocking',
       'storage',
       'downloads',
-      ...(manifestVersion === 2 ? ['*://*.googlevideo.com/*'] : []),
+      ...(manifestVersion === 2
+        ? [...YOUTUBE_MATCHES, '*://*.googlevideo.com/*', ...(BENCH ? BENCH_MATCHES : [])]
+        : []),
     ],
-    host_permissions: manifestVersion === 3 ? ['*://*.googlevideo.com/*'] : undefined,
+    host_permissions:
+      manifestVersion === 3
+        ? [...YOUTUBE_MATCHES, '*://*.googlevideo.com/*', ...(BENCH ? BENCH_MATCHES : [])]
+        : undefined,
     browser_specific_settings: {
       gecko: {
         id: 'youtube-audio@local',

@@ -4,20 +4,27 @@ export interface ExtensionSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
   backgroundPlayEnabled: boolean;
+  ghostEnabled: boolean;
+  aggressiveTelemetry: boolean;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
+export type TelemetrySetting = 'ghostEnabled' | 'aggressiveTelemetry';
 
 const STORAGE_KEY = 'settings';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   audioOnlyEnabled: true,
   backgroundPlayEnabled: true,
+  ghostEnabled: true,
+  aggressiveTelemetry: false,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
 export const audioOnlyEnabledSignal = signal(DEFAULT_SETTINGS.audioOnlyEnabled);
 export const backgroundPlayEnabledSignal = signal(DEFAULT_SETTINGS.backgroundPlayEnabled);
+export const ghostEnabledSignal = signal(DEFAULT_SETTINGS.ghostEnabled);
+export const aggressiveTelemetrySignal = signal(DEFAULT_SETTINGS.aggressiveTelemetry);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -47,6 +54,18 @@ export async function setAudioOnlyEnabled(enabled: boolean): Promise<void> {
 
 export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> {
   await setPlaybackSetting('backgroundPlayEnabled', enabled);
+}
+
+export async function setTelemetrySetting(setting: TelemetrySetting, enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, [setting]: enabled });
+}
+
+export async function setGhostEnabled(enabled: boolean): Promise<void> {
+  await setTelemetrySetting('ghostEnabled', enabled);
+}
+
+export async function setAggressiveTelemetry(enabled: boolean): Promise<void> {
+  await setTelemetrySetting('aggressiveTelemetry', enabled);
 }
 
 export function subscribeSettings(listener: (settings: ExtensionSettings) => void): () => void {
@@ -81,6 +100,8 @@ function applySettings(settings: ExtensionSettings): void {
   enabledSignal.value = settings.enabled;
   audioOnlyEnabledSignal.value = settings.audioOnlyEnabled;
   backgroundPlayEnabledSignal.value = settings.backgroundPlayEnabled;
+  ghostEnabledSignal.value = settings.ghostEnabled;
+  aggressiveTelemetrySignal.value = settings.aggressiveTelemetry;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -97,5 +118,13 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.backgroundPlayEnabled === 'boolean'
         ? candidate.backgroundPlayEnabled
         : DEFAULT_SETTINGS.backgroundPlayEnabled,
+    ghostEnabled:
+      typeof candidate.ghostEnabled === 'boolean'
+        ? candidate.ghostEnabled
+        : DEFAULT_SETTINGS.ghostEnabled,
+    aggressiveTelemetry:
+      typeof candidate.aggressiveTelemetry === 'boolean'
+        ? candidate.aggressiveTelemetry
+        : DEFAULT_SETTINGS.aggressiveTelemetry,
   };
 }
