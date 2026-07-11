@@ -2,6 +2,8 @@ import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { buildAndroidVrPlayerRequest, getPlayability, pickBestAudioUrl } from '../src/shared/innertube';
 import { PlayerHandle } from '../src/shared/player';
+import { loadRescueConfig } from '../src/shared/rescue';
+import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
 
 const SETTINGS_EVENT = 'yta:settings';
@@ -14,6 +16,7 @@ interface PageSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
   backgroundPlayEnabled: boolean;
+  adBlockEnabled: boolean;
 }
 
 interface YouTubeConfig {
@@ -34,9 +37,12 @@ export default defineUnlistedScript(() => {
     enabled: false,
     audioOnlyEnabled: false,
     backgroundPlayEnabled: false,
+    adBlockEnabled: false,
   };
   let generation = player.navigate();
   let visibilityCleanup: () => void = () => undefined;
+  let scriptletCleanup: () => void = () => undefined;
+  let scriptletGeneration = 0;
 
   const emitStatus = (status: PlaybackStatus, reason?: string) => {
     document.dispatchEvent(
@@ -50,6 +56,17 @@ export default defineUnlistedScript(() => {
     settings = next;
     visibilityCleanup();
     visibilityCleanup = settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
+    const nextScriptletGeneration = ++scriptletGeneration;
+    scriptletCleanup();
+    scriptletCleanup = () => undefined;
+    if (settings.enabled && settings.adBlockEnabled) {
+      void loadRescueConfig()
+        .then((config) => {
+          if (nextScriptletGeneration !== scriptletGeneration) return;
+          scriptletCleanup = applyScriptletOperations(config.scriptlets).cleanup;
+        })
+        .catch(() => undefined);
+    }
     generation = player.navigate();
     if (!settings.enabled || !settings.audioOnlyEnabled) {
       emitStatus('disabled');
@@ -190,7 +207,8 @@ function parseSettings(value: unknown): PageSettings | null {
   if (
     typeof candidate.enabled !== 'boolean' ||
     typeof candidate.audioOnlyEnabled !== 'boolean' ||
-    typeof candidate.backgroundPlayEnabled !== 'boolean'
+    typeof candidate.backgroundPlayEnabled !== 'boolean' ||
+    typeof candidate.adBlockEnabled !== 'boolean'
   ) {
     return null;
   }
@@ -198,6 +216,7 @@ function parseSettings(value: unknown): PageSettings | null {
     enabled: candidate.enabled,
     audioOnlyEnabled: candidate.audioOnlyEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
+    adBlockEnabled: candidate.adBlockEnabled,
   };
 }
 

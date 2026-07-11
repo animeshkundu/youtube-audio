@@ -1,11 +1,13 @@
 import { render } from 'preact';
 
 import {
+  adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   ghostEnabledSignal,
   initializeSettings,
+  setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
@@ -30,6 +32,13 @@ function Options() {
         <button type="button" onClick={() => void setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value)}>
           <span><strong>Background play</strong><small>Keep playback active while the page is hidden.</small></span>
           <span role="switch" aria-checked={backgroundPlayEnabledSignal.value}>{backgroundPlayEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+      </section>
+      <section>
+        <h2>Protection</h2>
+        <button type="button" onClick={() => void setAdBlockEnabled(!adBlockEnabledSignal.value)}>
+          <span><strong>Block ads</strong><small>Remove known ad descriptors from YouTube player responses.</small></span>
+          <span role="switch" aria-checked={adBlockEnabledSignal.value}>{adBlockEnabledSignal.value ? 'On' : 'Off'}</span>
         </button>
       </section>
       <section>

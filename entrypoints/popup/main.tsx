@@ -2,11 +2,13 @@ import { render } from 'preact';
 import { useState } from 'preact/hooks';
 
 import {
+  adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   ghostEnabledSignal,
   initializeSettings,
+  setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
@@ -64,6 +66,12 @@ function Popup() {
         description="Keep playing when YouTube is hidden"
         active={backgroundPlayEnabledSignal.value}
         onToggle={() => apply(() => setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value))}
+      />
+      <Toggle
+        label="Block ads"
+        description="Remove known player ad descriptors"
+        active={adBlockEnabledSignal.value}
+        onToggle={() => apply(() => setAdBlockEnabled(!adBlockEnabledSignal.value))}
       />
       <Toggle
         label="Reduce tracking"

@@ -6,6 +6,7 @@ export interface ExtensionSettings {
   backgroundPlayEnabled: boolean;
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
+  adBlockEnabled: boolean;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   backgroundPlayEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
+  adBlockEnabled: true,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
@@ -25,6 +27,7 @@ export const audioOnlyEnabledSignal = signal(DEFAULT_SETTINGS.audioOnlyEnabled);
 export const backgroundPlayEnabledSignal = signal(DEFAULT_SETTINGS.backgroundPlayEnabled);
 export const ghostEnabledSignal = signal(DEFAULT_SETTINGS.ghostEnabled);
 export const aggressiveTelemetrySignal = signal(DEFAULT_SETTINGS.aggressiveTelemetry);
+export const adBlockEnabledSignal = signal(DEFAULT_SETTINGS.adBlockEnabled);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -68,6 +71,10 @@ export async function setAggressiveTelemetry(enabled: boolean): Promise<void> {
   await setTelemetrySetting('aggressiveTelemetry', enabled);
 }
 
+export async function setAdBlockEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, adBlockEnabled: enabled });
+}
+
 export function subscribeSettings(listener: (settings: ExtensionSettings) => void): () => void {
   subscribers.add(listener);
   listener(getSettings());
@@ -102,6 +109,7 @@ function applySettings(settings: ExtensionSettings): void {
   backgroundPlayEnabledSignal.value = settings.backgroundPlayEnabled;
   ghostEnabledSignal.value = settings.ghostEnabled;
   aggressiveTelemetrySignal.value = settings.aggressiveTelemetry;
+  adBlockEnabledSignal.value = settings.adBlockEnabled;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -126,5 +134,9 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.aggressiveTelemetry === 'boolean'
         ? candidate.aggressiveTelemetry
         : DEFAULT_SETTINGS.aggressiveTelemetry,
+    adBlockEnabled:
+      typeof candidate.adBlockEnabled === 'boolean'
+        ? candidate.adBlockEnabled
+        : DEFAULT_SETTINGS.adBlockEnabled,
   };
 }

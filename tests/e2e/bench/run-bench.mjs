@@ -292,6 +292,7 @@ async function main() {
     // --- enabled (default settings) -------------------------------------------
     const enabled = await runSession({
       withAddon: true,
+      probePlayerFromPage: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -329,6 +330,30 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
+    record('m2b:enabled-prunes-player-ads', enabled.player?.ok && !enabled.player.hasAdPlacements, {
+      player: enabled.player,
+    });
+
+    // --- ad-block disabled (all other features on) ----------------------------
+    const adBlockDisabled = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: true,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+      },
+      probePlayerFromPage: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm2b:disabled-preserves-player-ads',
+      adBlockDisabled.player?.ok && adBlockDisabled.player.hasAdPlacements,
+      { player: adBlockDisabled.player }
+    );
 
     // --- disabled (enabled:false, faithfully seeded) --------------------------
     const disabled = await runSession({
@@ -339,6 +364,7 @@ async function main() {
         backgroundPlayEnabled: true,
         ghostEnabled: true,
         aggressiveTelemetry: false,
+        adBlockEnabled: true,
       },
       origin,
       resetLog: () => fixture.reset(),
