@@ -30,6 +30,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npm run build:ext && node tests/e2e/verify-firefox.mjs",
+    "test:bench": "node tests/e2e/bench/run-bench.mjs",
     "lint": "eslint entrypoints/ src/ tests/ wxt.config.ts vitest.config.ts",
     "lint:fix": "npm run lint -- --fix",
     "typecheck": "tsc --noEmit",

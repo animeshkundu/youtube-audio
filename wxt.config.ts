@@ -8,11 +8,22 @@ const YOUTUBE_MATCHES = [
   '*://m.youtube.com/*',
 ];
 
+// Integration-bench flag. When BENCH=1, the content script ALSO matches the local
+// fixture host so the extension can be exercised against tests/e2e/bench/fixture-server.mjs.
+// Production builds (BENCH unset) never include these hosts. See tests/e2e/bench/.
+const BENCH = process.env.BENCH === '1';
+const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
+
 export default defineConfig({
   srcDir: '.',
   outDir: '.output',
   vite: () => ({
     plugins: [preact()],
+    // Compile-time flag, ALWAYS defined so it is dead-code-eliminated (to `false`) in
+    // production and stripped from the bundle. Never left as an undefined global.
+    define: {
+      __BENCH__: JSON.stringify(BENCH),
+    },
   }),
   manifest: ({ manifestVersion }) => ({
     name: 'YouTube Audio',
@@ -46,7 +57,9 @@ export default defineConfig({
       const contentScript = manifest.content_scripts?.find((entry) =>
         entry.matches?.some((match) => YOUTUBE_MATCHES.includes(match))
       );
-      if (contentScript) contentScript.matches = YOUTUBE_MATCHES;
+      if (contentScript) {
+        contentScript.matches = BENCH ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES] : YOUTUBE_MATCHES;
+      }
     },
   },
 });
