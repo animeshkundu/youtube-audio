@@ -151,10 +151,7 @@ gate.
 - [ ] Inline `window.ytInitialPlayerResponse` carries a real ad shape: `adPlacements` and
       `playerAds` (done in the current fix). The first-load prune path is only exercised when
       the inline response actually contains ads.
-- [ ] Add a segmented media endpoint: a `/videoplayback` variant that answers `206 Partial
-  Content` with `Content-Range` and refuses a single full `200`, so a naive
-      `downloads.download(url)` would produce many parts and only a range-assembling path
-      yields one file. Keep the single-file endpoint for the audio-only hijack cases.
+- [ ] Add a segmented media endpoint: a `/videoplayback` variant that answers `206` with a `Content-Range` header and refuses a single full `200`, so a naive `downloads.download(url)` would produce many parts and only a range-assembling path yields one file. Keep the single-file endpoint for the audio-only hijack cases.
 
 ### Assert outcomes, not signals
 
