@@ -8,6 +8,7 @@ import {
   subscribeSettings,
   watchSettings,
 } from '../src/shared/config';
+import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 
@@ -26,8 +27,12 @@ const STATUS_EVENT = 'yta:status';
 const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
+const TRACK_EVENT = 'yta:track';
+const LYRICS_MESSAGE = 'yta:lyrics';
 const BUTTON_ID = 'yta-audio-only-toggle';
+const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
+let lyricsCleanup: () => void = () => undefined;
 
 export default defineContentScript({
   matches: MATCHES,
@@ -46,10 +51,14 @@ export default defineContentScript({
         window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
         updateDistractionStyle(settings);
+        if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
         void handleSponsorRequest(event, bridgeNonce);
+      });
+      document.addEventListener(TRACK_EVENT, (event) => {
+        void handleTrack(event);
       });
       // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
       document.documentElement.dataset.ytaBridge = bridgeNonce;
@@ -64,6 +73,104 @@ export default defineContentScript({
     }
   },
 });
+
+async function handleTrack(event: Event): Promise<void> {
+  if (!getSettings().enabled || !getSettings().lyricsEnabled) return;
+  if (location.hostname !== 'music.youtube.com' && !__BENCH__) return;
+  const detail = (event as CustomEvent<unknown>).detail;
+  if (typeof detail !== 'string') return;
+  let candidate: {
+    videoId?: unknown;
+    title?: unknown;
+    artist?: unknown;
+    duration?: unknown;
+  };
+  try {
+    const parsed: unknown = JSON.parse(detail);
+    if (typeof parsed !== 'object' || parsed === null) return;
+    candidate = parsed;
+  } catch {
+    return;
+  }
+  if (
+    typeof candidate.videoId !== 'string' ||
+    !/^[A-Za-z0-9_-]{6,20}$/.test(candidate.videoId) ||
+    typeof candidate.title !== 'string' ||
+    candidate.title.length === 0 ||
+    candidate.title.length > 200 ||
+    typeof candidate.artist !== 'string' ||
+    candidate.artist.length === 0 ||
+    candidate.artist.length > 200 ||
+    typeof candidate.duration !== 'number' ||
+    !Number.isFinite(candidate.duration) ||
+    candidate.duration <= 0
+  ) {
+    return;
+  }
+  try {
+    const response: unknown = await browser.runtime.sendMessage({
+      type: LYRICS_MESSAGE,
+      title: candidate.title,
+      artist: candidate.artist,
+      duration: candidate.duration,
+      ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
+    });
+    if (!getSettings().enabled || !getSettings().lyricsEnabled) return;
+    if (typeof response !== 'object' || response === null) return;
+    const syncedLyrics = (response as { syncedLyrics?: unknown }).syncedLyrics;
+    if (typeof syncedLyrics !== 'string' || syncedLyrics.length > 200_000) return;
+    renderLyrics(parseLrc(syncedLyrics), candidate.videoId);
+  } catch {
+    removeLyrics();
+  }
+}
+
+function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
+  removeLyrics();
+  if (lines.length === 0) return;
+  const container = document.createElement('section');
+  container.id = LYRICS_ID;
+  container.setAttribute('aria-label', 'Synced lyrics');
+  container.style.cssText =
+    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;overflow:auto;padding:12px 16px;border-radius:12px;background:rgba(15,15,15,.9);color:#fff;font:16px/1.5 system-ui,sans-serif;';
+  const elements = lines.map((line) => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = line.text;
+    paragraph.style.cssText = 'margin:4px 0;opacity:.55;';
+    container.append(paragraph);
+    return paragraph;
+  });
+  const video = document.querySelector<HTMLMediaElement>('video');
+  if (!video) return;
+  let activeIndex = -1;
+  const sync = () => {
+    let nextIndex = -1;
+    for (let index = 0; index < lines.length; index += 1) {
+      if ((lines[index]?.time ?? Number.POSITIVE_INFINITY) <= video.currentTime) nextIndex = index;
+      else break;
+    }
+    if (nextIndex === activeIndex) return;
+    if (activeIndex >= 0) elements[activeIndex]?.style.setProperty('opacity', '.55');
+    activeIndex = nextIndex;
+    if (activeIndex >= 0) {
+      elements[activeIndex]?.style.setProperty('opacity', '1');
+      elements[activeIndex]?.scrollIntoView({ block: 'nearest' });
+    }
+  };
+  video.addEventListener('timeupdate', sync);
+  lyricsCleanup = () => video.removeEventListener('timeupdate', sync);
+  container.dataset.videoId = videoId;
+  document.body.append(container);
+  if (__BENCH__) document.documentElement.dataset.ytaLyrics = String(lines.length);
+  sync();
+}
+
+function removeLyrics(): void {
+  lyricsCleanup();
+  lyricsCleanup = () => undefined;
+  document.getElementById(LYRICS_ID)?.remove();
+  if (__BENCH__) delete document.documentElement.dataset.ytaLyrics;
+}
 
 async function handleSponsorRequest(event: Event, bridgeNonce: string): Promise<void> {
   const detail = (event as CustomEvent<unknown>).detail;

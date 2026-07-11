@@ -194,6 +194,29 @@ sequenceDiagram
 
 The MAIN-world entrypoint separately applies a small static operation baseline from `rescue.ts`. The dispatcher accepts only compiled operation IDs, catches failures per operation, and supports cleanup on instant settings changes. A best-effort native-function heuristic skips those hooks when another page-context blocker appears to have wrapped JSON parsing or serialization. The heuristic cannot reliably identify a particular extension because browser extension worlds are isolated. No rescue configuration or code is fetched remotely; that work remains gated on the post-S5 AMO preflight.
 
+## M4 YouTube Music Extras Flow
+
+The MAIN-world layer owns one shared Web Audio graph per media element. It reads YouTube's per-track loudness value from the already-requested player response, applies a bounded gain, and chains the user's five EQ bands in series. The isolated content layer requests lyrics only after explicit opt-in; background calls the fixed LRCLIB endpoint without credentials or referrer, and content renders timed text safely.
+
+```mermaid
+sequenceDiagram
+    participant Main as MAIN world
+    participant Video as Page video
+    participant Content as Isolated content
+    participant Background as Background
+    participant LRCLIB as LRCLIB
+
+    Main->>Video: One MediaElementSource per element
+    Main->>Video: EQ filters then normalized GainNode
+    Main->>Content: Bounded track metadata
+    Content->>Background: Opt-in lyrics request
+    Background->>LRCLIB: GET /api/get, credentials omitted
+    LRCLIB-->>Content: Timed LRC via background
+    Content->>Video: Sync text-only lyric lines to currentTime
+```
+
+Any graph, metadata, bridge, remote, parse, or DOM failure is a no-op. Scrobbling is out of scope because it conflicts with ghost mode.
+
 ## Build Outputs
 
 - `.output/firefox-mv2/`: shipping Firefox MV2 directory.

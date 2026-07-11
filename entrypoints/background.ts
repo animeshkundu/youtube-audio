@@ -29,6 +29,8 @@ const YOUTUBE_REQUESTS = [
 ];
 const SPONSORBLOCK_BASE_URL = 'https://sponsor.ajay.app';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
+const LYRICS_MESSAGE = 'yta:lyrics';
+const LRCLIB_BASE_URL = 'https://lrclib.net';
 const PLAYER_RESPONSE_REQUESTS = [
   '*://*.youtube.com/youtubei/v1/player*',
   '*://*.youtube.com/youtubei/v1/next*',
@@ -166,6 +168,77 @@ function parseSponsorRequest(
   return { videoId: candidate.videoId, categories, ...(benchOrigin ? { benchOrigin } : {}) };
 }
 
+function parseLyricsRequest(
+  value: unknown
+): { title: string; artist: string; duration: number; benchOrigin?: string } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as {
+    type?: unknown;
+    title?: unknown;
+    artist?: unknown;
+    duration?: unknown;
+    benchOrigin?: unknown;
+  };
+  if (
+    candidate.type !== LYRICS_MESSAGE ||
+    typeof candidate.title !== 'string' ||
+    candidate.title.length === 0 ||
+    candidate.title.length > 200 ||
+    typeof candidate.artist !== 'string' ||
+    candidate.artist.length === 0 ||
+    candidate.artist.length > 200 ||
+    typeof candidate.duration !== 'number' ||
+    !Number.isFinite(candidate.duration) ||
+    candidate.duration <= 0 ||
+    candidate.duration > 86_400
+  ) {
+    return null;
+  }
+  let benchOrigin: string | undefined;
+  if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
+    try {
+      const origin = new URL(candidate.benchOrigin);
+      if (
+        origin.protocol === 'http:' &&
+        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
+      ) {
+        benchOrigin = origin.origin;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return {
+    title: candidate.title,
+    artist: candidate.artist,
+    duration: candidate.duration,
+    ...(benchOrigin ? { benchOrigin } : {}),
+  };
+}
+
+async function fetchLyrics(request: NonNullable<ReturnType<typeof parseLyricsRequest>>): Promise<unknown> {
+  try {
+    const url = new URL('/api/get', request.benchOrigin ?? LRCLIB_BASE_URL);
+    url.searchParams.set('track_name', request.title);
+    url.searchParams.set('artist_name', request.artist);
+    url.searchParams.set('duration', String(Math.round(request.duration)));
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+    });
+    if (!response.ok) return null;
+    const value: unknown = await response.json();
+    if (typeof value !== 'object' || value === null) return null;
+    const syncedLyrics = (value as { syncedLyrics?: unknown }).syncedLyrics;
+    return typeof syncedLyrics === 'string' && syncedLyrics.length <= 200_000
+      ? { syncedLyrics }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function joinChunks(chunks: readonly Uint8Array[]): Uint8Array {
   const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
   const output = new Uint8Array(length);
@@ -189,10 +262,16 @@ export default defineBackground({
       });
       watchSettings();
       browser.runtime.onMessage.addListener((message: unknown) => {
-        const request = parseSponsorRequest(message);
-        return request
-          ? fetchSponsorSegments(request.videoId, request.categories, request.benchOrigin)
-          : undefined;
+        const sponsorRequest = parseSponsorRequest(message);
+        if (sponsorRequest) {
+          return fetchSponsorSegments(
+            sponsorRequest.videoId,
+            sponsorRequest.categories,
+            sponsorRequest.benchOrigin
+          );
+        }
+        const lyricsRequest = parseLyricsRequest(message);
+        return lyricsRequest ? fetchLyrics(lyricsRequest) : undefined;
       });
       browser.webRequest.onBeforeRequest.addListener(
         blockTelemetry,

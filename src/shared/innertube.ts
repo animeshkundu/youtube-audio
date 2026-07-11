@@ -34,6 +34,17 @@ export interface PlayerResponse {
     status?: string;
     reason?: string;
   };
+  playerConfig?: {
+    audioConfig?: {
+      loudnessDb?: number;
+    };
+  };
+  videoDetails?: {
+    videoId?: string;
+    title?: string;
+    author?: string;
+    lengthSeconds?: string;
+  };
   streamingData?: {
     adaptiveFormats?: Array<{
       itag?: number;

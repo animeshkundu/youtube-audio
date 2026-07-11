@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals';
 
+import { FLAT_EQUALIZER, type EqualizerBands } from './audiograph';
 import { isQualityCap, type QualityCap } from './quality-of-life';
 import {
   isSponsorCategory,
@@ -21,6 +22,10 @@ export interface ExtensionSettings {
   hideShorts: boolean;
   hideRecommendations: boolean;
   hideComments: boolean;
+  loudnessNormalization: boolean;
+  equalizerEnabled: boolean;
+  equalizerBands: EqualizerBands;
+  lyricsEnabled: boolean;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
@@ -30,6 +35,7 @@ export type QualityOfLifeSetting =
   | 'hideShorts'
   | 'hideRecommendations'
   | 'hideComments';
+export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled' | 'lyricsEnabled';
 
 const STORAGE_KEY = 'settings';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -46,6 +52,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  loudnessNormalization: true,
+  equalizerEnabled: false,
+  equalizerBands: FLAT_EQUALIZER,
+  lyricsEnabled: false,
 };
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
@@ -63,6 +73,10 @@ export const disableAutoplayNextSignal = signal(DEFAULT_SETTINGS.disableAutoplay
 export const hideShortsSignal = signal(DEFAULT_SETTINGS.hideShorts);
 export const hideRecommendationsSignal = signal(DEFAULT_SETTINGS.hideRecommendations);
 export const hideCommentsSignal = signal(DEFAULT_SETTINGS.hideComments);
+export const loudnessNormalizationSignal = signal(DEFAULT_SETTINGS.loudnessNormalization);
+export const equalizerEnabledSignal = signal(DEFAULT_SETTINGS.equalizerEnabled);
+export const equalizerBandsSignal = signal<EqualizerBands>(DEFAULT_SETTINGS.equalizerBands);
+export const lyricsEnabledSignal = signal(DEFAULT_SETTINGS.lyricsEnabled);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -125,6 +139,17 @@ export async function setQualityOfLifeSetting(
   await persistSettings({ ...currentSettings, [setting]: enabled });
 }
 
+export async function setMusicSetting(setting: MusicSetting, enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, [setting]: enabled });
+}
+
+export async function setEqualizerBand(index: number, gain: number): Promise<void> {
+  if (!Number.isInteger(index) || index < 0 || index >= FLAT_EQUALIZER.length) return;
+  const bands = normalizeEqualizerBands(currentSettings.equalizerBands);
+  bands[index] = Number.isFinite(gain) ? Math.min(12, Math.max(-12, gain)) : 0;
+  await persistSettings({ ...currentSettings, equalizerBands: bands });
+}
+
 export async function setSegmentSkipCategory(
   category: SponsorCategory,
   enabled: boolean
@@ -180,6 +205,10 @@ function applySettings(settings: ExtensionSettings): void {
   hideShortsSignal.value = settings.hideShorts;
   hideRecommendationsSignal.value = settings.hideRecommendations;
   hideCommentsSignal.value = settings.hideComments;
+  loudnessNormalizationSignal.value = settings.loudnessNormalization;
+  equalizerEnabledSignal.value = settings.equalizerEnabled;
+  equalizerBandsSignal.value = settings.equalizerBands;
+  lyricsEnabledSignal.value = settings.lyricsEnabled;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 
@@ -230,7 +259,27 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.hideComments === 'boolean'
         ? candidate.hideComments
         : DEFAULT_SETTINGS.hideComments,
+    loudnessNormalization:
+      typeof candidate.loudnessNormalization === 'boolean'
+        ? candidate.loudnessNormalization
+        : DEFAULT_SETTINGS.loudnessNormalization,
+    equalizerEnabled:
+      typeof candidate.equalizerEnabled === 'boolean'
+        ? candidate.equalizerEnabled
+        : DEFAULT_SETTINGS.equalizerEnabled,
+    equalizerBands: normalizeEqualizerBands(candidate.equalizerBands),
+    lyricsEnabled:
+      typeof candidate.lyricsEnabled === 'boolean'
+        ? candidate.lyricsEnabled
+        : DEFAULT_SETTINGS.lyricsEnabled,
   };
+}
+
+function normalizeEqualizerBands(value: unknown): number[] {
+  if (!Array.isArray(value) || value.length !== FLAT_EQUALIZER.length) return [...FLAT_EQUALIZER];
+  return value.map((gain) =>
+    typeof gain === 'number' && Number.isFinite(gain) ? Math.min(12, Math.max(-12, gain)) : 0
+  );
 }
 
 function normalizeSponsorCategories(value: unknown): readonly SponsorCategory[] {

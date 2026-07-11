@@ -132,6 +132,8 @@ function snapshotScript() {
     status: document.documentElement.dataset.ytaStatus || null,
     videoSrc: v ? v.src : null,
     ready: document.documentElement.getAttribute('data-fixture-ready'),
+    audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
+    lyrics: document.documentElement.dataset.ytaLyrics || null,
   };
 }
 
@@ -205,6 +207,12 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       }, 8000);
     }
 
+    if (seedSettings?.lyricsEnabled) {
+      await waitFor(async () => {
+        const state = await driver.executeScript(snapshotScript);
+        return state.lyrics ? state : null;
+      }, 4000);
+    }
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
 
@@ -295,6 +303,8 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       player,
       segmentSkip,
       qol,
+      audioGraph: snap.audioGraph,
+      lyrics: snap.lyrics,
     };
   } finally {
     try {
@@ -434,6 +444,71 @@ async function main() {
           .map((r) => `${r.method} ${r.path}`),
         viewCountLeaks: enabledLog.filter((r) => r.path.includes('viewedVideoSponsorTime')).length,
       }
+    );
+
+    const loudnessDisabled = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: 'off',
+        disableAutoplayNext: false,
+        hideShorts: false,
+        hideRecommendations: false,
+        hideComments: false,
+        loudnessNormalization: false,
+        equalizerEnabled: false,
+        equalizerBands: [0, 0, 0, 0, 0],
+        lyricsEnabled: false,
+      },
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const graphData = enabled.audioGraph ? JSON.parse(enabled.audioGraph) : null;
+    record(
+      'm4:loudness-normalization-arms-bounded-gain',
+      graphData && graphData.gain === 2,
+      { treatment: graphData, loudnessDb: -8.5 }
+    );
+    record('m4:loudness-disabled-leaves-graph-unarmed', loudnessDisabled.audioGraph === null, {
+      marker: loudnessDisabled.audioGraph,
+    });
+
+    const lyricsRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: 'off',
+        disableAutoplayNext: false,
+        hideShorts: false,
+        hideRecommendations: false,
+        hideComments: false,
+        loudnessNormalization: false,
+        equalizerEnabled: false,
+        equalizerBands: [0, 0, 0, 0, 0],
+        lyricsEnabled: true,
+      },
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const lyricsLog = fixture.getRequests();
+    record(
+      'm4:lyrics-opt-in-fetches-and-renders',
+      lyricsRun.lyrics === '2' && lyricsLog.some((r) => r.path === '/api/get'),
+      { marker: lyricsRun.lyrics, fetched: lyricsLog.filter((r) => r.path === '/api/get') }
     );
 
     // --- ad-block disabled (all other features on) ----------------------------

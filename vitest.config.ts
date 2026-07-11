@@ -5,6 +5,8 @@ export default defineConfig({
     coverage: {
       include: [
         'src/shared/adblock.ts',
+        'src/shared/audiograph.ts',
+        'src/shared/lyrics.ts',
         'src/shared/innertube.ts',
         'src/shared/sponsorblock.ts',
         'src/shared/telemetry.ts',

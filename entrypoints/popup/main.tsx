@@ -9,13 +9,17 @@ import {
   disableAutoplayNextSignal,
   ghostEnabledSignal,
   hideShortsSignal,
+  equalizerEnabledSignal,
   initializeSettings,
+  loudnessNormalizationSignal,
+  lyricsEnabledSignal,
   segmentSkipEnabledSignal,
   setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setGhostEnabled,
+  setMusicSetting,
   setQualityOfLifeSetting,
   setSegmentSkipEnabled,
   watchSettings,
@@ -83,6 +87,26 @@ function Popup() {
         description="Privately skip sponsors and non-music"
         active={segmentSkipEnabledSignal.value}
         onToggle={() => apply(() => setSegmentSkipEnabled(!segmentSkipEnabledSignal.value))}
+      />
+      <Toggle
+        label="Normalize loudness"
+        description="Keep track volume consistent"
+        active={loudnessNormalizationSignal.value}
+        onToggle={() =>
+          apply(() => setMusicSetting('loudnessNormalization', !loudnessNormalizationSignal.value))
+        }
+      />
+      <Toggle
+        label="Equalizer"
+        description="Apply your five-band sound profile"
+        active={equalizerEnabledSignal.value}
+        onToggle={() => apply(() => setMusicSetting('equalizerEnabled', !equalizerEnabledSignal.value))}
+      />
+      <Toggle
+        label="Synced lyrics"
+        description="Opt in to anonymous LRCLIB lookup"
+        active={lyricsEnabledSignal.value}
+        onToggle={() => apply(() => setMusicSetting('lyricsEnabled', !lyricsEnabledSignal.value))}
       />
       <Toggle
         label="Disable autoplay next"

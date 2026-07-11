@@ -11,15 +11,21 @@ import {
   hideCommentsSignal,
   hideRecommendationsSignal,
   hideShortsSignal,
+  equalizerBandsSignal,
+  equalizerEnabledSignal,
   initializeSettings,
+  loudnessNormalizationSignal,
+  lyricsEnabledSignal,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
   setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setEqualizerBand,
   setForceQualityMax,
   setGhostEnabled,
+  setMusicSetting,
   setQualityOfLifeSetting,
   setSegmentSkipCategory,
   setSegmentSkipEnabled,
@@ -43,6 +49,27 @@ function Options() {
         <button type="button" onClick={() => void setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value)}>
           <span><strong>Background play</strong><small>Keep playback active while the page is hidden.</small></span>
           <span role="switch" aria-checked={backgroundPlayEnabledSignal.value}>{backgroundPlayEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+      </section>
+      <section>
+        <h2>YouTube Music</h2>
+        <button type="button" onClick={() => void setMusicSetting('loudnessNormalization', !loudnessNormalizationSignal.value)}>
+          <span><strong>Normalize loudness</strong><small>Use YouTube's per-track loudness value for consistent volume.</small></span>
+          <span role="switch" aria-checked={loudnessNormalizationSignal.value}>{loudnessNormalizationSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        <button type="button" onClick={() => void setMusicSetting('equalizerEnabled', !equalizerEnabledSignal.value)}>
+          <span><strong>Equalizer</strong><small>Apply the five-band profile below.</small></span>
+          <span role="switch" aria-checked={equalizerEnabledSignal.value}>{equalizerEnabledSignal.value ? 'On' : 'Off'}</span>
+        </button>
+        {[60, 250, 1000, 4000, 12000].map((frequency, index) => (
+          <label key={frequency}>
+            <span><strong>{frequency >= 1000 ? `${frequency / 1000} kHz` : `${frequency} Hz`}</strong><small>{equalizerBandsSignal.value[index] ?? 0} dB</small></span>
+            <input type="range" min="-12" max="12" step="1" value={equalizerBandsSignal.value[index] ?? 0} onInput={(event) => void setEqualizerBand(index, Number(event.currentTarget.value))} />
+          </label>
+        ))}
+        <button type="button" onClick={() => void setMusicSetting('lyricsEnabled', !lyricsEnabledSignal.value)}>
+          <span><strong>Synced lyrics</strong><small>Opt in to sending track, artist, and duration anonymously to LRCLIB.</small></span>
+          <span role="switch" aria-checked={lyricsEnabledSignal.value}>{lyricsEnabledSignal.value ? 'On' : 'Off'}</span>
         </button>
       </section>
       <section>

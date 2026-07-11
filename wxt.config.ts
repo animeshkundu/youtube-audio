@@ -14,6 +14,7 @@ const YOUTUBE_MATCHES = [
 const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
+const LRCLIB_ORIGIN = 'https://lrclib.net/*';
 
 export default defineConfig({
   srcDir: '.',
@@ -41,6 +42,7 @@ export default defineConfig({
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
             SPONSORBLOCK_ORIGIN,
+            LRCLIB_ORIGIN,
             ...(BENCH ? BENCH_MATCHES : []),
           ]
         : []),
@@ -51,6 +53,7 @@ export default defineConfig({
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
             SPONSORBLOCK_ORIGIN,
+            LRCLIB_ORIGIN,
             ...(BENCH ? BENCH_MATCHES : []),
           ]
         : undefined,
@@ -64,8 +67,6 @@ export default defineConfig({
       },
       gecko_android: {},
     },
-    // Add with its feature, after explicit user disclosure:
-    // https://lrclib.net/*
   }),
   hooks: {
     'build:manifestGenerated': (_wxt, manifest) => {

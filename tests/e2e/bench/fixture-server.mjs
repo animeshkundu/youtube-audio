@@ -81,6 +81,7 @@ function fixturePlayerResponse(origin, videoId) {
     videoDetails: {
       videoId: videoId || 'FIXTURE0001',
       title: 'Fixture Watch Page',
+      author: 'Fixture Artist',
       lengthSeconds: '215',
       isLive: false,
       isLiveContent: false,
@@ -337,6 +338,12 @@ export function createFixtureServer() {
     if (path.startsWith('/api/skipSegments/')) {
       const videoId = url.searchParams.get('videoID') || undefined;
       return sendJson(res, 200, fixtureSkipSegments(videoId));
+    }
+    if (path === '/api/get') {
+      return sendJson(res, 200, {
+        syncedLyrics: '[00:00.00]Fixture opening\n[00:04.00]Fixture chorus',
+        plainLyrics: 'Fixture opening\nFixture chorus',
+      });
     }
     if (path === '/videoplayback' || path === '/native-video') {
       // A tiny valid silent WAV gives the <video> a real, seekable timeline so the

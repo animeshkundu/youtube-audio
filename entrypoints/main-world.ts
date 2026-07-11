@@ -1,6 +1,12 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
-import { buildAndroidVrPlayerRequest, getPlayability, pickBestAudioUrl } from '../src/shared/innertube';
+import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import {
+  buildAndroidVrPlayerRequest,
+  getPlayability,
+  pickBestAudioUrl,
+  type PlayerResponse,
+} from '../src/shared/innertube';
 import { PlayerHandle } from '../src/shared/player';
 import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
 import { loadRescueConfig } from '../src/shared/rescue';
@@ -16,6 +22,7 @@ const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
 const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
+const TRACK_EVENT = 'yta:track';
 const VIDEO_WAIT_MS = 8_000;
 
 type PlaybackStatus = 'idle' | 'fetching' | 'active' | 'fallback' | 'disabled';
@@ -29,6 +36,10 @@ interface PageSettings {
   segmentSkipCategories: readonly SponsorCategory[];
   forceQualityMax: QualityCap;
   disableAutoplayNext: boolean;
+  loudnessNormalization: boolean;
+  equalizerEnabled: boolean;
+  equalizerBands: EqualizerBands;
+  lyricsEnabled: boolean;
 }
 
 interface YouTubeConfig {
@@ -61,6 +72,10 @@ export default defineUnlistedScript(() => {
     segmentSkipCategories: [],
     forceQualityMax: 'off',
     disableAutoplayNext: false,
+    loudnessNormalization: false,
+    equalizerEnabled: false,
+    equalizerBands: [],
+    lyricsEnabled: false,
   };
   let generation = player.navigate();
   let visibilityCleanup: () => void = () => undefined;
@@ -70,6 +85,7 @@ export default defineUnlistedScript(() => {
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
+  let audioGraphCleanup: () => void = () => undefined;
 
   const emitStatus = (status: PlaybackStatus, reason?: string) => {
     document.dispatchEvent(
@@ -98,11 +114,22 @@ export default defineUnlistedScript(() => {
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
-    if (!settings.enabled || !settings.audioOnlyEnabled) {
+    audioGraphCleanup();
+    audioGraphCleanup = () => undefined;
+    if (!settings.enabled) {
       emitStatus('disabled');
       return;
     }
-    void activateAudioOnly(generation);
+    if (
+      settings.audioOnlyEnabled ||
+      settings.loudnessNormalization ||
+      settings.equalizerEnabled ||
+      settings.lyricsEnabled
+    ) {
+      void activateEnhancements(generation);
+    } else {
+      emitStatus('disabled');
+    }
   };
 
   window.addEventListener('message', (event) => {
@@ -120,7 +147,15 @@ export default defineUnlistedScript(() => {
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
-    if (settings.enabled && settings.audioOnlyEnabled) void activateAudioOnly(generation);
+    if (
+      settings.enabled &&
+      (settings.audioOnlyEnabled ||
+        settings.loudnessNormalization ||
+        settings.equalizerEnabled ||
+        settings.lyricsEnabled)
+    ) {
+      void activateEnhancements(generation);
+    }
   });
 
   function restartSegmentSkipping(): void {
@@ -165,7 +200,7 @@ export default defineUnlistedScript(() => {
     });
   }
 
-  async function activateAudioOnly(operationGeneration: number): Promise<void> {
+  async function activateEnhancements(operationGeneration: number): Promise<void> {
     try {
       const videoId = getVideoId();
       const apiKey = getConfigString('INNERTUBE_API_KEY');
@@ -199,18 +234,65 @@ export default defineUnlistedScript(() => {
         return;
       }
 
+      const mediaElement = await waitForVideo(operationGeneration);
+      if (!mediaElement || operationGeneration !== player.generation) return;
+      const responseData = playerResponse as PlayerResponse;
+      armAudioGraph(mediaElement, responseData.playerConfig?.audioConfig?.loudnessDb);
+      emitTrack(responseData);
+
+      if (!settings.audioOnlyEnabled) {
+        emitStatus('active');
+        return;
+      }
       const audioUrl = pickBestAudioUrl(playerResponse);
       if (!audioUrl || !isAllowedAudioUrl(audioUrl)) {
         emitStatus('fallback', 'no-direct-audio');
         return;
       }
-      const mediaElement = await waitForVideo(operationGeneration);
-      if (!mediaElement || operationGeneration !== player.generation) return;
       if (player.attach(mediaElement, audioUrl, operationGeneration)) emitStatus('active');
       else emitStatus('fallback', 'media-attach-failed');
     } catch {
       if (operationGeneration === player.generation) emitStatus('fallback', 'request-failed');
     }
+  }
+
+  function armAudioGraph(media: HTMLMediaElement, loudnessDb: number | undefined): void {
+    if (!settings.loudnessNormalization && !settings.equalizerEnabled) return;
+    const graph = createAudioGraph(media);
+    if (!graph) return;
+    const gain = settings.loudnessNormalization ? loudnessDbToGain(loudnessDb ?? Number.NaN) : 1;
+    graph.setGain(gain);
+    graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
+    audioGraphCleanup = () => graph.dispose();
+    if (__BENCH__) {
+      document.documentElement.dataset.ytaAudioGraph = JSON.stringify({ gain });
+    }
+  }
+
+  function emitTrack(response: PlayerResponse): void {
+    if (!settings.lyricsEnabled) return;
+    const details = response.videoDetails;
+    const duration = Number(details?.lengthSeconds);
+    if (
+      typeof details?.videoId !== 'string' ||
+      typeof details.title !== 'string' ||
+      typeof details.author !== 'string' ||
+      !Number.isFinite(duration) ||
+      duration <= 0
+    ) {
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent(TRACK_EVENT, {
+        // Firefox drops non-string detail across the MAIN to isolated boundary too.
+        detail: JSON.stringify({
+          videoId: details.videoId,
+          title: details.title.slice(0, 200),
+          artist: details.author.slice(0, 200),
+          duration,
+        }),
+      })
+    );
   }
 
   async function waitForVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
@@ -467,7 +549,15 @@ function parseSettings(value: unknown): PageSettings | null {
     !Array.isArray(candidate.segmentSkipCategories) ||
     !candidate.segmentSkipCategories.every(isSponsorCategory) ||
     !isQualityCap(candidate.forceQualityMax) ||
-    typeof candidate.disableAutoplayNext !== 'boolean'
+    typeof candidate.disableAutoplayNext !== 'boolean' ||
+    typeof candidate.loudnessNormalization !== 'boolean' ||
+    typeof candidate.equalizerEnabled !== 'boolean' ||
+    !Array.isArray(candidate.equalizerBands) ||
+    candidate.equalizerBands.length !== 5 ||
+    !candidate.equalizerBands.every(
+      (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
+    ) ||
+    typeof candidate.lyricsEnabled !== 'boolean'
   ) {
     return null;
   }
@@ -480,6 +570,10 @@ function parseSettings(value: unknown): PageSettings | null {
     segmentSkipCategories: candidate.segmentSkipCategories,
     forceQualityMax: candidate.forceQualityMax,
     disableAutoplayNext: candidate.disableAutoplayNext,
+    loudnessNormalization: candidate.loudnessNormalization,
+    equalizerEnabled: candidate.equalizerEnabled,
+    equalizerBands: candidate.equalizerBands,
+    lyricsEnabled: candidate.lyricsEnabled,
   };
 }
 
