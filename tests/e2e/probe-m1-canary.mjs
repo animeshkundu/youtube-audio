@@ -32,13 +32,25 @@ try {
     const poll = () => {
       const video = document.querySelector('video');
       const source = video && (video.currentSrc || video.src || '');
-      if (video && source.includes('googlevideo.com') && /[?&]mime=(audio|audio%2F)/.test(source)) {
+      // Audio-only proof: the src was hijacked to a direct googlevideo media URL AND the
+      // element carries no video track (videoWidth === 0), matching the S2 spike result.
+      const hijacked = source.includes('googlevideo.com') && source.includes('videoplayback');
+      const audioOnly = video && video.videoWidth === 0;
+      if (video && hijacked && audioOnly) {
         const start = video.currentTime;
-        setTimeout(() => done({ source: source.slice(0, 160), start, end: video.currentTime }), 3000);
+        setTimeout(
+          () => done({ source: source.slice(0, 220), videoWidth: video.videoWidth, start, end: video.currentTime }),
+          3000
+        );
         return;
       }
       if (Date.now() >= deadline) {
-        done({ source: source.slice(0, 160), start: video ? video.currentTime : null, end: null });
+        done({
+          source: (source || '').slice(0, 220),
+          videoWidth: video ? video.videoWidth : null,
+          start: video ? video.currentTime : null,
+          end: null,
+        });
         return;
       }
       setTimeout(poll, 250);
@@ -46,7 +58,9 @@ try {
     poll();
   });
   report.srcIsAudio =
-    observation.source.includes('googlevideo.com') && /[?&]mime=(audio|audio%2F)/.test(observation.source);
+    observation.source.includes('googlevideo.com') &&
+    observation.source.includes('videoplayback') &&
+    observation.videoWidth === 0;
   report.advanced = typeof observation.end === 'number' && observation.end > observation.start;
   report.status = report.srcIsAudio && report.advanced ? 'PASS' : 'FAIL';
   report.observation = observation;
