@@ -273,6 +273,15 @@ async function runSession({
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
 
+    const inlinePlayerResponse = await driver.executeScript(function () {
+      const value = window.ytInitialPlayerResponse || {};
+      return {
+        hasAdPlacements: Object.prototype.hasOwnProperty.call(value, 'adPlacements'),
+        hasPlayerAds: Object.prototype.hasOwnProperty.call(value, 'playerAds'),
+        playabilityStatus: value.playabilityStatus && value.playabilityStatus.status,
+      };
+    });
+
     let player = null;
     if (probePlayerFromPage) {
       player = await driver.executeAsyncScript(function () {
@@ -367,6 +376,7 @@ async function runSession({
       videoSrc: snap.videoSrc,
       vis,
       player,
+      inlinePlayerResponse,
       segmentSkip,
       qol,
       audioGraph: snap.audioGraph,
@@ -421,6 +431,11 @@ async function main() {
       'control:request-log-records-telemetry',
       controlLog.some((r) => r.path === '/youtubei/v1/log_event'),
       { recordedPaths: controlLog.map((r) => `${r.method} ${r.path}`) }
+    );
+    record(
+      'm2b:control-preserves-inline-player-response-ads',
+      control.inlinePlayerResponse.hasAdPlacements && control.inlinePlayerResponse.hasPlayerAds,
+      control.inlinePlayerResponse
     );
     const cp = control.player || {};
     record(
@@ -549,6 +564,11 @@ async function main() {
     record('m2b:enabled-prunes-player-ads', enabled.player?.ok && !enabled.player.hasAdPlacements, {
       player: enabled.player,
     });
+    record(
+      'm2b:enabled-prunes-inline-player-response',
+      !enabled.inlinePlayerResponse.hasAdPlacements && !enabled.inlinePlayerResponse.hasPlayerAds,
+      enabled.inlinePlayerResponse
+    );
     // Dedicated segment-skip session: audio-only OFF so no hijack reset races the skip's
     // one-shot seek on the (preload=auto, seekable) fixture WAV timeline.
     const segmentSkipRun = await runSession({
@@ -743,6 +763,12 @@ async function main() {
       'm2b:disabled-preserves-player-ads',
       adBlockDisabled.player?.ok && adBlockDisabled.player.hasAdPlacements,
       { player: adBlockDisabled.player }
+    );
+    record(
+      'm2b:disabled-preserves-inline-player-response-ads',
+      adBlockDisabled.inlinePlayerResponse.hasAdPlacements &&
+        adBlockDisabled.inlinePlayerResponse.hasPlayerAds,
+      adBlockDisabled.inlinePlayerResponse
     );
 
     // --- disabled (enabled:false, faithfully seeded) --------------------------

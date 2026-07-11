@@ -1,4 +1,7 @@
+import { AD_KEYS, pruneAdsFromParsedPlayerResponse } from './adblock';
+
 export type ScriptletOperation =
+  | Readonly<{ id: 'prune-inline-player-response'; args: Readonly<Record<string, never>> }>
   | Readonly<{ id: 'set-inline-playback-no-ad'; args: Readonly<Record<string, never>> }>
   | Readonly<{
       id: 'neutralize-exposed-abnormality-callback';
@@ -64,11 +67,90 @@ function isNativeFunction(value: (...args: never[]) => unknown): boolean {
 
 function applyOperation(operation: ScriptletOperation): (() => void) | null {
   switch (operation.id) {
+    case 'prune-inline-player-response':
+      return installInlinePlayerResponsePruning();
     case 'set-inline-playback-no-ad':
       return wrapJsonStringify();
     case 'neutralize-exposed-abnormality-callback':
       return neutralizeExposedAbnormalityCallback();
   }
+}
+
+function installInlinePlayerResponsePruning(): () => void {
+  const page = globalThis as typeof globalThis & { ytInitialPlayerResponse?: unknown };
+  const originalDescriptor = Object.getOwnPropertyDescriptor(page, 'ytInitialPlayerResponse');
+  let currentValue: unknown;
+  try {
+    currentValue = page.ytInitialPlayerResponse;
+    prunePlayerResponseCandidate(currentValue);
+  } catch {
+    currentValue = undefined;
+  }
+
+  const getCurrentValue = () => currentValue;
+  const setCurrentValue = (value: unknown) => {
+    currentValue = value;
+    prunePlayerResponseCandidate(value);
+  };
+  let ownsAccessor = false;
+  try {
+    if (!originalDescriptor || originalDescriptor.configurable) {
+      Object.defineProperty(page, 'ytInitialPlayerResponse', {
+        configurable: true,
+        enumerable: originalDescriptor?.enumerable ?? true,
+        get: getCurrentValue,
+        set: setCurrentValue,
+      });
+      ownsAccessor = true;
+    }
+  } catch {
+    // A non-configurable or exotic page global must keep native behavior.
+  }
+
+  const originalParse = JSON.parse;
+  const wrappedParse: typeof JSON.parse = new Proxy(originalParse, {
+    apply(target, thisArg, argumentsList) {
+      const value = Reflect.apply(target, thisArg, argumentsList);
+      try {
+        prunePlayerResponseCandidate(value);
+      } catch {
+        // Parsing already succeeded, so inspection must not alter the result or throw.
+      }
+      return value;
+    },
+  });
+  let ownsParse = false;
+  try {
+    JSON.parse = wrappedParse;
+    ownsParse = JSON.parse === wrappedParse;
+  } catch {
+    // Keep the accessor even if the page prevents replacing JSON.parse.
+  }
+
+  return () => {
+    if (ownsParse && JSON.parse === wrappedParse) JSON.parse = originalParse;
+    if (!ownsAccessor) return;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(page, 'ytInitialPlayerResponse');
+      if (descriptor?.get !== getCurrentValue || descriptor.set !== setCurrentValue) return;
+      if (originalDescriptor) {
+        Object.defineProperty(page, 'ytInitialPlayerResponse', originalDescriptor);
+      } else {
+        delete page.ytInitialPlayerResponse;
+        if (currentValue !== undefined) page.ytInitialPlayerResponse = currentValue;
+      }
+    } catch {
+      // Cleanup is best effort and must not interrupt page code.
+    }
+  };
+}
+
+function prunePlayerResponseCandidate(value: unknown): void {
+  if (typeof value !== 'object' || value === null) return;
+  const record = value as Record<string, unknown>;
+  if (!('streamingData' in record) && !('playabilityStatus' in record)) return;
+  if (!Object.keys(record).some((key) => AD_KEYS.has(key))) return;
+  pruneAdsFromParsedPlayerResponse(value);
 }
 
 function wrapJsonStringify(): () => void {

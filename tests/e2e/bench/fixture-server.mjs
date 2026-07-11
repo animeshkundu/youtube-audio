@@ -104,7 +104,7 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
       adaptiveFormats: fixtureAdaptiveFormats(origin, { live, videoId }),
       serverAbrStreamingUrl: `${origin}/videoplayback?abr=1&source=fixture`,
     },
-    // Present so ad-related tests have a real shape to observe; the extension does not block ads.
+    // Present so ad-related tests have a real shape to observe.
     adPlacements: [
       {
         adPlacementRenderer: {
@@ -175,7 +175,12 @@ function watchPageHtml() {
       set: function (obj) { if (obj) Object.assign(data, obj); },
     };
   })();
-  window.ytInitialPlayerResponse = { playabilityStatus: { status: 'OK' } };
+  window.ytInitialPlayerResponse = {
+    playabilityStatus: { status: 'OK' },
+    streamingData: { adaptiveFormats: [] },
+    adPlacements: [{ adPlacementRenderer: { config: { kind: 'PRE_ROLL' } } }],
+    playerAds: [{ playerLegacyDesktopWatchAdsRenderer: { id: 'fixture-player-ad' } }],
+  };
 </script>
 </head>
 <body>

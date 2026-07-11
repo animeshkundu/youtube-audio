@@ -1,4 +1,16 @@
-const AD_KEYS = new Set(['adPlacements', 'playerAds', 'adSlots', 'adPlacementRenderer']);
+export const AD_KEYS = new Set(['adPlacements', 'playerAds', 'adSlots', 'adPlacementRenderer']);
+
+/**
+ * Removes known YouTube ad descriptors from a parsed value in place.
+ * Returns whether any descriptor was removed and never throws into the caller.
+ */
+export function pruneAdsFromParsedPlayerResponse(value: unknown): boolean {
+  try {
+    return pruneValue(value);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Removes known YouTube ad descriptors while preserving every other player-response field.
@@ -7,7 +19,7 @@ const AD_KEYS = new Set(['adPlacements', 'playerAds', 'adSlots', 'adPlacementRen
 export function pruneAdsFromPlayerResponse(json: string): string {
   try {
     const value: unknown = JSON.parse(json);
-    const changed = pruneValue(value);
+    const changed = pruneAdsFromParsedPlayerResponse(value);
     return changed ? JSON.stringify(value) : json;
   } catch {
     return json;

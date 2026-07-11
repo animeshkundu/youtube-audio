@@ -192,7 +192,7 @@ sequenceDiagram
     end
 ```
 
-The MAIN-world entrypoint separately applies a small static operation baseline from `rescue.ts`. The dispatcher accepts only compiled operation IDs, catches failures per operation, and supports cleanup on instant settings changes. A best-effort native-function heuristic skips those hooks when another page-context blocker appears to have wrapped JSON parsing or serialization. The heuristic cannot reliably identify a particular extension because browser extension worlds are isolated. No rescue configuration or code is fetched remotely; that work remains gated on the post-S5 AMO preflight.
+The MAIN-world entrypoint separately applies a small static operation baseline from `rescue.ts`. Its inline-response operation installs a reversible `ytInitialPlayerResponse` accessor and `JSON.parse` wrapper, pruning only parsed player responses that contain known ad keys. The dispatcher accepts only compiled operation IDs, catches failures per operation, and supports cleanup on instant settings changes. A best-effort native-function heuristic skips those hooks when another page-context blocker appears to have wrapped JSON parsing or serialization. The heuristic cannot reliably identify a particular extension because browser extension worlds are isolated. No rescue configuration or code is fetched remotely; that work remains gated on the post-S5 AMO preflight.
 
 ## M4 YouTube Music Extras Flow
 

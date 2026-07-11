@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
-import { pruneAdsFromPlayerResponse } from '../../src/shared/adblock';
+import {
+  pruneAdsFromParsedPlayerResponse,
+  pruneAdsFromPlayerResponse,
+} from '../../src/shared/adblock';
+
+describe('pruneAdsFromParsedPlayerResponse', () => {
+  it('prunes a parsed player response in place and reports whether it changed', () => {
+    const player = {
+      playabilityStatus: { status: 'OK' },
+      streamingData: { adaptiveFormats: [] },
+      adPlacements: [{ id: 'pre-roll' }],
+      nested: { playerAds: [{ id: 'mid-roll' }], keep: true },
+    };
+
+    expect(pruneAdsFromParsedPlayerResponse(player)).toBe(true);
+    expect(player).toEqual({
+      playabilityStatus: { status: 'OK' },
+      streamingData: { adaptiveFormats: [] },
+      nested: { keep: true },
+    });
+    expect(pruneAdsFromParsedPlayerResponse(player)).toBe(false);
+  });
+});
 
 describe('pruneAdsFromPlayerResponse', () => {
   it('strips every known top-level ad descriptor and preserves playback data', () => {

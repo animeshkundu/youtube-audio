@@ -7,6 +7,7 @@ M2b removes known client-side YouTube ad descriptors from InnerTube player respo
 ## Goals
 
 - Rewrite `/youtubei/v1/player` and `/youtubei/v1/next` JSON responses with Firefox `filterResponseData`.
+- Prune the initial watch page's inline `window.ytInitialPlayerResponse` in MAIN world, including assignments and parsed player responses.
 - Remove `adPlacements`, `playerAds`, `adSlots`, and `adPlacementRenderer` without changing playback data.
 - Return the original response bytes on decoding, parsing, pruning, encoding, stream, or settings errors.
 - Run only bundled, allowlisted scriptlet operations in MAIN world at `document_start`.
@@ -32,7 +33,7 @@ The persistent MV2 background registers `webRequest.onBeforeRequest` for the exi
 
 `src/shared/rescue.ts` exposes a frozen, versioned baseline containing only allowlisted operation IDs and bounded primitive arguments. `loadRescueConfig` returns this bundled baseline without network access. Remote loading, signature verification, expiry, and anti-rollback remain intentionally deferred until after the S5 AMO policy preflight.
 
-`src/shared/scriptlets.ts` dispatches only known operation IDs. The baseline performs conservative, reversible operations against already-present page globals: neutralizing an exposed abnormality callback and setting an already-present inline-playback ad flag. Missing or incompatible targets are no-ops. Each operation catches its own failures and returns cleanup behavior.
+`src/shared/scriptlets.ts` dispatches only known operation IDs. The baseline installs a reversible `ytInitialPlayerResponse` accessor before page scripts run, prunes any already-present response, and wraps `JSON.parse` so parsed player responses containing known ad descriptors are pruned in place. The wrapper inspects only parsed objects with `streamingData` or `playabilityStatus`, returns all non-player values untouched, and catches inspection failures without changing native parse behavior. The baseline also performs conservative operations against already-present page globals: neutralizing an exposed abnormality callback and setting an already-present inline-playback ad flag. Missing or incompatible targets are no-ops. Each operation catches its own failures and returns cleanup behavior.
 
 Before applying operations, the engine checks whether `JSON.parse` or `JSON.stringify` appears non-native. This is a best-effort coexistence heuristic for page-context blocker hooks. It can have false positives and false negatives because extensions may hide wrappers or inject by other means; response pruning remains independent and fail-open.
 

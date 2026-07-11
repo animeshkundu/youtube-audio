@@ -1,6 +1,10 @@
 import { defineBackground } from 'wxt/utils/define-background';
 
-import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
+import {
+  assembleAudioMedia,
+  isAllowedAudioUrl,
+  isSafeDownloadFilename,
+} from '../src/shared/download';
 import {
   initializeSettings,
   subscribeSettings,
@@ -282,40 +286,35 @@ function parseDownloadRequest(
 async function downloadAudio(
   request: NonNullable<ReturnType<typeof parseDownloadRequest>>
 ): Promise<{ ok: boolean }> {
+  let objectUrl: string | null = null;
   try {
-    await browser.downloads.download({ url: request.url, filename: request.filename });
-    return { ok: true };
-  } catch {
-    let objectUrl: string | null = null;
-    try {
-      const response = await fetch(request.url, { credentials: 'omit' });
-      if (!response.ok) return { ok: false };
-      objectUrl = URL.createObjectURL(await response.blob());
-      const downloadId = await browser.downloads.download({
-        url: objectUrl,
-        filename: request.filename,
-      });
-      const urlToRevoke = objectUrl;
-      const onChanged = (delta: browser.downloads._OnChangedDownloadDelta) => {
-        if (delta.id !== downloadId || !delta.state?.current) return;
+    const media = await assembleAudioMedia(request.url);
+    objectUrl = URL.createObjectURL(new Blob([media.bytes], { type: media.mimeType }));
+    const downloadId = await browser.downloads.download({
+      url: objectUrl,
+      filename: request.filename,
+      saveAs: false,
+    });
+    const urlToRevoke = objectUrl;
+    const onChanged = (delta: browser.downloads._OnChangedDownloadDelta) => {
+      if (delta.id !== downloadId || !delta.state?.current) return;
+      browser.downloads.onChanged.removeListener(onChanged);
+      URL.revokeObjectURL(urlToRevoke);
+    };
+    browser.downloads.onChanged.addListener(onChanged);
+    window.setTimeout(
+      () => {
         browser.downloads.onChanged.removeListener(onChanged);
         URL.revokeObjectURL(urlToRevoke);
-      };
-      browser.downloads.onChanged.addListener(onChanged);
-      window.setTimeout(
-        () => {
-          browser.downloads.onChanged.removeListener(onChanged);
-          URL.revokeObjectURL(urlToRevoke);
-        },
-        60 * 60 * 1_000
-      );
-      objectUrl = null;
-      return { ok: true };
-    } catch {
-      return { ok: false };
-    } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    }
+      },
+      60 * 60 * 1_000
+    );
+    objectUrl = null;
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
 }
 
