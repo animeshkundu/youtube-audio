@@ -65,7 +65,6 @@ function log(...a) {
   console.error('[s3]', ...a);
 }
 
-/* eslint-disable */
 async function pageProbe() {
   const videoId = arguments[0];
   const AVR = arguments[1];
@@ -214,7 +213,7 @@ async function pageProbe() {
       const result = { cors: null, noCors: null };
       try {
         const r = await fetch(audioUrl, { method: 'GET', headers: { Range: 'bytes=0-1' }, mode: 'cors' });
-        let readableHeaders = {};
+        const readableHeaders = {};
         try { for (const [k, v] of r.headers.entries()) readableHeaders[k] = v; } catch (e) {}
         result.cors = {
           ok: r.ok,

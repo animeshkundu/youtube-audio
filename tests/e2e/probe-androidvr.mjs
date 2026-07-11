@@ -77,7 +77,6 @@ function log(...a) {
  * Runs entirely inside the youtube.com page. Returns a plain-JSON findings object.
  * arguments: [videoId, androidVrClient, androidVrClientNameId, audioWaitMs, callback]
  */
-/* eslint-disable */
 async function pageProbe() {
   const videoId = arguments[0];
   const AVR = arguments[1];
@@ -216,7 +215,7 @@ async function pageProbe() {
       a.muted = true;
       a.preload = 'auto';
       a.crossOrigin = 'anonymous';
-      let eventLog = [];
+      const eventLog = [];
       ['loadedmetadata', 'canplay', 'playing', 'stalled', 'suspend', 'error', 'waiting'].forEach(
         (ev) => a.addEventListener(ev, () => eventLog.push(ev))
       );

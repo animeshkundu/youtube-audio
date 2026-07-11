@@ -16,7 +16,7 @@ button {
 }
 .popup {
   width: 320px;
-  min-height: 190px;
+  min-height: 260px;
   padding: 16px;
   background: #181818;
 }
@@ -33,7 +33,7 @@ header {
 .hero {
   width: 100%;
   min-height: 72px;
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 12px 16px;
   display: flex;
   align-items: center;

@@ -29,6 +29,56 @@ export interface AndroidVrPlayerRequest {
  * Builds the credentialless ANDROID_VR player body proven by the Phase 0 probes.
  * The caller must send this with `credentials: "omit"`.
  */
+export interface PlayerResponse {
+  playabilityStatus?: {
+    status?: string;
+    reason?: string;
+  };
+  streamingData?: {
+    adaptiveFormats?: Array<{
+      itag?: number;
+      mimeType?: string;
+      bitrate?: number;
+      url?: string;
+    }>;
+  };
+}
+
+export interface Playability {
+  status: string | null;
+  reason: string | null;
+  isPlayable: boolean;
+}
+
+export function getPlayability(playerResponse: unknown): Playability {
+  if (typeof playerResponse !== 'object' || playerResponse === null) {
+    return { status: null, reason: null, isPlayable: false };
+  }
+  const response = playerResponse as PlayerResponse;
+  const status = response.playabilityStatus?.status ?? null;
+  const reason = response.playabilityStatus?.reason ?? null;
+  return { status, reason, isPlayable: status === 'OK' };
+}
+
+export function pickBestAudioUrl(playerResponse: unknown): string | null {
+  if (typeof playerResponse !== 'object' || playerResponse === null) return null;
+  const formats = (playerResponse as PlayerResponse).streamingData?.adaptiveFormats;
+  if (!Array.isArray(formats)) return null;
+
+  const audio = formats.filter(
+    (format) =>
+      typeof format.url === 'string' &&
+      format.url.length > 0 &&
+      typeof format.mimeType === 'string' &&
+      format.mimeType.startsWith('audio/')
+  );
+  audio.sort((left, right) => {
+    const preference = (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
+    return preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0);
+  });
+  return audio[0]?.url ?? null;
+}
+
 export function buildAndroidVrPlayerRequest(
   videoId: string,
   visitorData?: string

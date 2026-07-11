@@ -79,6 +79,29 @@ sequenceDiagram
 - SponsorBlock and LRCLIB origins remain ungranted placeholders until their opt-in features land.
 - Feature failures must leave native YouTube behavior intact.
 
+## M1 Playback Flow
+
+The isolated content layer owns extension storage and sends a fixed boolean settings payload to MAIN world through a namespaced, same-origin `postMessage`. MAIN world owns the credentialless ANDROID_VR fetch, playability gate, SPA generation, visibility override, and `PlayerHandle`. `PlayerHandle` is the sole extension writer to the page video source. Only bounded status codes return to the isolated layer; signed media URLs and player responses remain in MAIN world.
+
+```mermaid
+sequenceDiagram
+    participant Storage as Extension storage
+    participant Content as Isolated content
+    participant Main as MAIN world
+    participant API as InnerTube
+    participant Video as YouTube video
+
+    Storage-->>Content: instant settings update
+    Content->>Main: booleans-only CustomEvent
+    Main->>API: credentialless ANDROID_VR request
+    API-->>Main: player response
+    Main->>Main: playability + direct-audio gate
+    Main->>Video: PlayerHandle sets audio src
+    Main-->>Content: bounded status code
+```
+
+Failures and unsupported videos fail open to native playback. SPA navigation invalidates stale asynchronous operations before they can attach media.
+
 ## Build Outputs
 
 - `.output/firefox-mv2/`: shipping Firefox MV2 directory.

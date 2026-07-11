@@ -2,47 +2,65 @@ import { render } from 'preact';
 import { useState } from 'preact/hooks';
 
 import {
-  enabledSignal,
+  audioOnlyEnabledSignal,
+  backgroundPlayEnabledSignal,
   initializeSettings,
-  setEnabled,
+  setAudioOnlyEnabled,
+  setBackgroundPlayEnabled,
   watchSettings,
 } from '../../src/shared/config';
 import './style.css';
 
+type ToggleProps = {
+  label: string;
+  description: string;
+  active: boolean;
+  onToggle: () => Promise<void>;
+};
+
+function Toggle({ label, description, active, onToggle }: ToggleProps) {
+  return (
+    <button class="hero" type="button" onClick={() => void onToggle()}>
+      <span>
+        <strong>{label}</strong>
+        <small>{description}</small>
+      </span>
+      <span class={`switch ${active ? 'is-on' : ''}`} role="switch" aria-checked={active}>
+        <span />
+      </span>
+    </button>
+  );
+}
+
 function Popup() {
   const [error, setError] = useState<string | null>(null);
-
-  async function toggle() {
+  const apply = async (operation: () => Promise<void>) => {
     setError(null);
     try {
-      await setEnabled(!enabledSignal.value);
+      await operation();
     } catch {
       setError('Could not save this change.');
     }
-  }
+  };
 
   return (
     <main class="popup">
       <header>
-        <span class="mark" aria-hidden="true">
-          ◈
-        </span>
+        <span class="mark" aria-hidden="true">◈</span>
         <strong>YouTube Audio</strong>
       </header>
-      <button class="hero" type="button" onClick={toggle}>
-        <span>
-          <strong>Protection</strong>
-          <small>{enabledSignal.value ? 'On · ready for YouTube' : 'Off'}</small>
-        </span>
-        <span
-          class={`switch ${enabledSignal.value ? 'is-on' : ''}`}
-          role="switch"
-          aria-checked={enabledSignal.value}
-          aria-label="Enable YouTube Audio"
-        >
-          <span />
-        </span>
-      </button>
+      <Toggle
+        label="Audio only"
+        description="Stop video bytes, keep native controls"
+        active={audioOnlyEnabledSignal.value}
+        onToggle={() => apply(() => setAudioOnlyEnabled(!audioOnlyEnabledSignal.value))}
+      />
+      <Toggle
+        label="Background play"
+        description="Keep playing when YouTube is hidden"
+        active={backgroundPlayEnabledSignal.value}
+        onToggle={() => apply(() => setBackgroundPlayEnabled(!backgroundPlayEnabledSignal.value))}
+      />
       {error && <p class="error">{error}</p>}
       <button class="settings" type="button" onClick={() => browser.runtime.openOptionsPage()}>
         Settings →

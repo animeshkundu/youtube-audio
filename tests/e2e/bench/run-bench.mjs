@@ -4,23 +4,28 @@
  * This is the testability backbone: it loads the REAL built extension against a local,
  * hermetic fixture (tests/e2e/bench/fixture-server.mjs) and observes deterministic,
  * JS-driven signals (DOM markers + the fixture's request log) — no live YouTube, no real
- * media decoding. Per-feature assertions (M1+) plug into the same harness.
+ * media decoding.
  *
- * What it does:
- *   1. Builds the BENCH extension (`BENCH=1 wxt build`), so the content script ALSO matches
- *      the local fixture host, and packages it into a temporary-installable XPI via web-ext.
- *   2. Starts the fixture server on an ephemeral 127.0.0.1 port.
- *   3. Runs two fresh-profile Firefox sessions (A/B):
- *        - control   = fixture page, NO add-on.
- *        - treatment = fixture page, WITH the bench add-on installed as a temporary add-on.
- *   4. Asserts the harness MECHANISMS (not any feature) hold deterministically today:
- *        - control has no content-script marker; treatment does  (proves injection is
- *          observable, the BENCH flag works, and the 127.0.0.1 match is live).
- *        - the fixture request log records the page's telemetry beacons  (proves the
- *          request-observation pattern every feature will reuse).
- *        - the fixture InnerTube /player endpoint returns audio adaptiveFormats + loudnessDb
- *          + adPlacements  (proves the response fixture features will assert against).
- *   5. Emits a JSON PASS/FAIL summary and sets the process exit code.
+ * Sessions (each a fresh profile):
+ *   - control   = fixture page, NO add-on.
+ *   - enabled   = fixture page, add-on installed, DEFAULT settings (audio-only on).
+ *   - disabled  = fixture page, add-on installed, settings seeded to enabled:false via the
+ *                 extension's own options page + browser.storage (the faithful settings path).
+ *
+ * Harness-mechanism assertions (prove the bench itself, not a feature):
+ *   - control has no content-script marker; the add-on session does.
+ *   - the fixture request log records the page's telemetry beacons.
+ *   - the fixture InnerTube /player endpoint returns audio adaptiveFormats + loudnessDb + ads.
+ *
+ * M1 feature assertions (prove real production behavior against the fixture):
+ *   - enabled  -> the extension fetches POST /youtubei/v1/player and HIJACKS <video>.src to the
+ *                 direct audio URL (status "active").
+ *   - disabled -> the extension leaves the page UNTOUCHED: no player fetch, no src swap
+ *                 (status "disabled").
+ *   - visibility suppression -> background-play swallows `visibilitychange` when enabled, and
+ *                 does not in control.
+ *
+ * Emits a JSON PASS/FAIL summary and sets the process exit code.
  *
  * Config via env:
  *   HEADLESS    "1" (default) headless, "0" headful
@@ -49,6 +54,15 @@ const SKIP_BUILD = process.env.SKIP_BUILD === '1';
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
+
+// The extension's gecko id (wxt.config.ts) and a pinned internal UUID. Pinning the
+// moz-extension UUID lets the bench open the extension's own options page deterministically
+// and seed browser.storage — the real settings path the content script reads at startup.
+const ADDON_ID = 'youtube-audio@local';
+const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
+const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
+
+const TERMINAL_STATUSES = ['active', 'disabled', 'fallback'];
 
 function log(...a) {
   console.error('[bench]', ...a);
@@ -83,6 +97,11 @@ function makeOptions() {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
+  // Pin the extension's internal UUID so the options page has a stable moz-extension origin.
+  options.setPreference(
+    'extensions.webextensions.uuids',
+    JSON.stringify({ [ADDON_ID]: PINNED_UUID })
+  );
   // Match the existing E2E harness prefs; harmless for the fixture (no real media).
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
@@ -92,7 +111,7 @@ function makeOptions() {
   return options;
 }
 
-/** Poll an in-process predicate until it returns truthy or the deadline passes. */
+/** Poll an async predicate until it returns truthy or the deadline passes. */
 async function waitFor(fn, timeoutMs, stepMs = 200) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -103,65 +122,121 @@ async function waitFor(fn, timeoutMs, stepMs = 200) {
   }
 }
 
+// --- Page-context probes (serialized to the browser) -----------------------
+
+/** Snapshot the observable DOM signals the bench keys on. */
+function snapshotScript() {
+  const v = document.querySelector('video');
+  return {
+    marker: document.documentElement.dataset.ytaBench || null,
+    status: document.documentElement.dataset.ytaStatus || null,
+    videoSrc: v ? v.src : null,
+    ready: document.documentElement.getAttribute('data-fixture-ready'),
+  };
+}
+
+/** Detect whether `visibilitychange` is swallowed (background-play suppression). */
+function visibilityProbeScript() {
+  let received = false;
+  const handler = () => {
+    received = true;
+  };
+  document.addEventListener('visibilitychange', handler, true);
+  try {
+    document.dispatchEvent(new Event('visibilitychange'));
+  } catch {
+    /* ignore */
+  }
+  document.removeEventListener('visibilitychange', handler, true);
+  return {
+    swallowed: received === false,
+    received,
+    hidden: document.hidden,
+    visibilityState: document.visibilityState,
+  };
+}
+
 /**
  * One fresh-profile browser session against the fixture watch page.
- * @param {{ withAddon: boolean, origin: string }} opts
+ * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
+ *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, origin }) {
+async function runSession({ withAddon, seedSettings, probePlayerFromPage, origin, resetLog }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
     if (withAddon) {
       addonId = await driver.installAddon(BENCH_XPI, true);
       log('installed temporary add-on:', addonId);
+
+      if (seedSettings) {
+        // Faithful settings path: write browser.storage from the extension's own options page,
+        // exactly what the content script reads via initializeSettings() on the next navigation.
+        await driver.get(OPTIONS_URL);
+        const seed = await driver.executeAsyncScript(function (settings) {
+          const done = arguments[arguments.length - 1];
+          try {
+            browser.storage.local
+              .set({ settings })
+              .then(() => done({ ok: true }))
+              .catch((e) => done({ ok: false, error: String(e) }));
+          } catch (e) {
+            done({ ok: false, error: String(e) });
+          }
+        }, seedSettings);
+        if (!seed || !seed.ok) throw new Error(`settings seed failed: ${JSON.stringify(seed)}`);
+        log('seeded settings via options page:', JSON.stringify(seedSettings));
+      }
     }
 
-    const watchUrl = `${origin}/watch?v=FIXTURE0001`;
-    await driver.get(watchUrl);
+    // Clean the fixture request log so this session's traffic is measured in isolation.
+    // (The options-page navigation above never touches the fixture host.)
+    resetLog();
 
-    // Wait for the fixture page to finish loading (it sets data-fixture-ready in its load handler).
+    await driver.get(`${origin}/watch?v=FIXTURE0001`);
     await driver.wait(until.elementLocated(By.css('video[data-fixture-video]')), 10000);
-    await driver.wait(async () => {
-      const ready = await driver.executeScript(
-        'return document.documentElement.getAttribute("data-fixture-ready");'
-      );
-      return ready === '1';
-    }, 10000);
+    await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
 
-    // The content-script marker (bench build only). Give the isolated-world script a beat.
-    const marker = await waitFor(
-      () =>
-        driver.executeScript('return document.documentElement.getAttribute("data-yta-bench");'),
-      withAddon ? 5000 : 1500
-    );
+    // With the add-on, wait for the extension to reach a terminal playback status.
+    if (withAddon) {
+      await waitFor(async () => {
+        const snap = await driver.executeScript(snapshotScript);
+        return snap.status && TERMINAL_STATUSES.includes(snap.status) ? snap : null;
+      }, 8000);
+    }
 
-    // Fixture completeness: fetch the InnerTube /player fixture from the page and inspect it.
-    const player = await driver.executeAsyncScript(function () {
-      const done = arguments[arguments.length - 1];
-      fetch('/youtubei/v1/player?v=FIXTURE0001', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ videoId: 'FIXTURE0001' }),
-      })
-        .then((r) => r.json())
-        .then((j) => {
-          const fmts = (j.streamingData && j.streamingData.adaptiveFormats) || [];
-          done({
-            ok: true,
-            audioFormats: fmts.filter((f) => (f.mimeType || '').indexOf('audio/') === 0).length,
-            totalFormats: fmts.length,
-            loudnessDb:
-              j.playerConfig && j.playerConfig.audioConfig
-                ? j.playerConfig.audioConfig.loudnessDb
-                : null,
-            hasAdPlacements: Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
-            playabilityStatus: j.playabilityStatus && j.playabilityStatus.status,
-          });
+    const snap = await driver.executeScript(snapshotScript);
+    const vis = await driver.executeScript(visibilityProbeScript);
+
+    let player = null;
+    if (probePlayerFromPage) {
+      player = await driver.executeAsyncScript(function () {
+        const done = arguments[arguments.length - 1];
+        fetch('/youtubei/v1/player?v=FIXTURE0001', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ videoId: 'FIXTURE0001' }),
         })
-        .catch((e) => done({ ok: false, error: String(e) }));
-    });
+          .then((r) => r.json())
+          .then((j) => {
+            const fmts = (j.streamingData && j.streamingData.adaptiveFormats) || [];
+            done({
+              ok: true,
+              audioFormats: fmts.filter((f) => (f.mimeType || '').indexOf('audio/') === 0).length,
+              totalFormats: fmts.length,
+              loudnessDb:
+                j.playerConfig && j.playerConfig.audioConfig
+                  ? j.playerConfig.audioConfig.loudnessDb
+                  : null,
+              hasAdPlacements: Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
+              playabilityStatus: j.playabilityStatus && j.playabilityStatus.status,
+            });
+          })
+          .catch((e) => done({ ok: false, error: String(e) }));
+      });
+    }
 
-    return { addonId, marker, player };
+    return { addonId, marker: snap.marker, status: snap.status, videoSrc: snap.videoSrc, vis, player };
   } finally {
     try {
       await driver.quit();
@@ -170,6 +245,9 @@ async function runSession({ withAddon, origin }) {
     }
   }
 }
+
+const hasPlayerPost = (requests) =>
+  requests.some((r) => r.method === 'POST' && r.path === '/youtubei/v1/player');
 
 async function main() {
   if (!SKIP_BUILD) {
@@ -186,46 +264,88 @@ async function main() {
   const record = (name, pass, detail) => tests.push({ name, pass: !!pass, detail });
 
   try {
-    // --- A: control (no add-on) -----------------------------------------------
-    fixture.reset();
-    const control = await runSession({ withAddon: false, origin });
+    // --- control (no add-on) --------------------------------------------------
+    const control = await runSession({
+      withAddon: false,
+      probePlayerFromPage: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const controlLog = fixture.getRequests();
 
     record('control:no-marker-without-extension', control.marker === null, {
       marker: control.marker,
     });
-
-    // Request-log observability: the page's load-time telemetry beacons must be recorded.
-    // Poll the in-process log until the telemetry path lands (beacons are async).
-    const controlLogged = await waitFor(() => {
-      const paths = fixture.getRequests().map((r) => r.path);
-      return paths.includes('/youtubei/v1/log_event') ? paths : null;
-    }, 5000);
-    record('control:request-log-records-telemetry', !!controlLogged, {
-      recordedPaths: fixture.getRequests().map((r) => `${r.method} ${r.path}`),
-    });
-
-    // --- B: treatment (bench add-on) ------------------------------------------
-    fixture.reset();
-    const treatment = await runSession({ withAddon: true, origin });
-
-    record('treatment:content-script-marker', treatment.marker === '1', {
-      marker: treatment.marker,
-      addonId: treatment.addonId,
-    });
-
-    // Fixture player endpoint returns the shape features will assert against.
-    const p = treatment.player || {};
     record(
-      'treatment:fixture-player-endpoint',
-      p.ok && p.audioFormats >= 1 && p.hasAdPlacements && typeof p.loudnessDb === 'number',
-      p
+      'control:request-log-records-telemetry',
+      controlLog.some((r) => r.path === '/youtubei/v1/log_event'),
+      { recordedPaths: controlLog.map((r) => `${r.method} ${r.path}`) }
+    );
+    const cp = control.player || {};
+    record(
+      'fixture:player-endpoint-shape',
+      cp.ok && cp.audioFormats >= 1 && cp.hasAdPlacements && typeof cp.loudnessDb === 'number',
+      cp
     );
 
-    // A/B cross-check: the marker is present ONLY with the extension.
+    // --- enabled (default settings) -------------------------------------------
+    const enabled = await runSession({
+      withAddon: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const enabledLog = fixture.getRequests();
+
+    record('treatment:content-script-marker', enabled.marker === '1', {
+      marker: enabled.marker,
+      addonId: enabled.addonId,
+    });
     record(
       'ab:marker-differs-control-vs-treatment',
-      control.marker === null && treatment.marker === '1',
-      { control: control.marker, treatment: treatment.marker }
+      control.marker === null && enabled.marker === '1',
+      { control: control.marker, treatment: enabled.marker }
+    );
+    record(
+      'm1:enabled-fetch-and-hijack',
+      enabled.status === 'active' &&
+        typeof enabled.videoSrc === 'string' &&
+        enabled.videoSrc.includes('/videoplayback') &&
+        hasPlayerPost(enabledLog),
+      {
+        status: enabled.status,
+        videoSrc: enabled.videoSrc,
+        playerPost: hasPlayerPost(enabledLog),
+        recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
+      }
+    );
+
+    // --- disabled (enabled:false, faithfully seeded) --------------------------
+    const disabled = await runSession({
+      withAddon: true,
+      seedSettings: { enabled: false, audioOnlyEnabled: true, backgroundPlayEnabled: true },
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const disabledLog = fixture.getRequests();
+
+    record(
+      'm1:disabled-untouched',
+      disabled.status === 'disabled' &&
+        !(typeof disabled.videoSrc === 'string' && disabled.videoSrc.includes('/videoplayback')) &&
+        !hasPlayerPost(disabledLog),
+      {
+        status: disabled.status,
+        videoSrc: disabled.videoSrc,
+        playerPost: hasPlayerPost(disabledLog),
+        recordedPaths: disabledLog.map((r) => `${r.method} ${r.path}`),
+      }
+    );
+
+    // --- visibility suppression (A/B) -----------------------------------------
+    record(
+      'm1:visibility-suppression',
+      enabled.vis.swallowed === true && control.vis.swallowed === false,
+      { control: control.vis, treatment: enabled.vis }
     );
   } finally {
     await fixture.close();
@@ -254,7 +374,11 @@ async function main() {
 main().catch((err) => {
   console.log(
     JSON.stringify(
-      { bench: 'youtube-audio integration bench', verdict: 'ERROR', error: String(err && err.stack ? err.stack : err) },
+      {
+        bench: 'youtube-audio integration bench',
+        verdict: 'ERROR',
+        error: String(err && err.stack ? err.stack : err),
+      },
       null,
       2
     )

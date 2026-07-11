@@ -69,7 +69,6 @@ function log(...a) {
   console.error('[s1]', ...a);
 }
 
-/* eslint-disable */
 async function pageProbe() {
   const videoId = arguments[0];
   const AVR = arguments[1];

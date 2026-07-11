@@ -71,7 +71,6 @@ function log(...a) {
   console.error('[s2]', ...a);
 }
 
-/* eslint-disable */
 async function pageProbe() {
   const videoId = arguments[0];
   const AVR = arguments[1];
@@ -326,7 +325,7 @@ async function pageProbe() {
       const t1 = a.currentTime;
       const nativePlayerTimeAfter = playerTime().currentTime;
       const nativeVideoTimeAfter = video.currentTime;
-      let res = {
+      const res = {
         ourCurrentTimeStart: t0,
         ourCurrentTimeEnd: t1,
         ourCurrentTimeDelta: +(t1 - t0).toFixed(3),

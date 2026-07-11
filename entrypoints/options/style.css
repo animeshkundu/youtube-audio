@@ -55,6 +55,9 @@ button {
   border-radius: 10px;
   cursor: pointer;
 }
+section button + button {
+  margin-top: 10px;
+}
 button:hover {
   background: #272727;
 }

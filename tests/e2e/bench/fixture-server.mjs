@@ -169,7 +169,7 @@ function watchPageHtml() {
     <div id="movie_player" class="html5-video-player ytp-hide-controls ended-mode" tabindex="-1">
       <div class="html5-video-container">
         <video class="video-stream html5-main-video" preload="none" playsinline
-               data-fixture-video="1"></video>
+               src="/native-video?mime=video/mp4" data-fixture-video="1"></video>
       </div>
       <div class="ytp-gradient-bottom"></div>
       <div class="ytp-chrome-bottom">
@@ -325,7 +325,6 @@ export function createFixtureServer() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const fixture = createFixtureServer();
   fixture.start().then(({ origin, port }) => {
-    // eslint-disable-next-line no-console
     console.log(JSON.stringify({ origin, port }));
     console.error(`[fixture] listening on ${origin} (watch page: ${origin}/watch)`);
   });
