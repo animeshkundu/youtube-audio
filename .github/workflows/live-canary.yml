@@ -6,9 +6,6 @@ name: Live YouTube Canary (non-gating)
 # best-effort and never blocks a merge. A red run means "investigate", not "stop the line".
 
 on:
-  # TEMPORARY: validate this workflow on the rebuild PR branch. Remove before merge.
-  push:
-    branches: [rebuild]
   schedule:
     # 05:42 UTC nightly. Off-peak and off-:00/:30 to avoid Actions scheduler congestion.
     - cron: '42 5 * * *'

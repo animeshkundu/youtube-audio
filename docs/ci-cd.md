@@ -92,6 +92,29 @@ version in the workflow `env` when it ages out.
 - **Live network.** The probe hits real `m.youtube.com` logged-out, so YouTube bot-flagging can
   cause intermittent, expected reds.
 
+### CI validation findings (2026-07-11, ran on the PR via a temporary trigger)
+
+Both non-gating workflows were exercised once on GitHub Actions to validate them pre-merge:
+
+- **Emulator layer works on CI.** `android-emulator-runner` boots the x86_64 API-34 image with KVM
+  in ~40 s; `adb root`, JDK, and the `BENCH` XPI build all succeed. A dash-vs-bash bug was found and
+  fixed here: the emulator `script:` runs under `/usr/bin/sh` (dash), which rejects `set -o pipefail`
+  (now `set -u`).
+- **Fenix load + live behavior are the unsolved parts.** The pinned `fenix-130.0` x86_64 APK did not
+  register as `org.mozilla.fenix` (release builds are `org.mozilla.firefox`; the package id must
+  match what `probe-mobile-fenix.mjs` targets), and `ui.py` did not find the "Remote debugging"
+  toggle on that build, so the probe ended in `Package 'org.mozilla.fenix' not found`.
+- **Datacenter-IP limitation (fundamental).** Even once Fenix loads, the probe hits **live**
+  `m.youtube.com`, and YouTube treats GitHub's datacenter IPs differently (the desktop live-canary
+  confirmed this: the ANDROID_VR fetch does not hijack from CI IPs). So a **live**-YouTube mobile (or
+  desktop) probe cannot reliably go green from CI regardless of the Fenix tuning.
+- **Real mobile verification is local.** `probe-mobile-fenix.mjs` passes 4/4 on a real emulator from
+  a residential IP (see `docs/history/2026-07-11-mobile-firefox-verification.md`).
+- **Recommended proper fix:** make the mobile probe **hermetic** like the desktop bench, driving the
+  emulator's Fenix against the local fixture over `10.0.2.2` (requires the extension to also match
+  `10.0.2.2` and the probe to point there). That removes the datacenter-IP dependency and would make
+  mobile E2E deterministic and even gate-able. Tracked as a follow-up.
+
 ### Run the mobile probe locally
 
 Requires a running Android emulator/device with Fenix and remote debugging enabled, plus the
