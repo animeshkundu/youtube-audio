@@ -10,6 +10,11 @@ name: Mobile E2E (best-effort)
 # few live runs. See docs/ci-cd.md for the caveats.
 
 on:
+  # TEMPORARY: validate this workflow on the rebuild PR branch. Remove before merge;
+  # dispatch/schedule only fire from the default branch, so this is the only way to
+  # exercise it pre-merge.
+  push:
+    branches: [rebuild]
   schedule:
     # 04:17 UTC nightly. Off-peak and off-:00/:30 to avoid Actions scheduler congestion.
     - cron: '17 4 * * *'
@@ -38,6 +43,7 @@ jobs:
   mobile-probe:
     name: Fenix Android emulator core probe (non-gating)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     # Best-effort: never fail the workflow / block a merge on mobile-emulator or live-YouTube flake.
     continue-on-error: true
     steps:

@@ -21,7 +21,7 @@ YouTube Music power features.
 </p>
 
 <div class="yta-cta" markdown>
-[:material-firefox: Install for Firefox](https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/){ .md-button .md-button--primary }
+[:material-firefox: Install for Firefox](https://github.com/animeshkundu/youtube-audio#install){ .md-button .md-button--primary }
 [:fontawesome-brands-github: View on GitHub](https://github.com/animeshkundu/youtube-audio){ .md-button }
 [:material-sitemap: Explore the architecture](architecture/README.md){ .md-button }
 </div>

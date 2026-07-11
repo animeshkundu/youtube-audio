@@ -58,7 +58,7 @@ extra:
       link: https://github.com/animeshkundu/youtube-audio
       name: YouTube Audio on GitHub
     - icon: fontawesome/brands/firefox-browser
-      link: https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/
+      link: https://github.com/animeshkundu/youtube-audio#install
       name: Install for Firefox
 
 markdown_extensions:

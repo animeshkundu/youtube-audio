@@ -72,6 +72,7 @@ jobs:
   bench:
     name: Hermetic Selenium Firefox bench
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -86,10 +87,13 @@ jobs:
         run: npm ci
 
       # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
-      # setup-firefox installs a real, non-snap Firefox and exposes its path.
+      # setup-firefox installs a real, non-snap Firefox and exposes its path. Pin to
+      # latest-esr so a same-day mainline Firefox release cannot break this GATING job.
       - name: Install Firefox (non-snap)
         id: firefox
         uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: latest-esr
 
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench

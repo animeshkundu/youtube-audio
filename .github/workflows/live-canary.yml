@@ -6,6 +6,9 @@ name: Live YouTube Canary (non-gating)
 # best-effort and never blocks a merge. A red run means "investigate", not "stop the line".
 
 on:
+  # TEMPORARY: validate this workflow on the rebuild PR branch. Remove before merge.
+  push:
+    branches: [rebuild]
   schedule:
     # 05:42 UTC nightly. Off-peak and off-:00/:30 to avoid Actions scheduler congestion.
     - cron: '42 5 * * *'
@@ -60,4 +63,6 @@ jobs:
           cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
 
       - name: Run live audio playback probe
-        run: xvfb-run --auto-servernum node tests/e2e/probe-audio-playback.mjs
+        # Prepend node_modules/.bin so the probe resolves the pinned geckodriver deterministically
+        # (this probe uses geckodriver's default Firefox discovery, hence the /usr/local/bin symlink).
+        run: PATH="$PWD/node_modules/.bin:$PATH" xvfb-run --auto-servernum node tests/e2e/probe-audio-playback.mjs
