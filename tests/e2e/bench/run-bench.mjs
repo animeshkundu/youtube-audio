@@ -166,7 +166,19 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeSegmentSkip, probeQol, probeDownload, origin, resetLog, videoId = 'FIXTURE0001' }) {
+async function runSession({
+  withAddon,
+  seedSettings,
+  probePlayerFromPage,
+  probeSegmentSkip,
+  probeQol,
+  probeDownload,
+  probeSpaRearm,
+  probeCircuitBreaker,
+  origin,
+  resetLog,
+  videoId = 'FIXTURE0001',
+}) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
     let addonId = null;
@@ -226,6 +238,38 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
         return state.download ? state : null;
       }, 8000);
     }
+
+    let spaRearm = null;
+    if (probeSpaRearm) {
+      const first = await driver.executeScript(snapshotScript);
+      await driver.executeScript(function () {
+        history.pushState({}, '', '/watch?v=FIXTURE0002');
+        document.dispatchEvent(new Event('yt-navigate-finish'));
+      });
+      const second = await waitFor(async () => {
+        const state = await driver.executeScript(snapshotScript);
+        return state.status === 'active' && state.videoSrc?.includes('videoId=FIXTURE0002')
+          ? state
+          : null;
+      }, 8000);
+      spaRearm = { first, second };
+    }
+
+    let circuitBreaker = null;
+    if (probeCircuitBreaker) {
+      circuitBreaker = await driver.executeScript(function () {
+        const video = document.querySelector('video[data-fixture-video]');
+        if (!video) return { assignments: [], finalSrc: null };
+        const assignments = [];
+        for (let attempt = 1; attempt <= 4; attempt += 1) {
+          const source = `${location.origin}/native-video?circuit=${attempt}`;
+          video.src = source;
+          assignments.push({ attempt, requested: source, observed: video.src });
+        }
+        return { assignments, finalSrc: video.src };
+      });
+    }
+
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
 
@@ -321,6 +365,8 @@ async function runSession({ withAddon, seedSettings, probePlayerFromPage, probeS
       lyrics: snap.lyrics,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
+      spaRearm,
+      circuitBreaker,
     };
   } finally {
     try {
@@ -431,6 +477,57 @@ async function main() {
         !(typeof liveRun.videoSrc === 'string' && liveRun.videoSrc.includes('/videoplayback')),
       { status: liveRun.status, reason: liveRun.reason, videoSrc: liveRun.videoSrc }
     );
+
+    const authRequiredRun = await runSession({
+      withAddon: true,
+      videoId: 'AUTHVIDEO01',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm1:auth-required-falls-back-no-hijack',
+      authRequiredRun.status === 'fallback' &&
+        authRequiredRun.reason === 'LOGIN_REQUIRED' &&
+        !(typeof authRequiredRun.videoSrc === 'string' &&
+          authRequiredRun.videoSrc.includes('/videoplayback')),
+      {
+        status: authRequiredRun.status,
+        reason: authRequiredRun.reason,
+        videoSrc: authRequiredRun.videoSrc,
+      }
+    );
+
+    const spaRun = await runSession({
+      withAddon: true,
+      probeSpaRearm: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm1:spa-navigation-rearms-second-hijack',
+      spaRun.spaRearm?.first?.status === 'active' &&
+        spaRun.spaRearm.first.videoSrc?.includes('videoId=FIXTURE0001') &&
+        spaRun.spaRearm?.second?.status === 'active' &&
+        spaRun.spaRearm.second.videoSrc?.includes('videoId=FIXTURE0002'),
+      spaRun.spaRearm
+    );
+
+    const circuitRun = await runSession({
+      withAddon: true,
+      probeCircuitBreaker: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const circuitAssignments = circuitRun.circuitBreaker?.assignments || [];
+    record(
+      'm1:source-guard-opens-circuit-after-bounded-reassertions',
+      circuitAssignments.length === 4 &&
+        circuitAssignments.slice(0, 3).every((entry) => entry.observed.includes('/videoplayback')) &&
+        circuitAssignments[3].observed.includes('/native-video?circuit=4') &&
+        !circuitRun.circuitBreaker.finalSrc.includes('/videoplayback'),
+      circuitRun.circuitBreaker
+    );
+
     record(
       'm2a:conservative-telemetry-policy',
       requestCount(enabledLog, '/api/stats/qoe') === 0 &&

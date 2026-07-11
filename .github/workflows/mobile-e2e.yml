@@ -97,7 +97,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
-            set -uo pipefail
+            # android-emulator-runner executes this script under dash (/usr/bin/sh), which does
+            # not support `set -o pipefail` (a bashism). Use `set -u` only; failures are contained
+            # because the guarded steps use `|| true` and the final probe determines the exit code.
+            set -u
             adb wait-for-device
             # google_apis (non-Play) images allow adb root; needed for a clean temp-addon install.
             adb root || true

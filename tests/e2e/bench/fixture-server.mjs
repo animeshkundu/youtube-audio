@@ -43,9 +43,9 @@ import http from 'node:http';
  * `contentLength`; a live/DVR edge stream omits it (that omission is how the extension detects live
  * and declines to hijack). See isLiveStream() in src/shared/innertube.ts.
  */
-function fixtureAdaptiveFormats(origin, { live = false } = {}) {
+function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' } = {}) {
   const media = (itag, mime) =>
-    `${origin}/videoplayback?itag=${itag}&mime=${encodeURIComponent(mime)}&source=fixture`;
+    `${origin}/videoplayback?itag=${itag}&mime=${encodeURIComponent(mime)}&source=fixture&videoId=${encodeURIComponent(videoId)}`;
   const finite = (bytes) => (live ? {} : { contentLength: String(bytes) });
   return [
     {
@@ -84,9 +84,12 @@ function fixtureAdaptiveFormats(origin, { live = false } = {}) {
 /** The full fixture InnerTube /player response. */
 function fixturePlayerResponse(origin, videoId, opts = {}) {
   const live = !!opts.live;
+  const loginRequired = !!opts.loginRequired;
   return {
     responseContext: { serviceTrackingParams: [] },
-    playabilityStatus: { status: 'OK', playableInEmbed: true },
+    playabilityStatus: loginRequired
+      ? { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' }
+      : { status: 'OK', playableInEmbed: true },
     videoDetails: {
       videoId: videoId || 'FIXTURE0001',
       title: 'Fixture Watch Page',
@@ -98,7 +101,7 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
     },
     streamingData: {
       expiresInSeconds: '21540',
-      adaptiveFormats: fixtureAdaptiveFormats(origin, { live }),
+      adaptiveFormats: fixtureAdaptiveFormats(origin, { live, videoId }),
       serverAbrStreamingUrl: `${origin}/videoplayback?abr=1&source=fixture`,
     },
     // Present so ad-related tests have a real shape to observe; the extension does not block ads.
@@ -350,10 +353,14 @@ export function createFixtureServer() {
           /* ignore malformed bodies */
         }
       }
-      // A videoId starting with "LIVE" yields a live-stream response (isLive + manifest urls) so the
-      // bench can assert the extension declines to hijack live edges. See run-bench m1:live case.
+      // Special video-id prefixes keep edge responses deterministic and hermetic.
       const live = typeof videoId === 'string' && videoId.startsWith('LIVE');
-      return sendJson(res, 200, fixturePlayerResponse(origin, videoId, { live }));
+      const loginRequired = typeof videoId === 'string' && videoId.startsWith('AUTH');
+      return sendJson(
+        res,
+        200,
+        fixturePlayerResponse(origin, videoId, { live, loginRequired })
+      );
     }
     if (path.startsWith('/api/skipSegments/')) {
       const videoId = url.searchParams.get('videoID') || undefined;
