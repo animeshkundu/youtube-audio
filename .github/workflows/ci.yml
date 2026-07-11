@@ -6,19 +6,18 @@ on:
   pull_request:
     branches: [main, master, rebuild]
   workflow_dispatch:
-    inputs:
-      run_bench:
-        description: Run the optional Selenium Firefox bench
-        required: false
-        default: false
-        type: boolean
+
+# Cancel superseded runs for the same ref so only the newest commit's checks run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   validate:
-    name: Typecheck, lint, test, and validate MV2
+    name: Typecheck, lint, format, test, and validate MV2
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -38,6 +37,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
 
       - name: Run unit tests
         run: npm test
@@ -68,9 +70,7 @@ jobs:
         run: npm run build:mv3
 
   bench:
-    name: Optional Selenium Firefox bench
-    if: github.event_name == 'workflow_dispatch' && inputs.run_bench
-    continue-on-error: true
+    name: Hermetic Selenium Firefox bench
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -85,5 +85,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run integration bench
+      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # setup-firefox installs a real, non-snap Firefox and exposes its path.
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
+      - name: Run hermetic integration bench
         run: xvfb-run --auto-servernum npm run test:bench
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}

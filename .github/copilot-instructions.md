@@ -1,155 +1,62 @@
-# YouTube Audio - AI Agent Instructions
+# YouTube Audio - Copilot Instructions
 
-This repository is **AI-Enabled** and optimized for Agentic Coding. Before performing any work, you **MUST** follow these instructions.
+YouTube Audio is a **Firefox WebExtension** that plays **YouTube and YouTube Music as audio
+only** by fetching audio through a credentialless `ANDROID_VR` InnerTube request and
+hijacking the page `<video>` source. It also does background play, ad/telemetry blocking,
+segment skipping, quality-of-life tweaks, YouTube Music loudness/EQ/lyrics, and audio
+download.
 
-## Project Overview
+Read [`AGENTS.md`](../AGENTS.md) for the full map and [`claude.md`](../claude.md) for the
+agent protocol. This repo is documentation-driven: **No spec, no code.**
 
-**YouTube Audio** is a Firefox browser extension that allows users to stream only audio from YouTube videos. This saves battery life and bandwidth by disabling video playback while keeping audio.
+## Stack
 
-### Technology Stack
+- **TypeScript strict**, built with **WXT**. **MV2 ships**; **MV3** is a capability artifact
+  (both from [`wxt.config.ts`](../wxt.config.ts)).
+- **Preact + `@preact/signals`** for popup/options UI only, never in background, content, or
+  MAIN-world code.
+- Promise-based `browser.*` APIs, not callback `chrome.*`.
 
-- **Language**: JavaScript (ES6+)
-- **Platform**: Browser Extension (Firefox/Chrome)
-- **Manifest**: WebExtension Manifest V2
-- **APIs**: WebRequest, Storage, Tabs, BrowserAction
+## Where code goes
 
-## Required Reading
+- `entrypoints/background.ts` - privileged APIs: `webRequest` telemetry/ad filter,
+  SponsorBlock/LRCLIB proxies, downloads (all credentialless).
+- `entrypoints/content.ts` - isolated content script: injects MAIN world, cross-world
+  bridge, in-player buttons, lyrics, QoL stylesheet.
+- `entrypoints/main-world.ts` - page world: `ANDROID_VR` fetch, playability/live gate, SPA,
+  visibility override, `PlayerHandle`, Web Audio graph.
+- `entrypoints/{popup,options,ui}/` - Preact UI + shared tokenized control kit.
+- `src/shared/*` - framework-free pure logic; unit-tested directly. Put testable logic here.
 
-**Before answering any request, you MUST read:**
+## Hard invariants (do not break)
 
-1. `docs/agent-instructions/` - All files in order (00 → 03)
-2. `docs/adrs/` - Check for past architectural decisions
-3. `docs/specs/` - Review existing specifications
-4. `docs/architecture/` - Understand system design
+- **Logged-out only.** Never depend on the user's login. Credentialless by construction.
+- **Credentialless.** Every fetch uses `credentials: 'omit'`. `ANDROID_VR` is in
+  `src/shared/innertube.ts`.
+- **`PlayerHandle` (`src/shared/player.ts`) is the sole `<video>.src` writer.** No other
+  module writes a media element `src`.
+- **Fail open.** Live streams, YouTube Kids, age-restricted / auth-required, and any failure
+  fall back to native playback.
+- **Trust boundary.** The cross-world bridge carries only settings booleans and bounded
+  status codes; nonce-authenticate content -> MAIN messages; background never accepts
+  arbitrary URLs.
 
-## Core Rules
+## Gate (run before proposing changes complete)
 
-### Rule 1: Documentation First
-
-> **"No spec, no code."**
-
-- Before writing code, create or update the specification in `docs/specs/`
-- After writing code, update `docs/history/` with a handoff record
-- Architecture changes require updates to `docs/architecture/`
-
-### Rule 2: Check Before You Code
-
-> **"Avoid regression by learning from history."**
-
-- Check `docs/adrs/` for past decisions before proposing changes
-- Review existing specs to understand design rationale
-- Search the codebase for similar patterns before creating new ones
-
-### Rule 3: Update Documentation
-
-> **"Code and docs must stay synchronized."**
-
-If you modify code, you **MUST**:
-
-- Update the corresponding spec in `docs/specs/`
-- Update architecture diagrams if structure changes
-- Create an ADR for significant decisions
-- Record a handoff in `docs/history/`
-
-### Rule 4: Research, Don't Hallucinate
-
-> **"If you're unsure, search the internet. Do not make up APIs."**
-
-- Use web search to verify library versions and APIs
-- Check official documentation before using any external dependency
-- Validate browser extension API compatibility
-- Never guess at function signatures or configurations
-
-## Coding Standards
-
-### JavaScript
-
-- Use ES6+ features (const/let, arrow functions, destructuring)
-- Prefer async/await over callbacks where possible
-- Use descriptive variable and function names
-- Add JSDoc comments for public functions
-
-### Browser Extension Specifics
-
-- Follow WebExtension API conventions
-- Handle permissions gracefully
-- Consider cross-browser compatibility (Firefox/Chrome)
-- Test in private/incognito modes
-
-### Testing
-
-- **90% code coverage minimum** for new code
-- Write tests before or with implementation
-- Run `./scripts/validate.sh` before committing
-
-## File Structure
-
-```
-youtube-audio/
-├── css/                    # Stylesheets
-├── docs/                   # Documentation (THE BRAIN)
-│   ├── adrs/              # Architecture Decision Records
-│   ├── agent-instructions/ # Agent protocols
-│   ├── architecture/      # System diagrams
-│   ├── history/           # Handoffs and deprecated logic
-│   └── specs/             # Technical specifications
-├── html/                   # HTML pages
-├── img/                    # Icons and images
-├── js/                     # JavaScript source
-├── scripts/               # Automation scripts
-├── tests/                 # Test files
-├── .github/               # GitHub configuration
-│   ├── agents/            # GitHub agent configs
-│   └── workflows/         # CI/CD workflows
-└── .claude/               # Claude agent configs
+```bash
+npm run validate   # typecheck, lint, format:check, test, build MV2, web-ext lint, build MV3
 ```
 
-## Common Tasks
+Individually: `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm test`,
+`npm run build`, `npm run build:mv3`. Unit tests are Vitest over real `src/` modules with a
+90% coverage floor; `npm run test:bench` runs a hermetic Selenium bench against a local
+fake-YouTube fixture. Add a bench case for any runtime-facing feature.
 
-### Adding a New Feature
+## Conventions
 
-1. Write spec in `docs/specs/SPEC-NNN-feature.md`
-2. Update architecture if needed
-3. Write tests first
-4. Implement feature
-5. Verify 90%+ coverage
-6. Run `./scripts/validate.sh`
-7. Record handoff in `docs/history/`
-
-### Fixing a Bug
-
-1. Check `docs/history/` for related context
-2. Write a failing test that reproduces the bug
-3. Fix the bug
-4. Verify the test passes
-5. Update documentation if behavior changed
-
-### Updating Dependencies
-
-1. Research the update (breaking changes, security fixes)
-2. Create ADR documenting the decision
-3. Update `manifest.json` or `package.json`
-4. Run full test suite
-5. Update documentation
-
-## Quick Reference
-
-| Task                | Command                 |
-| ------------------- | ----------------------- |
-| Run all validations | `./scripts/validate.sh` |
-| Run linter          | `npm run lint`          |
-| Run tests           | `npm test`              |
-| Check coverage      | `npm run test:coverage` |
-
-## Questions?
-
-If you're unsure about something:
-
-1. Check the documentation in `docs/`
-2. Search the codebase for examples
-3. Research using web search
-4. Ask for clarification rather than guessing
-
----
-
-_This repository follows the AI-Enabled Repository Standard. Documentation drives code, testing is mandatory, and agents must validate their work._
+- ESLint + Prettier clean: 2-space, single quotes, semicolons, 100 columns, LF, ES5 trailing
+  commas. Only `console.warn` / `console.error`. JSDoc on public functions.
+- Update the spec (`docs/specs/`), relevant ADR/architecture, and a `docs/history/` handoff
+  in the same change.
+- **No AI / LLM / assistant / vendor attribution** anywhere (commits, code, docs). Avoid em
+  dashes.

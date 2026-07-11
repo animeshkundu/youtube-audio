@@ -12,7 +12,7 @@
     "webextension"
   ],
   "author": "Animesh Kundu",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/animeshkundu/youtube-audio.git"

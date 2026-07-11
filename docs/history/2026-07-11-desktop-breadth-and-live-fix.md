@@ -20,11 +20,11 @@ Finishing desktop-Firefox testing before moving to the mobile emulator. Directio
 **Breadth matrix (42 videos, 16 categories):** 0 classify errors. 31 eligible → audio-only;
 11 fallback-expected. Deep-verify sample 8/8 passed.
 
-| Class | Categories observed | ANDROID_VR result | Extension behavior |
-| --- | --- | --- | --- |
-| Eligible (hijack) | music, podcast, classical, gaming, 10h-long, tiny-desk, ambient, K-pop, seeds | `OK`, audio itag 251 | hijack → `videoWidth 0`, `readyState 4`, `currentTime` advances |
-| Kids ("made for kids") | Baby Shark + 3 harvested | `UNPLAYABLE` credentialless | graceful fallback → normal video (`vw 854`) |
-| Live / DVR | live-news, live-radio (7) | `OK`, audio itag 140, `isLive:true` | fallback (see fix) |
+| Class                  | Categories observed                                                           | ANDROID_VR result                   | Extension behavior                                              |
+| ---------------------- | ----------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------- |
+| Eligible (hijack)      | music, podcast, classical, gaming, 10h-long, tiny-desk, ambient, K-pop, seeds | `OK`, audio itag 251                | hijack → `videoWidth 0`, `readyState 4`, `currentTime` advances |
+| Kids ("made for kids") | Baby Shark + 3 harvested                                                      | `UNPLAYABLE` credentialless         | graceful fallback → normal video (`vw 854`)                     |
+| Live / DVR             | live-news, live-radio (7)                                                     | `OK`, audio itag 140, `isLive:true` | fallback (see fix)                                              |
 
 ## Bug found + fixed: audio-only hijacked LIVE streams and stalled them
 
@@ -37,6 +37,7 @@ segments that do not play as a progressive `<video>.src`. There was **no live ch
 did not even parse `isLive`). The plan always intended live to fall back to normal playback.
 
 **Fix:**
+
 - `src/shared/innertube.ts`: parse `videoDetails.isLive/isLiveContent` + `streamingData.hls/dashManifestUrl`;
   add `isLiveStream()` — true on `isLive`, or `isLiveContent` + a manifest url (defensive). Precisely
   excludes currently-live; a finished-stream **VOD replay** (`isLiveContent` only, no manifest) stays eligible.
@@ -45,6 +46,7 @@ did not even parse `isLive`). The plan always intended live to fall back to norm
 - `entrypoints/content.ts`: surface the status `reason` to `data-yta-reason` (bench signal).
 
 **Verification:**
+
 - New unit tests for `isLiveStream` (live / VOD-replay / manifest-only / normal). Unit **90/90**.
 - New deterministic bench case `m1:live-stream-falls-back-no-hijack` (fixture returns `isLive:true`
   for a `LIVE*` videoId; asserts `status==="fallback"`, `reason==="live"`, no `/videoplayback` hijack).
@@ -73,6 +75,7 @@ android-commandlinetools already installed in the background; do not boot the em
 
 A cross-lab review of the fix (codex + gemini + opus) raised two issues with the first `isLiveStream`
 (which gated on `videoDetails.isLive` OR `isLiveContent` + a manifest url):
+
 1. **3-lab-confirmed bug:** `hlsManifestUrl ?? dashManifestUrl` uses `??`, which does not skip an
    empty string — an API `hlsManifestUrl: ''` with a valid `dashManifestUrl` would slip through and
    re-open the stall.

@@ -10,6 +10,9 @@ dist/
 # Coverage
 coverage/
 
+# MkDocs documentation build output
+site/
+
 # Generated E2E probe reports (machine evidence, not source)
 tests/e2e/*-report.json
 

@@ -1,0 +1,102 @@
+name: Bug report
+description: A feature of the extension misbehaves, throws, or crashes.
+title: '[Bug]: '
+labels: ['bug', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please search existing issues first.
+
+        If a **YouTube change** broke a feature that used to work, use the
+        **YouTube breakage report** template instead. This project supports the
+        **logged-out** experience only, so please reproduce while signed out.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the misbehavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Enable ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: dropdown
+    id: feature
+    attributes:
+      label: Affected feature
+      options:
+        - Audio-only playback
+        - Background play
+        - Ad / telemetry blocking
+        - Segment skip
+        - Quality-of-life tweaks
+        - YouTube Music loudness / EQ
+        - Lyrics
+        - Audio download
+        - Popup / options UI
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Site surface
+      options:
+        - www.youtube.com
+        - music.youtube.com
+        - m.youtube.com
+        - youtube-nocookie.com
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Firefox desktop
+        - Firefox for Android (Fenix)
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Extension and Firefox versions
+      placeholder: 'Extension 0.0.2.5, Firefox 128.0'
+    validations:
+      required: true
+  - type: input
+    id: video-url
+    attributes:
+      label: Example video URL (public, works logged out)
+      placeholder: 'https://www.youtube.com/watch?v=...'
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output / signals
+      description: Relevant messages from the Browser Console (Ctrl+Shift+J). Redact anything private.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reproduced this while logged out
+          required: true
+        - label: I reproduced this in a fresh Firefox profile with only this extension enabled
+          required: true
+        - label: I searched existing issues for a duplicate
+          required: true

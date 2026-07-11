@@ -13,7 +13,7 @@ on an 8 GB M1. Logged-out only.
   (AOSP Automated-Test-Device — the lightest arm64 image: stripped UI, fast boot, low RAM; native
   on Apple Silicon, no x86 translation).
 - **AVD:** `yta_test`, booted headless: `-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-  -memory 1536`. Booted in seconds; host stayed ~21-27% RAM free throughout (workable on 8 GB).
+-memory 1536`. Booted in seconds; host stayed ~21-27% RAM free throughout (workable on 8 GB).
 - **Browser:** Firefox Nightly (Fenix `154.0a1`, `org.mozilla.fenix`), official arm64-v8a APK from
   `archive.mozilla.org/pub/fenix/nightly/...`, sideloaded with `adb install`.
 
@@ -39,12 +39,12 @@ on an 8 GB M1. Logged-out only.
 Extension installs as a temporary add-on (`youtube-audio@local`); content script injects on
 `m.youtube.com` (`data-yta-bench=1`).
 
-| Video | Branch | Observed |
-| --- | --- | --- |
-| `Bu4ztj3R32k` (music) | audio-only hijack | `status=active`, `currentSrc`→googlevideo, `videoWidth=0`, `readyState=4` |
-| `DaWe9L1iwNw` (podcast) | audio-only hijack | `status=active`, hijacked, `videoWidth=0`, `readyState=4` |
-| `fOdo1GkzZAk` (kids) | credentialless `UNPLAYABLE` fallback | `status=fallback`, `reason=UNPLAYABLE`, not hijacked |
-| `X4VbdwhkE10` (live) | live fallback | `status=fallback`, `reason=live`, not hijacked |
+| Video                   | Branch                               | Observed                                                                  |
+| ----------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| `Bu4ztj3R32k` (music)   | audio-only hijack                    | `status=active`, `currentSrc`→googlevideo, `videoWidth=0`, `readyState=4` |
+| `DaWe9L1iwNw` (podcast) | audio-only hijack                    | `status=active`, hijacked, `videoWidth=0`, `readyState=4`                 |
+| `fOdo1GkzZAk` (kids)    | credentialless `UNPLAYABLE` fallback | `status=fallback`, `reason=UNPLAYABLE`, not hijacked                      |
+| `X4VbdwhkE10` (live)    | live fallback                        | `status=fallback`, `reason=live`, not hijacked                            |
 
 **Conclusions:** the MV2 build loads and runs on Firefox for Android; the credentialless ANDROID_VR
 fetch + `<video>.src` hijack works on the mobile (`m.youtube.com`) DOM; and both fallback branches

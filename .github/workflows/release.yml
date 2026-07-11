@@ -8,6 +8,12 @@ on:
 permissions:
   contents: write
 
+# Serialize releases per tag. Never cancel an in-flight publish: signing + the GitHub
+# release + the update manifest must complete once started, so cancel-in-progress is false.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   sign-and-publish:
     name: Validate, sign, and publish Firefox MV2

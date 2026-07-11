@@ -178,22 +178,18 @@ Every agent **MUST** run tests locally before committing:
 
 ```
 project/
-├── js/
-│   ├── global.js
-│   └── youtube_audio.js
+├── entrypoints/            # WXT per-context bundles (background, content, main-world, UI)
+├── src/shared/             # Framework-free pure logic (unit-tested directly)
 ├── tests/
-│   ├── unit/
-│   │   ├── global.test.js
-│   │   └── youtube_audio.test.js
-│   └── integration/
-│       └── extension.test.js
-├── jest.config.js
+│   ├── unit/               # Vitest unit tests over real src/ modules (incl. ui/)
+│   └── e2e/                # Selenium probes + hermetic bench/, android/ Fenix driver
+├── vitest.config.ts
 └── package.json
 ```
 
 ### Naming Conventions
 
-- Test files: `[module].test.js` or `[module].spec.js`
+- Test files: `[module].test.ts` (or `.test.tsx` for Preact UI), under `tests/unit/`
 - Test descriptions: Should read like documentation
 - Test function names: `should [expected behavior] when [condition]`
 
@@ -202,11 +198,11 @@ project/
 ### Generating Reports
 
 ```bash
-# Run tests with coverage
-npm test -- --coverage
+# Run tests with coverage (npm test already enables it)
+npm test
 
-# View coverage report
-open coverage/lcov-report/index.html
+# Vitest prints a text summary and writes coverage/coverage-summary.json.
+# The 90% floor is enforced by thresholds in vitest.config.ts.
 ```
 
 ### Interpreting Reports

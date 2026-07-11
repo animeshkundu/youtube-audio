@@ -1,0 +1,63 @@
+name: Live YouTube Canary (non-gating)
+
+# NON-GATING nightly canary that runs the desktop audio-playback probe against LIVE YouTube.
+# It catches YouTube-side drift (InnerTube changes, format shifts, live-stream handling) that
+# the hermetic bench cannot see. It is network-dependent and subject to bot-flagging, so it is
+# best-effort and never blocks a merge. A red run means "investigate", not "stop the line".
+
+on:
+  schedule:
+    # 05:42 UTC nightly. Off-peak and off-:00/:30 to avoid Actions scheduler congestion.
+    - cron: '42 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  live-probe:
+    name: Live-YouTube audio playback canary (non-gating)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # The playback probe relies on geckodriver's default Firefox discovery (it does not read
+      # FIREFOX_BIN). Point /usr/local/bin/firefox (ahead of the /usr/bin snap on PATH) at the
+      # non-snap binary so geckodriver drives a real Firefox.
+      - name: Point geckodriver at the non-snap Firefox
+        run: sudo ln -sf "${{ steps.firefox.outputs.firefox-path }}" /usr/local/bin/firefox
+
+      # BENCH build: the probe installs dist/youtube-audio-bench.xpi as a temporary add-on.
+      - name: Build BENCH extension XPI
+        run: |
+          set -euo pipefail
+          BENCH=1 node_modules/.bin/wxt build -b firefox --mv2
+          rm -rf dist/bench-web-ext-artifacts
+          mkdir -p dist/bench-web-ext-artifacts dist
+          node_modules/.bin/web-ext build \
+            --source-dir=.output/firefox-mv2 \
+            --artifacts-dir=dist/bench-web-ext-artifacts \
+            --overwrite-dest
+          cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
+
+      - name: Run live audio playback probe
+        run: xvfb-run --auto-servernum node tests/e2e/probe-audio-playback.mjs
