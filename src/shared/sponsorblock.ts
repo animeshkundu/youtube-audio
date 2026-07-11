@@ -46,7 +46,9 @@ export function selectSegments(
     }
   }
 
-  segments.sort((left, right) => left.segment[0] - right.segment[0] || left.segment[1] - right.segment[1]);
+  segments.sort(
+    (left, right) => left.segment[0] - right.segment[0] || left.segment[1] - right.segment[1]
+  );
   const merged: SponsorSegment[] = [];
   for (const segment of segments) {
     const previous = merged.at(-1);
@@ -69,7 +71,8 @@ function parseSegment(
 ): SponsorSegment | null {
   if (!isRecord(value)) return null;
   const candidate: BucketSegment = value;
-  if (!isSponsorCategory(candidate.category) || !enabledCategories.has(candidate.category)) return null;
+  if (!isSponsorCategory(candidate.category) || !enabledCategories.has(candidate.category))
+    return null;
   if (candidate.actionType !== undefined && candidate.actionType !== 'skip') return null;
   if (!Array.isArray(candidate.segment) || candidate.segment.length !== 2) return null;
   const [start, end] = candidate.segment;

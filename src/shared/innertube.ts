@@ -89,7 +89,9 @@ export function pickBestAudioFormat(playerResponse: unknown): AudioFormat | null
   );
   audio.sort((left, right) => {
     const preference = (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
-    return preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0);
+    return (
+      preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
+    );
   });
   return audio[0] ?? null;
 }

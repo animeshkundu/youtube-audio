@@ -34,7 +34,9 @@ describe('PlayerHandle', () => {
     handle.navigate();
     const media = new FakeMedia();
 
-    expect(handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)).toBe(false);
+    expect(
+      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+    ).toBe(false);
     expect(media.src).toBe('blob:native');
   });
 
@@ -43,7 +45,9 @@ describe('PlayerHandle', () => {
     const generation = handle.navigate();
     const media = new FakeMedia();
 
-    expect(handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)).toBe(true);
+    expect(
+      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+    ).toBe(true);
     expect(media.src).toBe('https://media.example/audio');
     expect(media.currentTime).toBe(12);
     expect(media.playbackRate).toBe(1.25);

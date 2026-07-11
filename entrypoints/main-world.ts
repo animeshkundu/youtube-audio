@@ -104,7 +104,8 @@ export default defineUnlistedScript(() => {
   const applySettings = (next: PageSettings) => {
     settings = next;
     visibilityCleanup();
-    visibilityCleanup = settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
+    visibilityCleanup =
+      settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
     const nextScriptletGeneration = ++scriptletGeneration;
     scriptletCleanup();
     scriptletCleanup = () => undefined;
@@ -262,7 +263,9 @@ export default defineUnlistedScript(() => {
       .catch(() => undefined);
   }
 
-  async function waitForCurrentVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
+  async function waitForCurrentVideo(
+    operationGeneration: number
+  ): Promise<HTMLMediaElement | null> {
     const existing = document.querySelector<HTMLMediaElement>('video');
     if (existing) return existing;
     return new Promise((resolve) => {
@@ -662,7 +665,8 @@ function enableBackgroundPlay(): () => void {
         else delete (document as unknown as Record<string, unknown>).hidden;
       }
       if (visibilityPatched) {
-        if (visibilityDescriptor) Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
+        if (visibilityDescriptor)
+          Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
         else delete (document as unknown as Record<string, unknown>).visibilityState;
       }
     } catch {
@@ -673,7 +677,10 @@ function enableBackgroundPlay(): () => void {
   try {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     hiddenPatched = true;
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'visible',
+    });
     visibilityPatched = true;
     document.addEventListener('visibilitychange', swallow, true);
     listenerAdded = true;

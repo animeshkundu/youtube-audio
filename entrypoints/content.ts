@@ -55,7 +55,10 @@ export default defineContentScript({
       await initializeSettings();
       watchSettings();
       subscribeSettings((settings) => {
-        window.postMessage({ channel: SETTINGS_EVENT, nonce: bridgeNonce, settings }, location.origin);
+        window.postMessage(
+          { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
+          location.origin
+        );
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
         updateSegmentStatus(settings.enabled && settings.segmentSkipEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
@@ -274,7 +277,10 @@ function installPlayerControls(bridgeNonce: string): void {
   };
 
   attach();
-  new MutationObserver(attach).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(attach).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 }
 
 function createPlayerButton(id: string, label: string, glyph: string): HTMLButtonElement {
@@ -373,7 +379,11 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
       ...payload,
       ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
     });
-    if (typeof response !== 'object' || response === null || (response as { ok?: unknown }).ok !== true) {
+    if (
+      typeof response !== 'object' ||
+      response === null ||
+      (response as { ok?: unknown }).ok !== true
+    ) {
       throw new Error('download-failed');
     }
     button.title = 'Audio download started';
@@ -411,5 +421,6 @@ function updateStatusMarker(event: Event): void {
   const detail = (event as CustomEvent<unknown>).detail;
   if (typeof detail !== 'object' || detail === null) return;
   const status = (detail as { status?: unknown }).status;
-  if (typeof status === 'string' && status.length <= 24) document.documentElement.dataset.ytaStatus = status;
+  if (typeof status === 'string' && status.length <= 24)
+    document.documentElement.dataset.ytaStatus = status;
 }

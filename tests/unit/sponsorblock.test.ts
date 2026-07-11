@@ -57,7 +57,9 @@ describe('selectSegments', () => {
   it('returns no segments for malformed responses and rejects malformed ranges', () => {
     expect(selectSegments(null, 'wanted', ['sponsor'])).toEqual([]);
     expect(selectSegments({}, 'wanted', ['sponsor'])).toEqual([]);
-    expect(selectSegments([{ videoID: 'wanted', segments: {} }], 'wanted', ['sponsor'])).toEqual([]);
+    expect(selectSegments([{ videoID: 'wanted', segments: {} }], 'wanted', ['sponsor'])).toEqual(
+      []
+    );
     expect(
       selectSegments(
         [

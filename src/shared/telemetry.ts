@@ -39,7 +39,10 @@ export const TELEMETRY_ENDPOINTS: readonly TelemetryEndpoint[] = [
 export function shouldBlock(url: string, mode: TelemetryMode): boolean {
   try {
     const parsed = new URL(url);
-    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || !SUPPORTED_HOSTS.has(parsed.hostname)) {
+    if (
+      (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+      !SUPPORTED_HOSTS.has(parsed.hostname)
+    ) {
       return false;
     }
 

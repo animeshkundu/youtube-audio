@@ -33,9 +33,10 @@ export function loudnessDbToGain(loudnessDb: number): number {
 export function getEqualizerParameters(bands: EqualizerBands): readonly EqualizerParameters[] {
   return EQ_FREQUENCIES.map((frequency, index) => {
     const candidate = bands[index];
-    const gain = typeof candidate === 'number' && Number.isFinite(candidate)
-      ? Math.min(12, Math.max(-12, candidate))
-      : 0;
+    const gain =
+      typeof candidate === 'number' && Number.isFinite(candidate)
+        ? Math.min(12, Math.max(-12, candidate))
+        : 0;
     return { type: 'peaking', frequency, q: 1, gain };
   });
 }

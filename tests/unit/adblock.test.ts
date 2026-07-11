@@ -9,7 +9,9 @@ describe('pruneAdsFromPlayerResponse', () => {
       playabilityStatus: { status: 'OK' },
       streamingData: {
         expiresInSeconds: '21540',
-        adaptiveFormats: [{ itag: 251, mimeType: 'audio/webm', url: 'https://media.example/audio' }],
+        adaptiveFormats: [
+          { itag: 251, mimeType: 'audio/webm', url: 'https://media.example/audio' },
+        ],
       },
       videoDetails: { videoId: 'abc123', title: 'Keep me' },
       adPlacements: [{ id: 'pre-roll' }],
@@ -24,7 +26,9 @@ describe('pruneAdsFromPlayerResponse', () => {
       playabilityStatus: { status: 'OK' },
       streamingData: {
         expiresInSeconds: '21540',
-        adaptiveFormats: [{ itag: 251, mimeType: 'audio/webm', url: 'https://media.example/audio' }],
+        adaptiveFormats: [
+          { itag: 251, mimeType: 'audio/webm', url: 'https://media.example/audio' },
+        ],
       },
       videoDetails: { videoId: 'abc123', title: 'Keep me' },
       unknownFutureField: { nested: true },
@@ -46,9 +50,12 @@ describe('pruneAdsFromPlayerResponse', () => {
     });
   });
 
-  it.each(['not json', '{"adPlacements":', '', '[1,'])('returns malformed input unchanged: %s', (input) => {
-    expect(pruneAdsFromPlayerResponse(input)).toBe(input);
-  });
+  it.each(['not json', '{"adPlacements":', '', '[1,'])(
+    'returns malformed input unchanged: %s',
+    (input) => {
+      expect(pruneAdsFromPlayerResponse(input)).toBe(input);
+    }
+  );
 
   it.each(['null', 'true', '42', '"playerAds"', '[1,"adSlots",null]'])(
     'preserves valid JSON without matching object keys: %s',
@@ -58,7 +65,8 @@ describe('pruneAdsFromPlayerResponse', () => {
   );
 
   it('preserves the original string when no ad field is present', () => {
-    const input = '{\n  "streamingData": { "formats": [] },\n  "videoDetails": { "title": "unchanged" }\n}';
+    const input =
+      '{\n  "streamingData": { "formats": [] },\n  "videoDetails": { "title": "unchanged" }\n}';
     expect(pruneAdsFromPlayerResponse(input)).toBe(input);
   });
 });

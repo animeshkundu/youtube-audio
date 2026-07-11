@@ -37,7 +37,11 @@ describe('audio download helpers', () => {
     expect(isAllowedAudioUrl('https://googlevideo.com.evil.example/videoplayback')).toBe(false);
     expect(isAllowedAudioUrl('https://youtube.com/watch')).toBe(false);
     expect(isAllowedAudioUrl('not a url')).toBe(false);
-    expect(isAllowedAudioUrl('http://127.0.0.1:8000/videoplayback', 'http://127.0.0.1:8000')).toBe(true);
-    expect(isAllowedAudioUrl('http://127.0.0.1:9000/videoplayback', 'http://127.0.0.1:8000')).toBe(false);
+    expect(isAllowedAudioUrl('http://127.0.0.1:8000/videoplayback', 'http://127.0.0.1:8000')).toBe(
+      true
+    );
+    expect(isAllowedAudioUrl('http://127.0.0.1:9000/videoplayback', 'http://127.0.0.1:8000')).toBe(
+      false
+    );
   });
 });

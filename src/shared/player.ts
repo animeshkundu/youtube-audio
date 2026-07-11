@@ -171,7 +171,11 @@ function finiteOr(value: number, fallback: number): number {
 function isSafeMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url, location.href);
-    return parsed.protocol === 'https:' || parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost';
+    return (
+      parsed.protocol === 'https:' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === 'localhost'
+    );
   } catch {
     return false;
   }

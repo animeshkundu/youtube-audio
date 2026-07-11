@@ -23,8 +23,9 @@
   --warning: #ffc043;
   --success: var(--accent);
   --brand-yt: #ff0033;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica,
-    Arial, sans-serif;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, Arial,
+    sans-serif;
   --font-player: Roboto, Arial, Helvetica, sans-serif;
   --type-display: 600 20px/28px var(--font-ui);
   --type-title: 600 15px/20px var(--font-ui);

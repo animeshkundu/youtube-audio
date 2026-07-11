@@ -35,13 +35,22 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
   };
 
   const segmentStatus = segmentSkipEnabledSignal.value ? 'Ready' : 'Off';
-  const protectionCount = [adBlockEnabledSignal.value, ghostEnabledSignal.value].filter(Boolean).length;
+  const protectionCount = [adBlockEnabledSignal.value, ghostEnabledSignal.value].filter(
+    Boolean
+  ).length;
 
   return (
     <main class="popup-shell">
       <header class="popup-header">
         <Brand />
-        <button class="icon-button" type="button" aria-label="Open settings" onClick={actions.openOptions}>⌘</button>
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="Open settings"
+          onClick={actions.openOptions}
+        >
+          ⌘
+        </button>
       </header>
 
       <div class="popup-content">
@@ -51,13 +60,19 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
           backgroundPlayEnabled={backgroundPlayEnabledSignal.value}
           onEnabledChange={(checked) => apply(() => actions.setEnabled(checked))}
           onAudioOnlyChange={(checked) => apply(() => actions.setAudioOnlyEnabled(checked))}
-          onBackgroundPlayChange={(checked) => apply(() => actions.setBackgroundPlayEnabled(checked))}
+          onBackgroundPlayChange={(checked) =>
+            apply(() => actions.setBackgroundPlayEnabled(checked))
+          }
           layout="popup"
         />
 
         <SectionHeader>Current page</SectionHeader>
         <div class="status-card">
-          <StatusRow icon="♪" label="Audio-only" status={audioOnlyEnabledSignal.value ? 'Active' : 'Off'} />
+          <StatusRow
+            icon="♪"
+            label="Audio-only"
+            status={audioOnlyEnabledSignal.value ? 'Active' : 'Off'}
+          />
           <StatusRow icon="↗" label="Segment skipping" status={segmentStatus} />
         </div>
 
@@ -69,12 +84,18 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
             status={protectionCount === 2 ? 'On' : `${protectionCount} of 2`}
           />
         </div>
-        {error && <p class="error-message" role="alert">{error}</p>}
+        {error && (
+          <p class="error-message" role="alert">
+            {error}
+          </p>
+        )}
       </div>
 
       <footer class="popup-footer">
         <span>{enabledSignal.value ? 'Protection active' : 'Protection paused'}</span>
-        <button type="button" onClick={actions.openOptions}>Settings →</button>
+        <button type="button" onClick={actions.openOptions}>
+          Settings →
+        </button>
       </footer>
     </main>
   );

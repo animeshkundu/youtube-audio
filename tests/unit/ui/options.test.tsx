@@ -48,7 +48,9 @@ afterEach(() => {
 describe('Options', () => {
   it('renders every settings group with accessible switches', () => {
     const container = mount(<Options actions={actions()} />);
-    const headings = Array.from(container.querySelectorAll('h2')).map((heading) => heading.textContent);
+    const headings = Array.from(container.querySelectorAll('h2')).map(
+      (heading) => heading.textContent
+    );
     const switches = Array.from(container.querySelectorAll('[role="switch"]'));
 
     expect(headings).toEqual([

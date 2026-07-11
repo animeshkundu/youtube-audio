@@ -58,7 +58,9 @@ function asBenchYouTubeUrl(url: string): string {
   return parsed.href;
 }
 
-function blockTelemetry(details: browser.webRequest._OnBeforeRequestDetails): browser.webRequest.BlockingResponse {
+function blockTelemetry(
+  details: browser.webRequest._OnBeforeRequestDetails
+): browser.webRequest.BlockingResponse {
   try {
     if (!settings.enabled || !settings.ghostEnabled) return {};
     const policyUrl = __BENCH__ ? asBenchYouTubeUrl(details.url) : details.url;
@@ -218,7 +220,9 @@ function parseLyricsRequest(
   };
 }
 
-async function fetchLyrics(request: NonNullable<ReturnType<typeof parseLyricsRequest>>): Promise<unknown> {
+async function fetchLyrics(
+  request: NonNullable<ReturnType<typeof parseLyricsRequest>>
+): Promise<unknown> {
   try {
     const url = new URL('/api/get', request.benchOrigin ?? LRCLIB_BASE_URL);
     url.searchParams.set('track_name', request.title);
@@ -251,7 +255,8 @@ function parseDownloadRequest(
     filename?: unknown;
     benchOrigin?: unknown;
   };
-  if (candidate.type !== DOWNLOAD_MESSAGE || !isSafeDownloadFilename(candidate.filename)) return null;
+  if (candidate.type !== DOWNLOAD_MESSAGE || !isSafeDownloadFilename(candidate.filename))
+    return null;
   let benchOrigin: string | undefined;
   if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
     try {
@@ -297,10 +302,13 @@ async function downloadAudio(
         URL.revokeObjectURL(urlToRevoke);
       };
       browser.downloads.onChanged.addListener(onChanged);
-      window.setTimeout(() => {
-        browser.downloads.onChanged.removeListener(onChanged);
-        URL.revokeObjectURL(urlToRevoke);
-      }, 60 * 60 * 1_000);
+      window.setTimeout(
+        () => {
+          browser.downloads.onChanged.removeListener(onChanged);
+          URL.revokeObjectURL(urlToRevoke);
+        },
+        60 * 60 * 1_000
+      );
       objectUrl = null;
       return { ok: true };
     } catch {
@@ -347,15 +355,13 @@ export default defineBackground({
         const downloadRequest = parseDownloadRequest(message);
         return downloadRequest ? downloadAudio(downloadRequest) : undefined;
       });
-      browser.webRequest.onBeforeRequest.addListener(
-        blockTelemetry,
-        { urls: YOUTUBE_REQUESTS },
-        ['blocking']
-      );
-      browser.webRequest.onBeforeRequest.addListener(
-        filterPlayerResponse,
-        { urls: PLAYER_RESPONSE_REQUESTS, types: ['xmlhttprequest'] }
-      );
+      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
+        'blocking',
+      ]);
+      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
+        urls: PLAYER_RESPONSE_REQUESTS,
+        types: ['xmlhttprequest'],
+      });
     } catch (error) {
       console.error('[YouTube Audio] Background initialization failed', error);
     }

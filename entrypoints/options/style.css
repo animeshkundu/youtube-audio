@@ -22,7 +22,9 @@ body {
 }
 
 @media (prefers-color-scheme: light) {
-  .options-header { background: rgb(255 255 255 / 88%); }
+  .options-header {
+    background: rgb(255 255 255 / 88%);
+  }
 }
 
 .search-field {
@@ -35,7 +37,9 @@ body {
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  transition: border-color var(--dur-1) var(--ease-standard), background var(--dur-1) var(--ease-standard);
+  transition:
+    border-color var(--dur-1) var(--ease-standard),
+    background var(--dur-1) var(--ease-standard);
 }
 
 .search-field:focus-within {
@@ -100,7 +104,9 @@ body {
   border-radius: var(--radius-md);
   font: var(--type-body);
   text-decoration: none;
-  transition: color var(--dur-1) var(--ease-standard), background var(--dur-1) var(--ease-standard);
+  transition:
+    color var(--dur-1) var(--ease-standard),
+    background var(--dur-1) var(--ease-standard);
 }
 
 .settings-nav a:hover {

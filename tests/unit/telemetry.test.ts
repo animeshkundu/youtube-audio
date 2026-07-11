@@ -40,10 +40,13 @@ describe('shouldBlock', () => {
     expect(shouldBlock(url, 'aggressive')).toBe(false);
   });
 
-  it.each(['/api/stats/watchtime', '/api/stats/playback?ns=yt'])('gates %s behind aggressive mode', (path) => {
-    expect(shouldBlock(`https://www.youtube.com${path}`, 'conservative')).toBe(false);
-    expect(shouldBlock(`https://www.youtube.com${path}`, 'aggressive')).toBe(true);
-  });
+  it.each(['/api/stats/watchtime', '/api/stats/playback?ns=yt'])(
+    'gates %s behind aggressive mode',
+    (path) => {
+      expect(shouldBlock(`https://www.youtube.com${path}`, 'conservative')).toBe(false);
+      expect(shouldBlock(`https://www.youtube.com${path}`, 'aggressive')).toBe(true);
+    }
+  );
 
   it.each([
     'not a URL',

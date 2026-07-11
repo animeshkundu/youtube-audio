@@ -21,8 +21,12 @@ export function Switch({ label, checked, describedBy, onChange }: SwitchProps) {
         onChange(!checked);
       }}
     >
-      <span class="switch-track" aria-hidden="true"><span class="switch-thumb" /></span>
-      <span class="switch-state" aria-hidden="true">{checked ? 'On' : 'Off'}</span>
+      <span class="switch-track" aria-hidden="true">
+        <span class="switch-thumb" />
+      </span>
+      <span class="switch-state" aria-hidden="true">
+        {checked ? 'On' : 'Off'}
+      </span>
     </button>
   );
 }
@@ -57,9 +61,15 @@ export function SettingRow({
       <span class="setting-copy">
         <span class="setting-label">
           {label}
-          {recommended && <span class="badge" aria-hidden="true">Recommended</span>}
+          {recommended && (
+            <span class="badge" aria-hidden="true">
+              Recommended
+            </span>
+          )}
         </span>
-        <span class="setting-description" id={descriptionId}>{description}</span>
+        <span class="setting-description" id={descriptionId}>
+          {description}
+        </span>
       </span>
       <Switch label={label} checked={checked} describedBy={descriptionId} onChange={onChange} />
     </div>
@@ -73,7 +83,9 @@ export function SectionHeader({ children }: { children: ComponentChildren }) {
 export function Brand({ suffix }: { suffix?: string }) {
   return (
     <span class="brand">
-      <span class="brand-mark" aria-hidden="true"><span>♪</span></span>
+      <span class="brand-mark" aria-hidden="true">
+        <span>♪</span>
+      </span>
       <span>
         <strong>YouTube Audio</strong>
         {suffix && <small>{suffix}</small>}
@@ -102,13 +114,20 @@ export function QuickControls({
   layout,
 }: QuickControlsProps) {
   return (
-    <section class={`quick-controls quick-controls-${layout}`} aria-labelledby={`quick-title-${layout}`}>
+    <section
+      class={`quick-controls quick-controls-${layout}`}
+      aria-labelledby={`quick-title-${layout}`}
+    >
       <div class="hero-row" onClick={() => onEnabledChange(!enabled)}>
         <span class="hero-copy">
           <span class="now-playing" aria-hidden="true" />
           <span>
             <strong id={`quick-title-${layout}`}>YouTube Audio</strong>
-            <small>{enabled ? 'Active · your preferences apply instantly' : 'Paused · YouTube works normally'}</small>
+            <small>
+              {enabled
+                ? 'Active · your preferences apply instantly'
+                : 'Paused · YouTube works normally'}
+            </small>
           </span>
         </span>
         <Switch label="YouTube Audio" checked={enabled} onChange={onEnabledChange} />
@@ -116,7 +135,9 @@ export function QuickControls({
       <SettingRow
         id={`audio-only-${layout}`}
         label="Audio-only"
-        description={audioOnlyEnabled ? 'On · saving video data and battery' : 'Off · video plays normally'}
+        description={
+          audioOnlyEnabled ? 'On · saving video data and battery' : 'Off · video plays normally'
+        }
         checked={audioOnlyEnabled}
         onChange={onAudioOnlyChange}
         recommended
@@ -124,7 +145,11 @@ export function QuickControls({
       <SettingRow
         id={`background-play-${layout}`}
         label="Background play"
-        description={backgroundPlayEnabled ? 'On · keeps playing when hidden' : 'Off · follows normal page visibility'}
+        description={
+          backgroundPlayEnabled
+            ? 'On · keeps playing when hidden'
+            : 'Off · follows normal page visibility'
+        }
         checked={backgroundPlayEnabled}
         onChange={onBackgroundPlayChange}
         recommended
@@ -133,10 +158,20 @@ export function QuickControls({
   );
 }
 
-export function StatusRow({ icon, label, status }: { icon: string; label: string; status: string }) {
+export function StatusRow({
+  icon,
+  label,
+  status,
+}: {
+  icon: string;
+  label: string;
+  status: string;
+}) {
   return (
     <div class="status-row">
-      <span class="status-icon" aria-hidden="true">{icon}</span>
+      <span class="status-icon" aria-hidden="true">
+        {icon}
+      </span>
       <span>{label}</span>
       <strong>{status}</strong>
     </div>
@@ -152,12 +187,25 @@ export function Onboarding({
 }) {
   return (
     <div class="onboarding-backdrop" role="presentation">
-      <section class="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
-        <span class="onboarding-mark" aria-hidden="true">♪</span>
+      <section
+        class="onboarding"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+      >
+        <span class="onboarding-mark" aria-hidden="true">
+          ♪
+        </span>
         <h1 id="onboarding-title">You're all set.</h1>
-        <p>Audio-only, ad blocking, and background play are already on. Nothing else is required.</p>
-        <button class="primary-action" type="button" onClick={onOpenYouTube}>Open YouTube</button>
-        <button class="text-action" type="button" onClick={onDismiss}>Tune settings</button>
+        <p>
+          Audio-only, ad blocking, and background play are already on. Nothing else is required.
+        </p>
+        <button class="primary-action" type="button" onClick={onOpenYouTube}>
+          Open YouTube
+        </button>
+        <button class="text-action" type="button" onClick={onDismiss}>
+          Tune settings
+        </button>
       </section>
     </div>
   );

@@ -4,13 +4,13 @@ import { parseLrc } from '../../src/shared/lyrics';
 
 describe('parseLrc', () => {
   it('parses, sorts, and expands timed lyric lines', () => {
-    expect(
-      parseLrc('[00:12.50]Second\n[00:01.25][00:03.500]First\n[ar:Fixture]\ninvalid')
-    ).toEqual([
-      { time: 1.25, text: 'First' },
-      { time: 3.5, text: 'First' },
-      { time: 12.5, text: 'Second' },
-    ]);
+    expect(parseLrc('[00:12.50]Second\n[00:01.25][00:03.500]First\n[ar:Fixture]\ninvalid')).toEqual(
+      [
+        { time: 1.25, text: 'First' },
+        { time: 3.5, text: 'First' },
+        { time: 12.5, text: 'Second' },
+      ]
+    );
   });
 
   it('supports minute values beyond an hour and skips empty or invalid lines', () => {

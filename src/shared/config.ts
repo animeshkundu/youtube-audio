@@ -2,11 +2,7 @@ import { signal } from '@preact/signals';
 
 import { FLAT_EQUALIZER, type EqualizerBands } from './audiograph';
 import { isQualityCap, type QualityCap } from './quality-of-life';
-import {
-  isSponsorCategory,
-  SPONSOR_CATEGORIES,
-  type SponsorCategory,
-} from './sponsorblock';
+import { isSponsorCategory, SPONSOR_CATEGORIES, type SponsorCategory } from './sponsorblock';
 
 export interface ExtensionSettings {
   enabled: boolean;
@@ -100,7 +96,10 @@ export async function setEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, enabled });
 }
 
-export async function setPlaybackSetting(setting: PlaybackSetting, enabled: boolean): Promise<void> {
+export async function setPlaybackSetting(
+  setting: PlaybackSetting,
+  enabled: boolean
+): Promise<void> {
   await persistSettings({ ...currentSettings, [setting]: enabled });
 }
 
@@ -112,7 +111,10 @@ export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> 
   await setPlaybackSetting('backgroundPlayEnabled', enabled);
 }
 
-export async function setTelemetrySetting(setting: TelemetrySetting, enabled: boolean): Promise<void> {
+export async function setTelemetrySetting(
+  setting: TelemetrySetting,
+  enabled: boolean
+): Promise<void> {
   await persistSettings({ ...currentSettings, [setting]: enabled });
 }
 
@@ -259,7 +261,9 @@ function normalizeSettings(value: unknown): ExtensionSettings {
         ? candidate.disableAutoplayNext
         : DEFAULT_SETTINGS.disableAutoplayNext,
     hideShorts:
-      typeof candidate.hideShorts === 'boolean' ? candidate.hideShorts : DEFAULT_SETTINGS.hideShorts,
+      typeof candidate.hideShorts === 'boolean'
+        ? candidate.hideShorts
+        : DEFAULT_SETTINGS.hideShorts,
     hideRecommendations:
       typeof candidate.hideRecommendations === 'boolean'
         ? candidate.hideRecommendations

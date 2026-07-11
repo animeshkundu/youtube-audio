@@ -1,6 +1,9 @@
 export type ScriptletOperation =
   | Readonly<{ id: 'set-inline-playback-no-ad'; args: Readonly<Record<string, never>> }>
-  | Readonly<{ id: 'neutralize-exposed-abnormality-callback'; args: Readonly<Record<string, never>> }>;
+  | Readonly<{
+      id: 'neutralize-exposed-abnormality-callback';
+      args: Readonly<Record<string, never>>;
+    }>;
 
 export interface ScriptletResult {
   applied: number;
@@ -11,7 +14,9 @@ export interface ScriptletResult {
 /**
  * Applies only bundled operation IDs. Unknown or incompatible page state is always a no-op.
  */
-export function applyScriptletOperations(operations: readonly ScriptletOperation[]): ScriptletResult {
+export function applyScriptletOperations(
+  operations: readonly ScriptletOperation[]
+): ScriptletResult {
   if (hasExistingBlockerHooks()) {
     return { applied: 0, skippedForCoexistence: true, cleanup: () => undefined };
   }
@@ -88,7 +93,8 @@ function setInlinePlaybackNoAd(value: unknown): void {
   if (typeof value !== 'object' || value === null) return;
   const playbackContext = (value as Record<string, unknown>).playbackContext;
   if (typeof playbackContext !== 'object' || playbackContext === null) return;
-  const contentPlaybackContext = (playbackContext as Record<string, unknown>).contentPlaybackContext;
+  const contentPlaybackContext = (playbackContext as Record<string, unknown>)
+    .contentPlaybackContext;
   if (typeof contentPlaybackContext !== 'object' || contentPlaybackContext === null) return;
   (contentPlaybackContext as Record<string, unknown>).isInlinePlaybackNoAd = true;
 }
