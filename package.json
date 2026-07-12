@@ -39,7 +39,8 @@
     "format:check": "prettier --check .",
     "validate": "./scripts/validate.sh",
     "postinstall": "wxt prepare",
-    "prepare": "husky install || true"
+    "prepare": "husky install || true",
+    "test:matrix": "node tests/e2e/bench/run-matrix.mjs"
   },
   "devDependencies": {
     "@preact/preset-vite": "2.10.5",

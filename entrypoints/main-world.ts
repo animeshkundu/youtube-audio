@@ -362,7 +362,10 @@ export default defineUnlistedScript(() => {
     graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
     audioGraphCleanup = () => graph.dispose();
     if (__BENCH__) {
-      document.documentElement.dataset.ytaAudioGraph = JSON.stringify({ gain });
+      document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
+        gain,
+        eqGains: graph.getEqualizerGains(),
+      });
     }
   }
 

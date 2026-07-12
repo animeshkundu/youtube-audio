@@ -12,6 +12,8 @@ export interface EqualizerParameters {
 export interface AudioGraphHandle {
   setGain(value: number): void;
   setEqualizer(enabled: boolean, bands: EqualizerBands): void;
+  /** The effective per-band biquad gains currently applied (for bench verification). */
+  getEqualizerGains(): number[];
   dispose(): void;
 }
 
@@ -82,6 +84,9 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
         filters.forEach((filter, index) => {
           filter.gain.value = enabled ? (parameters[index]?.gain ?? 0) : 0;
         });
+      },
+      getEqualizerGains() {
+        return filters.map((filter) => filter.gain.value);
       },
       dispose() {
         // MediaElementAudioSourceNode ownership is permanent for this element. Keep the

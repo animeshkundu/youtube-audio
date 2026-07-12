@@ -36,7 +36,7 @@
 import { Builder, By, until } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 
@@ -69,7 +69,7 @@ function log(...a) {
 }
 
 /** Build the BENCH extension and package it into a temporary-installable XPI. */
-function buildBenchExtension() {
+export function buildBenchExtension() {
   log('building bench extension (BENCH=1 wxt build -b firefox --mv2)...');
   execFileSync(join(binDir, 'wxt'), ['build', '-b', 'firefox', '--mv2'], {
     cwd: repoRoot,
@@ -133,10 +133,14 @@ function snapshotScript() {
     reason: document.documentElement.dataset.ytaReason || null,
     videoSrc: v ? v.src : null,
     ready: document.documentElement.getAttribute('data-fixture-ready'),
+    telemetryReady: document.documentElement.getAttribute('data-fixture-telemetry-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
     lyrics: document.documentElement.dataset.ytaLyrics || null,
     download: document.documentElement.dataset.ytaDownload || null,
     downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
+    skipArmed: document.documentElement.getAttribute('data-yta-skip-armed'),
+    autonavChecked:
+      document.querySelector('.ytp-autonav-toggle-button')?.getAttribute('aria-checked') || null,
   };
 }
 
@@ -166,7 +170,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-async function runSession({
+export async function runSession({
   withAddon,
   seedSettings,
   probePlayerFromPage,
@@ -213,6 +217,15 @@ async function runSession({
     await driver.get(`${origin}/watch?v=${videoId}`);
     await driver.wait(until.elementLocated(By.css('video[data-fixture-video]')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
+    // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
+    // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
+    // rejected). Waiting for it here means the request log is quiescent before any telemetry
+    // count assertion reads it, so a "blocked 0 times" check can't pass merely because an
+    // un-blocked beacon had not yet reached the server.
+    await driver.wait(
+      async () => (await driver.executeScript(snapshotScript)).telemetryReady === '1',
+      8000,
+    );
 
     // With the add-on, wait for the extension to reach a terminal playback status.
     if (withAddon) {
@@ -383,6 +396,8 @@ async function runSession({
       lyrics: snap.lyrics,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
+      skipArmed: snap.skipArmed,
+      autonavChecked: snap.autonavChecked,
       spaRearm,
       circuitBreaker,
     };
@@ -867,17 +882,19 @@ async function main() {
   process.exit(verdict === 'PASS' ? 0 : 1);
 }
 
-main().catch((err) => {
-  console.log(
-    JSON.stringify(
-      {
-        bench: 'youtube-audio integration bench',
-        verdict: 'ERROR',
-        error: String(err && err.stack ? err.stack : err),
-      },
-      null,
-      2
-    )
-  );
-  process.exit(2);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  main().catch((err) => {
+    console.log(
+      JSON.stringify(
+        {
+          bench: 'youtube-audio integration bench',
+          verdict: 'ERROR',
+          error: String(err && err.stack ? err.stack : err),
+        },
+        null,
+        2
+      )
+    );
+    process.exit(2);
+  });
+}

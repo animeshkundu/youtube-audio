@@ -85,11 +85,14 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
 function fixturePlayerResponse(origin, videoId, opts = {}) {
   const live = !!opts.live;
   const loginRequired = !!opts.loginRequired;
+  const unplayable = !!opts.unplayable;
   return {
     responseContext: { serviceTrackingParams: [] },
     playabilityStatus: loginRequired
       ? { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' }
-      : { status: 'OK', playableInEmbed: true },
+      : unplayable
+        ? { status: 'UNPLAYABLE', reason: 'This video is not available' }
+        : { status: 'OK', playableInEmbed: true },
     videoDetails: {
       videoId: videoId || 'FIXTURE0001',
       title: 'Fixture Watch Page',
@@ -181,6 +184,13 @@ function watchPageHtml() {
     adPlacements: [{ adPlacementRenderer: { config: { kind: 'PRE_ROLL' } } }],
     playerAds: [{ playerLegacyDesktopWatchAdsRenderer: { id: 'fixture-player-ad' } }],
   };
+  window.__fixtureErrors = [];
+  window.addEventListener('error', function (event) {
+    window.__fixtureErrors.push(String(event.error || event.message || 'page-error'));
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    window.__fixtureErrors.push(String(event.reason || 'unhandled-rejection'));
+  });
 </script>
 </head>
 <body>
@@ -197,6 +207,7 @@ function watchPageHtml() {
         </div>
         <div class="ytp-chrome-controls ytp-left-controls">
           <button class="ytp-play-button ytp-button" aria-label="Play"></button>
+          <button class="ytp-autonav-toggle-button" aria-checked="true">Autoplay</button>
           <div class="ytp-time-display">
             <span class="ytp-time-current">0:00</span>
             <span class="ytp-time-separator"> / </span>
@@ -223,6 +234,18 @@ function watchPageHtml() {
           window.__ytaQualityCalls.push({ quality: q });
         };
       }
+      // The autonav toggle flips its aria-checked on click, mirroring YouTube. The extension's
+      // disable-autoplay clicks it (only when currently "true"), so aria-checked becoming "false"
+      // is the observable proof that disableAutoplayNext took effect.
+      var autonav = document.querySelector('.ytp-autonav-toggle-button');
+      if (autonav) {
+        autonav.addEventListener('click', function () {
+          autonav.setAttribute(
+            'aria-checked',
+            autonav.getAttribute('aria-checked') === 'true' ? 'false' : 'true'
+          );
+        });
+      }
     })();
   </script>
   <script>
@@ -230,16 +253,26 @@ function watchPageHtml() {
     // The bench uses this to prove the request log records traffic (and, for features,
     // to assert the extension blocked them: "telemetry fired 0 times").
     window.addEventListener('load', function () {
+      var telemetry = [];
       try {
-        fetch('/youtubei/v1/log_event?fixture=1', {
+        telemetry.push(fetch('/youtubei/v1/log_event?fixture=1', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ event: 'streaming_stats', fixture: true }),
-        }).catch(function () {});
+        }));
       } catch (e) {}
-      try {
-        fetch('/api/stats/qoe?event=streamingstats&fixture=1').catch(function () {});
-      } catch (e) {}
+      for (var path of [
+        '/api/stats/qoe?event=streamingstats&fixture=1',
+        '/api/stats/watchtime?fixture=1',
+        '/api/stats/playback?fixture=1',
+      ]) {
+        try {
+          telemetry.push(fetch(path));
+        } catch (e) {}
+      }
+      Promise.allSettled(telemetry).then(function () {
+        document.documentElement.setAttribute('data-fixture-telemetry-ready', '1');
+      });
       document.documentElement.setAttribute('data-fixture-ready', '1');
     });
   </script>
@@ -303,17 +336,62 @@ function silentWav(seconds = 8, sampleRate = 8000) {
   return buffer;
 }
 
-const FIXTURE_WAV = silentWav();
+// ~4.8 MB (600 s at 8 kHz) so it exceeds the extension's 4 MiB download range-chunk size: the
+// download assembler must issue MULTIPLE range requests and concatenate them, exercising the real
+// segmented path (a smaller stub would fit one chunk and never test concatenation). Still a valid,
+// seekable silent WAV for the audio-only + segment-skip cases.
+const FIXTURE_WAV = silentWav(600);
 
-function sendMedia(res, status, buffer) {
-  res.writeHead(status, {
+function sendMedia(req, res, buffer, requestRecord) {
+  const headers = {
     'content-type': 'audio/wav',
     'access-control-allow-origin': '*',
+    'access-control-expose-headers': 'Content-Length, Content-Range, Accept-Ranges',
     'accept-ranges': 'bytes',
     'cache-control': 'no-store',
-    'content-length': buffer.length,
+  };
+  const range = req.headers.range;
+  if (typeof range !== 'string') {
+    if (requestRecord) {
+      requestRecord.responseStatus = 200;
+      requestRecord.contentRange = null;
+    }
+    res.writeHead(200, { ...headers, 'content-length': buffer.length });
+    return res.end(buffer);
+  }
+
+  const match = /^bytes=(\d+)-(\d*)$/.exec(range.trim());
+  const start = match ? Number(match[1]) : Number.NaN;
+  const requestedEnd = match?.[2] ? Number(match[2]) : buffer.length - 1;
+  if (
+    !match ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    start >= buffer.length ||
+    requestedEnd < start
+  ) {
+    if (requestRecord) {
+      requestRecord.responseStatus = 416;
+      requestRecord.contentRange = `bytes */${buffer.length}`;
+    }
+    res.writeHead(416, { ...headers, 'content-range': `bytes */${buffer.length}` });
+    return res.end();
+  }
+
+  const end = Math.min(requestedEnd, buffer.length - 1);
+  const contentRange = `bytes ${start}-${end}/${buffer.length}`;
+  const slice = buffer.subarray(start, end + 1);
+  if (requestRecord) {
+    requestRecord.responseStatus = 206;
+    requestRecord.contentRange = contentRange;
+  }
+  res.writeHead(206, {
+    ...headers,
+    'content-range': contentRange,
+    'content-length': slice.length,
   });
-  res.end(buffer);
+  return res.end(slice);
 }
 
 export function createFixtureServer() {
@@ -329,8 +407,16 @@ export function createFixtureServer() {
 
     // Introspection endpoints are control-plane; never record them.
     const isIntrospection = path.startsWith('/__');
+    let requestRecord = null;
     if (!isIntrospection) {
-      requests.push({ method, path, query: url.search, ts: Date.now() });
+      requestRecord = {
+        method,
+        path,
+        query: url.search,
+        range: typeof req.headers.range === 'string' ? req.headers.range : null,
+        ts: Date.now(),
+      };
+      requests.push(requestRecord);
     }
 
     // Always read the body so keep-alive sockets don't stall (and /player can see the videoId).
@@ -361,10 +447,13 @@ export function createFixtureServer() {
       // Special video-id prefixes keep edge responses deterministic and hermetic.
       const live = typeof videoId === 'string' && videoId.startsWith('LIVE');
       const loginRequired = typeof videoId === 'string' && videoId.startsWith('AUTH');
+      const unplayable =
+        typeof videoId === 'string' &&
+        (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE'));
       return sendJson(
         res,
         200,
-        fixturePlayerResponse(origin, videoId, { live, loginRequired })
+        fixturePlayerResponse(origin, videoId, { live, loginRequired, unplayable })
       );
     }
     if (path.startsWith('/api/skipSegments/')) {
@@ -381,7 +470,7 @@ export function createFixtureServer() {
       // A tiny valid silent WAV gives the <video> a real, seekable timeline so the
       // segment-skip test can assert an actual currentTime seek. Still JS-signal-driven
       // (no third-party codec); the URL resolves and the request is logged.
-      return sendMedia(res, 200, FIXTURE_WAV);
+      return sendMedia(req, res, FIXTURE_WAV, requestRecord);
     }
     if (path === '/youtubei/v1/log_event' || path.startsWith('/api/stats/')) {
       // Telemetry endpoints: succeed with no content.
