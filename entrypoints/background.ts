@@ -7,11 +7,18 @@ import {
 } from '../src/shared/download';
 import {
   initializeSettings,
+  getSettings,
   subscribeSettings,
   watchSettings,
   type ExtensionSettings,
 } from '../src/shared/config';
 import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
+import {
+  createDiagnosticsHub,
+  errorFields,
+  installGlobalErrorCapture,
+  type DiagnosticsHub,
+} from '../src/shared/diagnostics';
 import { getExtensionPlatform } from '../src/shared/platform';
 import { shouldBlock } from '../src/shared/telemetry';
 import { loadRescueConfig } from '../src/shared/rescue';
@@ -53,6 +60,7 @@ const PLAYER_RESPONSE_REQUESTS = [
 ];
 
 let settings: ExtensionSettings;
+let diagnostics: DiagnosticsHub | undefined;
 
 function asBenchYouTubeUrl(url: string): string {
   const parsed = new URL(url);
@@ -68,9 +76,11 @@ function blockTelemetry(
   try {
     if (!settings.enabled || !settings.ghostEnabled) return {};
     const policyUrl = __BENCH__ ? asBenchYouTubeUrl(details.url) : details.url;
-    return shouldBlock(policyUrl, settings.aggressiveTelemetry ? 'aggressive' : 'conservative')
-      ? { cancel: true }
-      : {};
+    if (shouldBlock(policyUrl, settings.aggressiveTelemetry ? 'aggressive' : 'conservative')) {
+      diagnostics?.noteTelemetryBlocked();
+      return { cancel: true };
+    }
+    return {};
   } catch {
     return {};
   }
@@ -93,8 +103,12 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
       try {
         const json = new TextDecoder('utf-8', { fatal: true }).decode(original);
         const pruned = pruneAdsFromPlayerResponse(json);
-        filter.write(pruned === json ? original : new TextEncoder().encode(pruned));
-      } catch {
+        const changed = pruned !== json;
+        if (changed) diagnostics?.noteAdPruned();
+        diagnostics?.logLocal('adblock.pruned', { changed });
+        filter.write(changed ? new TextEncoder().encode(pruned) : original);
+      } catch (error) {
+        diagnostics?.logLocal('error', { where: 'bg.adblock', ...errorFields(error) });
         filter.write(original);
       } finally {
         filter.close();
@@ -132,9 +146,15 @@ async function fetchSponsorSegments(
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
     });
-    if (!response.ok) return [];
-    return selectSegments(await response.json(), videoId, categories);
-  } catch {
+    if (!response.ok) {
+      diagnostics?.logLocal('sponsor.result', { ok: false, count: 0 });
+      return [];
+    }
+    const selected = selectSegments(await response.json(), videoId, categories);
+    diagnostics?.logLocal('sponsor.result', { ok: true, count: selected.length });
+    return selected;
+  } catch (error) {
+    diagnostics?.logLocal('error', { where: 'bg.sponsor', ...errorFields(error) });
     return [];
   }
 }
@@ -310,8 +330,11 @@ async function downloadAudio(
       60 * 60 * 1_000
     );
     objectUrl = null;
+    diagnostics?.logLocal('download.assembled', { ok: true });
     return { ok: true };
-  } catch {
+  } catch (error) {
+    diagnostics?.logLocal('download.assembled', { ok: false });
+    diagnostics?.logLocal('error', { where: 'bg.download', ...errorFields(error) });
     return { ok: false };
   } finally {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -335,12 +358,16 @@ export default defineBackground({
     try {
       getExtensionPlatform();
       void loadRescueConfig;
+      diagnostics = createDiagnosticsHub(() => getSettings());
+      installGlobalErrorCapture('bg.uncaught', (code, data) => diagnostics?.logLocal(code, data));
       settings = await initializeSettings();
       subscribeSettings((nextSettings) => {
         settings = nextSettings;
       });
       watchSettings();
       browser.runtime.onMessage.addListener((message: unknown) => {
+        const diagnosticsResponse = diagnostics?.handleMessage(message);
+        if (diagnosticsResponse) return diagnosticsResponse;
         const sponsorRequest = parseSponsorRequest(message);
         if (sponsorRequest) {
           return fetchSponsorSegments(
@@ -362,6 +389,7 @@ export default defineBackground({
         types: ['xmlhttprequest'],
       });
     } catch (error) {
+      diagnostics?.logLocal('error', { where: 'bg.init', ...errorFields(error) });
       console.error('[YouTube Audio] Background initialization failed', error);
     }
   },

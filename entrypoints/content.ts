@@ -8,6 +8,12 @@ import {
   subscribeSettings,
   watchSettings,
 } from '../src/shared/config';
+import {
+  errorFields,
+  installDiagnosticsRelay,
+  installGlobalErrorCapture,
+  logFromContent,
+} from '../src/shared/diagnostics';
 import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
 import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
@@ -52,6 +58,8 @@ export default defineContentScript({
 
     try {
       const bridgeNonce = crypto.randomUUID();
+      installDiagnosticsRelay(bridgeNonce);
+      installGlobalErrorCapture('content.uncaught', logFromContent);
       await initializeSettings();
       watchSettings();
       subscribeSettings((settings) => {
@@ -81,6 +89,7 @@ export default defineContentScript({
       );
       installPlayerControls(bridgeNonce);
     } catch (error) {
+      logFromContent('error', { where: 'content.init', ...errorFields(error) });
       console.error('[YouTube Audio] Content initialization failed', error);
     }
   },

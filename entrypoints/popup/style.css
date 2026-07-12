@@ -93,3 +93,21 @@ body {
     transform-origin: top right;
   }
 }
+
+.popup-report-link {
+  width: 100%;
+  min-height: 40px;
+  margin-top: var(--space-2);
+  color: var(--accent-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: var(--type-desc);
+  text-align: center;
+  transition: color var(--dur-1) var(--ease-standard);
+}
+
+.popup-report-link:hover {
+  color: var(--accent-hover);
+}

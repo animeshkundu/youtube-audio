@@ -500,6 +500,53 @@ async function main() {
       record('edge:kids-unplayable-falls-back', failures, { status: r.status, reason: r.reason });
     })();
 
+    // Diagnostics reporter: the assembled report captures the environment and a playback outcome,
+    // and neither the live report nor the persisted log contains the fixture video id or media URL.
+    await (async () => {
+      const s = settings({ audioOnlyEnabled: true, adBlockEnabled: true, segmentSkipEnabled: true });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        probeReadDiagnostics: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const diag = r.diagnostics;
+      const report = diag && diag.ok ? diag.report : null;
+      const serialized = report ? JSON.stringify(report) : '';
+      const stored = diag && diag.stored ? JSON.stringify(diag.stored) : '';
+      const storedEvents =
+        diag && diag.stored && Array.isArray(diag.stored.events) ? diag.stored.events : null;
+      const codes =
+        report && Array.isArray(report.events) ? report.events.map((e) => e.code) : [];
+      const failures = [];
+      if (!report) failures.push(`no diagnostics report (${diag && diag.error})`);
+      if (
+        report &&
+        (!report.environment ||
+          !report.environment.extensionVersion ||
+          report.environment.extensionVersion === 'unknown')
+      ) {
+        failures.push('missing environment.extensionVersion');
+      }
+      if (report && !codes.includes('playback.status')) {
+        failures.push('missing playback.status outcome event');
+      }
+      // Persistence must actually work: require a non-empty stored artifact (not vacuously empty).
+      if (!storedEvents || storedEvents.length === 0) {
+        failures.push('diagnostics log not persisted to storage');
+      }
+      if (serialized.includes('FIXTURE0001')) failures.push('report leaked video id');
+      if (/\/videoplayback\?itag=/.test(serialized)) failures.push('report leaked media url');
+      if (stored.includes('FIXTURE0001')) failures.push('stored log leaked video id');
+      if (/\/videoplayback\?itag=/.test(stored)) failures.push('stored log leaked media url');
+      record('feature:diagnostics-report-no-pii', failures, {
+        env: report && report.environment,
+        codes,
+        storedEventCount: storedEvents ? storedEvents.length : 0,
+      });
+    })();
+
     // --- Covering array: every toggle pair appears in all 4 on/off combinations ----------
     const cover = coveringArray(TOGGLES);
     record(

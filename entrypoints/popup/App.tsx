@@ -84,6 +84,9 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
             status={protectionCount === 2 ? 'On' : `${protectionCount} of 2`}
           />
         </div>
+        <button type="button" class="popup-report-link" onClick={actions.openOptions}>
+          Something not working? Report an issue
+        </button>
         {error && (
           <p class="error-message" role="alert">
             {error}

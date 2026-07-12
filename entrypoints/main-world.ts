@@ -1,6 +1,7 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
   buildAndroidVrPlayerRequest,
@@ -69,6 +70,7 @@ declare const __BENCH__: boolean;
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
   const bridgeNonce = readAndClearBridgeNonce();
+  const log = createPageLogger(bridgeNonce);
   let settings: PageSettings = {
     enabled: false,
     audioOnlyEnabled: false,
@@ -95,6 +97,7 @@ export default defineUnlistedScript(() => {
   let audioGraphCleanup: () => void = () => undefined;
 
   const emitStatus = (status: PlaybackStatus, reason?: string) => {
+    log('playback.status', { status, ...(reason ? { reason } : {}) });
     document.dispatchEvent(
       new CustomEvent(STATUS_EVENT, {
         detail: { status, ...(reason ? { reason: reason.slice(0, 120) } : {}) },
@@ -175,6 +178,10 @@ export default defineUnlistedScript(() => {
     }
 
     const respond = (payload: Record<string, unknown>) => {
+      log('download.result', {
+        ok: payload.ok === true,
+        ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
+      });
       document.dispatchEvent(
         new CustomEvent(DOWNLOAD_RESPONSE_EVENT, {
           detail: JSON.stringify({ nonce: bridgeNonce, requestId, ...payload }),
@@ -231,6 +238,7 @@ export default defineUnlistedScript(() => {
   }
 
   observeYouTubeSpa(() => {
+    log('spa.rearm');
     generation = player.navigate();
     restartSegmentSkipping();
     qualityOfLifeCleanup();
@@ -265,6 +273,7 @@ export default defineUnlistedScript(() => {
         const mediaElement = await waitForCurrentVideo(operationGeneration);
         if (!mediaElement || operationGeneration !== segmentSkipGeneration) return;
         segmentSkipCleanup = installSegmentSkipping(mediaElement, segments);
+        log('segment.armed', { count: segments.length });
       })
       .catch(() => undefined);
   }
@@ -319,6 +328,7 @@ export default defineUnlistedScript(() => {
       const playerResponse: unknown = await response.json();
       if (operationGeneration !== player.generation) return;
       const playability = getPlayability(playerResponse);
+      log('player.props', describePlayer(playerResponse, playability.isPlayable));
       if (!playability.isPlayable) {
         emitStatus('fallback', playability.status ?? 'unplayable');
         return;
@@ -348,7 +358,8 @@ export default defineUnlistedScript(() => {
       }
       if (player.attach(mediaElement, audioUrl, operationGeneration)) emitStatus('active');
       else emitStatus('fallback', 'media-attach-failed');
-    } catch {
+    } catch (error) {
+      log('error', { where: 'page.activate', ...errorFields(error) });
       if (operationGeneration === player.generation) emitStatus('fallback', 'request-failed');
     }
   }
@@ -361,6 +372,10 @@ export default defineUnlistedScript(() => {
     graph.setGain(gain);
     graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
     audioGraphCleanup = () => graph.dispose();
+    log('audio.graph', {
+      loudness: settings.loudnessNormalization,
+      eq: settings.equalizerEnabled,
+    });
     if (__BENCH__) {
       document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
         gain,
@@ -603,6 +618,45 @@ function readAndClearBridgeNonce(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Behavior-determining video properties for reproduction, derived defensively and containing no
+ * identity (no video/playlist/channel id, no url). Probing never throws into the caller.
+ */
+function describePlayer(
+  response: unknown,
+  playable: boolean
+): {
+  live: boolean;
+  music: boolean;
+  hasAudio: boolean;
+  loudness: boolean;
+  playable: boolean;
+  duration: string;
+} {
+  const props = {
+    live: false,
+    music: location.hostname === 'music.youtube.com',
+    hasAudio: false,
+    loudness: false,
+    playable,
+    duration: 'unknown',
+  };
+  try {
+    props.live = isLiveStream(response);
+    props.hasAudio = Boolean(pickBestAudioFormat(response));
+    const loudnessDb = (response as PlayerResponse).playerConfig?.audioConfig?.loudnessDb;
+    props.loudness = typeof loudnessDb === 'number' && Number.isFinite(loudnessDb);
+    const seconds = Number((response as PlayerResponse).videoDetails?.lengthSeconds);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      props.duration =
+        seconds < 60 ? 'lt1m' : seconds < 600 ? 'lt10m' : seconds < 3600 ? 'lt1h' : 'gte1h';
+    }
+  } catch {
+    // Property probing must never throw; return whatever was computed with safe defaults.
+  }
+  return props;
 }
 
 function getVideoId(): string | null {

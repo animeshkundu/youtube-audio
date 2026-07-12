@@ -60,6 +60,7 @@ describe('Options', () => {
       'Enhancers',
       'Music',
       'Advanced',
+      'Help & feedback',
     ]);
     expect(switches.length).toBeGreaterThan(12);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);

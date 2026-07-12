@@ -51,7 +51,7 @@ backdrop reframes the same state as intentional and pleasant.
 
 ### Key constraints
 
-- The thumbnail must show *while audio plays*, so the `<video>` `poster` attribute
+- The thumbnail must show _while audio plays_, so the `<video>` `poster` attribute
   is disqualified (it is cleared the instant the first frame decodes, even a black
   one). Confirmed by MDN: the poster is shown only while downloading / before the
   first frame, and "once playback begins, the poster frame is no longer shown."
@@ -81,7 +81,7 @@ lifetime is identical to the hijack's. Details below.
 - YouTube DOM class churn (undocumented internals). Mitigated by mounting relative
   to the hijacked `<video>` element itself (`video.parentElement`), not a
   hardcoded selector, and by failing open.
-- Stacking: sibling order alone does not *guarantee* paint order (a positive
+- Stacking: sibling order alone does not _guarantee_ paint order (a positive
   `z-index`, transform, opacity, or containment on `.video-stream` or the container
   can change it). Treated as an observed, screenshot-verified arrangement across a
   mode matrix, not a contract; a small explicit local `z-index` is permitted if the
@@ -113,11 +113,11 @@ container (the `<video>`'s parent), positioned to fill it, `pointer-events:none`
 
 Rationale and rejected alternatives:
 
-| Option | During playback? | Verdict |
-|---|---|---|
-| `<video poster>` | No. Cleared on first decoded frame (MDN). | Rejected. Insufficient. |
-| Overlay element inside `.html5-video-container` | Yes. Independent of the decode pipeline. | **Recommended.** |
-| CSS `background-image` on the container | Yes, but mutates YouTube's own element and gives less control over the two-layer (blur backdrop + contained art) look and over clean teardown. | Rejected. Owns a foreign node instead. |
+| Option                                          | During playback?                                                                                                                               | Verdict                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `<video poster>`                                | No. Cleared on first decoded frame (MDN).                                                                                                      | Rejected. Insufficient.                |
+| Overlay element inside `.html5-video-container` | Yes. Independent of the decode pipeline.                                                                                                       | **Recommended.**                       |
+| CSS `background-image` on the container         | Yes, but mutates YouTube's own element and gives less control over the two-layer (blur backdrop + contained art) look and over clean teardown. | Rejected. Owns a foreign node instead. |
 
 Why append **inside the video container** rather than onto `.html5-video-player`:
 
@@ -131,8 +131,8 @@ Why append **inside the video container** rather than onto `.html5-video-player`
   guarantee paint order. A positive `z-index`, `transform`, `opacity`, or
   containment on `.video-stream` or on the container can reorder layers. So this is
   an **observed, screenshot-verified** arrangement, not a contract. The contract we
-  actually hold is narrower: *the overlay occupies a local layer just above the
-  video, and the video container's stacking context stays below YouTube's chrome.*
+  actually hold is narrower: _the overlay occupies a local layer just above the
+  video, and the video container's stacking context stays below YouTube's chrome._
   If the measured computed stacking chain on a supported surface requires it, the
   overlay may take a **small explicit local `z-index`** (e.g. `1`) to sit above the
   video, but **never** a globally high value that could escape the container and
@@ -149,7 +149,7 @@ Why append **inside the video container** rather than onto `.html5-video-player`
 the second guard: the scrubber, play/pause, volume, settings, fullscreen, hover-to-
 reveal, right-click, and double-click all live under the overlay's bounding box and
 must receive every event. Note `pointer-events:none` only fixes hit-testing, not
-*visual* occlusion, which is why paint order is verified separately.
+_visual_ occlusion, which is why paint order is verified separately.
 
 ### Modes and limitations
 
@@ -180,21 +180,23 @@ Injected `<style id="yta-artwork-style">` (mirrors `installPlayerControlStyles`,
   position: absolute;
   inset: 0;
   overflow: hidden;
-  pointer-events: none;            /* never steal a click from the chrome below */
-  background: #0f0f0f;             /* --surface-0, so any gap is calm near-black */
+  pointer-events: none; /* never steal a click from the chrome below */
+  background: #0f0f0f; /* --surface-0, so any gap is calm near-black */
   opacity: 0;
-  transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);   /* --dur-3 / --ease-standard */
-  contain: strict;                 /* isolate paint/layout from the page */
+  transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1); /* --dur-3 / --ease-standard */
+  contain: strict; /* isolate paint/layout from the page */
 }
-.yta-audio-artwork[data-visible="true"] { opacity: 1; }
+.yta-audio-artwork[data-visible='true'] {
+  opacity: 1;
+}
 
 .yta-audio-artwork__backdrop {
   position: absolute;
-  inset: -8%;                      /* bleed so blurred edges never show a seam */
+  inset: -8%; /* bleed so blurred edges never show a seam */
   background-size: cover;
   background-position: center;
   filter: blur(28px) brightness(0.5) saturate(1.1);
-  transform: translateZ(0);        /* promote once; static image, no ongoing cost */
+  transform: translateZ(0); /* promote once; static image, no ongoing cost */
 }
 
 .yta-audio-artwork__art {
@@ -205,15 +207,21 @@ Injected `<style id="yta-artwork-style">` (mirrors `installPlayerControlStyles`,
   max-height: 62%;
   object-fit: contain;
   border-radius: 12px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 50%), 0 16px 48px rgb(0 0 0 / 44%);  /* --elev-2 */
+  box-shadow:
+    0 4px 12px rgb(0 0 0 / 50%),
+    0 16px 48px rgb(0 0 0 / 44%); /* --elev-2 */
   opacity: 0;
   transition: opacity 240ms cubic-bezier(0.2, 0, 0, 1);
 }
-.yta-audio-artwork__art[data-loaded="true"] { opacity: 1; }
+.yta-audio-artwork__art[data-loaded='true'] {
+  opacity: 1;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .yta-audio-artwork,
-  .yta-audio-artwork__art { transition-duration: 0.001ms; }
+  .yta-audio-artwork__art {
+    transition-duration: 0.001ms;
+  }
 }
 ```
 
@@ -226,6 +234,7 @@ div.yta-audio-artwork[aria-hidden="true"]
 ```
 
 Notes:
+
 - `aria-hidden="true"`: the artwork is decorative; screen readers ignore it. The
   media element and controls remain the accessible surface.
 - The foreground is an `<img>` (so we can read `naturalWidth` for placeholder
@@ -281,7 +290,7 @@ candidates only**, on `img.onload` a `naturalWidth <= 120` means placeholder, so
 advance. The `<img>` walks the chain via `onerror` plus that placeholder check;
 `hqdefault.jpg` is the universal floor. The placeholder check is **not** applied to
 the primary response URL (a legitimate response thumbnail can be 120px wide). To
-avoid a grey-placeholder flash on the *backdrop*, resolve the backdrop URL through
+avoid a grey-placeholder flash on the _backdrop_, resolve the backdrop URL through
 the same off-DOM `Image()` probe before assigning it as `background-image`.
 
 The serial maxres -> sd -> hq wait can add latency before art appears; an optional
@@ -307,8 +316,8 @@ Pure helpers (new module `src/shared/artwork.ts`, unit-tested like `innertube.ts
 
 **Recommended: bind the overlay's teardown to the successful `attach()` via a
 cleanup callback that `PlayerHandle.restore()` invokes.** `restore()` is the single
-choke point for *every* extension-side teardown, and the two ways YouTube can end
-the hijack *without* an extension call are each already handled by tested code
+choke point for _every_ extension-side teardown, and the two ways YouTube can end
+the hijack _without_ an extension call are each already handled by tested code
 (below), so the overlay's lifetime tracks the hijack's.
 
 `restore()` is reached from all of these (`src/shared/player.ts`):
@@ -322,14 +331,14 @@ the hijack *without* an extension call are each already handled by tested code
 
 The two externally-driven teardowns (raised in review) and why they are covered:
 
-- **YouTube overwrites `src` on the *same* `<video>`** (native recovery, ad, etc.).
+- **YouTube overwrites `src` on the _same_ `<video>`** (native recovery, ad, etc.).
   The dormant setter guard (`installDormantGuard`, `src/shared/player.ts:74-107`)
   intercepts it: it reasserts the audio URL up to `maxReassertions`, then
   `openCircuit()` -> `restore()`. So either we stay the legitimate owner (video
   still black, overlay correct) or the circuit opens and the overlay is removed.
   Already tested: `tests/unit/player.test.ts:58-71`.
 - **YouTube replaces or recycles the `<video>` node** (miniplayer, PiP, playlist
-  advance) with no hard navigation. The existing SPA engine watches the *physical*
+  advance) with no hard navigation. The existing SPA engine watches the _physical_
   `<video>` identity: its `MutationObserver` emits `reason: 'player-change'` when
   `document.querySelector('video') !== lastVideo` (`src/shared/spa.ts:36-40`), and
   the MAIN-world subscriber calls `player.navigate()` on every emit
@@ -360,8 +369,7 @@ Wiring in `activateEnhancements` (`entrypoints/main-world.ts:344-350`), where
 `responseData`, `videoId`, and `operationGeneration` are all in scope:
 
 ```ts
-const artworkUrl =
-  settings.audioArtworkEnabled ? pickArtworkUrl(responseData) : null;
+const artworkUrl = settings.audioArtworkEnabled ? pickArtworkUrl(responseData) : null;
 const backdropUrl = artworkUrl ? pickBackdropUrl(responseData) : null;
 if (
   player.attach(mediaElement, audioUrl, operationGeneration, (media, gen) =>
@@ -422,7 +430,7 @@ persistence, matching how the lyrics and button features mount once.
 
 Stance: **preserve, do not fight.** YouTube already sets
 `navigator.mediaSession.metadata` including `artwork` (proven in
-`docs/research/06 §4.3`), and audio-only keeps the *same* media element playing, so
+`docs/research/06 §4.3`), and audio-only keeps the _same_ media element playing, so
 the OS lock-screen art keeps working through YouTube's own metadata. The visual
 backdrop and the OS art are independent surfaces; v1 does **not** touch
 `mediaSession` for the backdrop feature.
@@ -494,7 +502,7 @@ optimistic guess: `showArtwork` writes `document.documentElement.dataset.ytaArtw
 = JSON.stringify({ src })` whenever the displayed `src` settles (initial primary
 load, and again if the canonical fallback chain advances), and `cleanup()` clears
 it. The overlay node carries the stable class `yta-audio-artwork` for direct
-inspection. Because the marker updates on the *settled* src, the bench must **poll
+inspection. Because the marker updates on the _settled_ src, the bench must **poll
 to a settled state** (the existing `waitFor` helper, `run-bench.mjs:114-123`) rather
 than read once, which removes any onload-vs-marker race.
 
@@ -502,8 +510,7 @@ than read once, which removes any onload-vs-marker race.
 
 1. Add to `fixturePlayerResponse` `videoDetails` a `thumbnail.thumbnails` array
    pointing at the fixture origin, e.g.
-   `[{ url: ${origin}/vi/<id>/hq.jpg, width: 480, height: 360 },
-     { url: ${origin}/vi/<id>/maxres.jpg, width: 1280, height: 720 }]`
+   `[{ url: ${origin}/vi/<id>/hq.jpg, width: 480, height: 360 }, { url: ${origin}/vi/<id>/maxres.jpg, width: 1280, height: 720 }]`
    so `pickArtworkUrl` returns the `maxres` URL and `pickBackdropUrl` the `hq` URL,
    both keyed by the requested `videoId` (so SPA re-nav produces a different src).
    For a special id prefix (e.g. `NOTHUMB...`, alongside the existing `LIVE`/`AUTH`
@@ -520,7 +527,7 @@ than read once, which removes any onload-vs-marker race.
 **Bench snapshot + probes** (`tests/e2e/bench/run-bench.mjs`):
 
 - Extend `snapshotScript` with `artwork: document.documentElement.dataset.ytaArtwork
-  || null` and an overlay probe returning
+|| null` and an overlay probe returning
   `{ present, src, pointerEvents, insideVideoContainer, naturalWidth }` for
   `.yta-audio-artwork`.
 - New `probeArtwork` session (audio-only on, `audioArtworkEnabled` on): poll until
@@ -577,7 +584,7 @@ identical whether or not the toggle is exposed; see open questions.
    Write `tests/unit/artwork.test.ts` first (TDD).
 3. **Types**: extend `PlayerResponse.videoDetails` in `src/shared/innertube.ts`
    (`:42-48`) with `thumbnail?: { thumbnails?: Array<{ url?: string; width?: number;
-   height?: number }> }`.
+height?: number }> }`.
 4. **DOM controller** `showArtwork(...)` in `src/shared/artwork.ts` (or a sibling
    `artwork-overlay.ts`): inject the stylesheet once, build the overlay, resolve the
    image (primary, then canonical chain with placeholder detection, all via a

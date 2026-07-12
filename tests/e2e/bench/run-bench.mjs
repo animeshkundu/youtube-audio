@@ -179,6 +179,7 @@ export async function runSession({
   probeDownload,
   probeSpaRearm,
   probeCircuitBreaker,
+  probeReadDiagnostics,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -381,6 +382,43 @@ export async function runSession({
         }, 8000)) || (await driver.executeScript(readQol));
     }
 
+    let diagnostics = null;
+    if (probeReadDiagnostics && withAddon) {
+      // Let any in-flight page->content->background log messages settle before reading.
+      await new Promise((r) => setTimeout(r, 300));
+      // Read the real diagnostics artifact the reporter uses: navigate to the extension's own
+      // options page (its moz-extension origin is pinned) and ask the background for the live
+      // assembled report, then POLL the persisted storage copy until the debounced flush lands
+      // (so a broken-persistence path times out with an empty artifact and fails the assertion).
+      await driver.get(OPTIONS_URL);
+      diagnostics = await driver.executeAsyncScript(function () {
+        const done = arguments[arguments.length - 1];
+        const deadline = Date.now() + 6000;
+        function readStored() {
+          return browser.storage.local
+            .get('diagnostics')
+            .then((r) => (r && r.diagnostics) || null);
+        }
+        function poll(report) {
+          readStored()
+            .then((stored) => {
+              const persisted =
+                stored && Array.isArray(stored.events) && stored.events.length > 0;
+              if (persisted || Date.now() > deadline) {
+                done({ ok: true, report: report, stored: stored });
+              } else {
+                setTimeout(() => poll(report), 200);
+              }
+            })
+            .catch((e) => done({ ok: false, error: String(e) }));
+        }
+        browser.runtime
+          .sendMessage({ type: 'yta:diagnostics-report' })
+          .then((report) => poll(report || null))
+          .catch((e) => done({ ok: false, error: String(e) }));
+      });
+    }
+
     return {
       addonId,
       marker: snap.marker,
@@ -400,6 +438,7 @@ export async function runSession({
       autonavChecked: snap.autonavChecked,
       spaRearm,
       circuitBreaker,
+      diagnostics,
     };
   } finally {
     try {
@@ -490,6 +529,67 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
+    // --- diagnostics + issue reporter (PII-free local logging) ----------------
+    const diagRun = await runSession({
+      withAddon: true,
+      probeReadDiagnostics: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const diag = diagRun.diagnostics;
+    const report = diag && diag.ok ? diag.report : null;
+    const serialized = report ? JSON.stringify(report) : '';
+    const storedEvents =
+      diag && diag.stored && Array.isArray(diag.stored.events) ? diag.stored.events : null;
+    const storedSerialized = diag && diag.stored ? JSON.stringify(diag.stored) : '';
+    const eventCodes = report && Array.isArray(report.events) ? report.events.map((e) => e.code) : [];
+
+    record(
+      'diagnostics:report-available-with-env',
+      !!report &&
+        !!report.environment &&
+        typeof report.environment.extensionVersion === 'string' &&
+        report.environment.extensionVersion !== 'unknown' &&
+        typeof report.environment.os === 'string' &&
+        report.environment.os.length > 0,
+      {
+        environment: report && report.environment,
+        ok: diag && diag.ok,
+        error: diag && diag.error,
+      }
+    );
+    record('diagnostics:captures-playback-outcome', eventCodes.includes('playback.status'), {
+      eventCodes,
+    });
+    // Persistence must actually work: require a non-empty stored artifact so a broken flush fails.
+    record(
+      'diagnostics:log-persisted-to-storage',
+      !!storedEvents && storedEvents.length > 0,
+      {
+        storedEventCount: storedEvents ? storedEvents.length : 0,
+        ok: diag && diag.ok,
+        error: diag && diag.error,
+      }
+    );
+    record(
+      'diagnostics:no-pii-in-report',
+      !!report &&
+        !serialized.includes('FIXTURE0001') &&
+        !/\/videoplayback\?itag=/.test(serialized),
+      {
+        containsVideoId: serialized.includes('FIXTURE0001'),
+        containsMediaUrl: /\/videoplayback\?itag=/.test(serialized),
+        markdownSample: report ? String(report.markdown).slice(0, 400) : null,
+      }
+    );
+    record(
+      'diagnostics:no-pii-in-stored',
+      !!storedSerialized &&
+        !storedSerialized.includes('FIXTURE0001') &&
+        !/\/videoplayback\?itag=/.test(storedSerialized),
+      { hasStored: !!storedSerialized, storedEventCount: storedEvents ? storedEvents.length : 0 }
+    );
+
     // Regression: a live/DVR stream returns OK + an audio url, but hijacking that live-edge url as
     // <video>.src stalls playback at 0. The extension MUST fall back to YouTube's native player.
     const liveRun = await runSession({

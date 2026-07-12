@@ -36,6 +36,7 @@ import {
 import type { QualityCap } from '../../src/shared/quality-of-life';
 import type { SponsorCategory } from '../../src/shared/sponsorblock';
 import { Brand, Onboarding, QuickControls, SectionHeader, SettingRow } from '../ui/components';
+import { IssueReporter } from '../ui/IssueReporter';
 
 const SEEN_ONBOARDING_KEY = 'seenOnboarding';
 
@@ -132,6 +133,7 @@ export function Options({
             'Enhancers',
             'Music',
             'Advanced',
+            'Help & feedback',
           ].map((label) => (
             <a
               key={label}
@@ -405,6 +407,7 @@ export function Options({
               </details>
             </section>
           )}
+          {sectionVisible('help feedback report issue diagnostics logs bug') && <IssueReporter />}
         </main>
       </div>
 
