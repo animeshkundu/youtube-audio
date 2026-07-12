@@ -35,6 +35,8 @@ Autoplay suppression inspects `.ytp-autonav-toggle-button`. It clicks only when 
 
 The isolated content script owns one `<style>` element. A pure stylesheet builder emits only the rules selected by effective settings. Rules target semantic `ytd-*`, `ytm-*`, and stable watch-page anchors. Updating settings replaces the style text; disabling a toggle removes its rules. No persistent settings attributes are written to the page.
 
+Recommendation hiding is scoped to the related-results renderer (`ytd-watch-flexy #secondary ytd-watch-next-secondary-results-renderer`, plus `#related` and the mobile anchors), never the whole `#secondary` container. On the wide two-column layout YouTube reparents a comments-bearing engagement panel into `#secondary`, so hiding the container could collapse comments even when `hideComments` was off. The visible comments block always lives in `#primary`; scoping to the renderer keeps both comments nodes safe.
+
 ## Error Handling
 
 All DOM queries, player calls, event registration, timer work, and style installation are guarded. Failures stop only the relevant enhancement and never throw into page code or interrupt playback.
@@ -42,7 +44,7 @@ All DOM queries, player calls, event registration, timer work, and style install
 ## Testing Strategy
 
 - Unit tests import the real stylesheet builder and quality-label selector, covering every setting independently, combined settings, disabled settings, valid quality mappings, and malformed/off values.
-- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, and comments fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off.
+- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, and comments fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off. The `m3b:hide-recs-preserves-comments` scenario asserts that hiding recommendations leaves both the primary and the reparented-panel comments nodes visible.
 - Release gates: strict typecheck, zero-warning lint, gate-weakener scan, real-source coverage, packaged Firefox bench, production build, and manifest inspection.
 
 ## Security and Privacy Considerations

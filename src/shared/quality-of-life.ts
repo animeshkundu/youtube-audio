@@ -41,8 +41,9 @@ ytm-rich-section-renderer:has(ytm-reel-shelf-renderer) {
   }
   if (settings.hideRecommendations) {
     // Target the related-results renderer specifically, not the whole `#secondary` container:
-    // newer watch-page layouts nest the comments inside `#secondary`, so hiding the container
-    // collapsed comments too even when `hideComments` was off.
+    // at the wide two-column layout YouTube reparents a comments-bearing engagement panel into
+    // `#secondary`, so hiding the container could collapse comments even when `hideComments` was off.
+    // The visible comments block itself lives in `#primary`; scoping to the renderer keeps both safe.
     rules.push(`
 ytd-watch-flexy #secondary ytd-watch-next-secondary-results-renderer,
 ytd-watch-flexy #related,

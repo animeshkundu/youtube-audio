@@ -33,6 +33,11 @@ Two implementation paths were analysed.
 - No new permissions (`*://*.googlevideo.com/*` already granted; same credentialless POST already made).
 - **Quality capped** at ~360p (occasionally 720p), no adaptive bitrate.
 - **itag-18 not guaranteed present** (see the risk below), so the toggle silently no-ops on some videos.
+- **Live/DVR detection would need extending, not just reusing.** The existing `isLiveStream`
+  (`src/shared/innertube.ts`) gate keys on the best _adaptive audio_ format lacking `contentLength`.
+  A progressive itag-18-only live response with no `videoDetails.isLive` could be misclassified as
+  VOD and hijacked into a stalling live-edge `src`. A progressive-video path needs its own live/finite
+  check (e.g. on the itag-18 format's own `contentLength`), so "reuse the existing gates" is not free.
 
 ### Path B: MediaSource Extensions (full adaptive quality)
 
@@ -63,8 +68,10 @@ low-risk field-pruning path (task #69, including the `fetch`/`Response.json` pru
 If a video mode is later pursued, **Path A is the recommended approach**: a small, off-by-default
 "Ad-free video (SD)" toggle that hijacks the itag-18 progressive stream via the existing
 write-once/fail-open machinery, with automatic silent fallback to native (ad-supported) playback
-whenever itag-18 is absent, live/DVR, or age-restricted (the same gates audio-only already uses).
-**Path B is not justified** given its cost, the sole-writer invariant change, and — decisively — the
+whenever itag-18 is absent, live/DVR, or age-restricted (the audio-only gates plus a
+progressive-specific live/finite check, since `isLiveStream` keys on the adaptive audio format; see
+Path A).
+**Path B is not justified** given its cost, the sole-writer invariant change, and, decisively, the
 already-eroding ANDROID_VR foundation both paths sit on.
 
 ## Consequences

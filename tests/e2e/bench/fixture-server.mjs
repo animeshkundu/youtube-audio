@@ -237,10 +237,31 @@ function watchPageHtml() {
       </div>
     </div>
   </div>
-  <!-- Distraction-removal targets (custom elements render inline; CSS hides them). -->
+  <!-- Distraction-removal targets. Faithful to the real watch-page nesting (verified on real
+       YouTube 2026-07-12): the VISIBLE comments block lives in #primary (never #secondary at any
+       viewport); #secondary holds the recommendations renderer AND a comments-bearing engagement
+       panel that YouTube reparents into #secondary at the wide two-column layout. "Hide
+       recommendations" must hide ONLY the recs renderer, never either comments node, so the
+       #fixture-secondary-comments node below is the load-bearing regression lock: a broad
+       secondary-container display:none would hide it, the narrowed selector must not. -->
   <ytd-reel-shelf-renderer id="fixture-shorts">Shorts shelf</ytd-reel-shelf-renderer>
-  <ytd-watch-flexy><div id="secondary">Recommendations</div></ytd-watch-flexy>
-  <ytd-comments id="fixture-comments">Comments</ytd-comments>
+  <ytd-watch-flexy>
+    <div id="columns">
+      <div id="primary"><div id="primary-inner"><div id="below">
+        <ytd-comments id="fixture-comments">Comments</ytd-comments>
+      </div></div></div>
+      <div id="secondary"><div id="secondary-inner">
+        <div id="panels">
+          <ytd-engagement-panel-section-list-renderer target-id="engagement-panel-comments-section">
+            <ytd-comments id="fixture-secondary-comments">Comments (reparented #secondary mirror)</ytd-comments>
+          </ytd-engagement-panel-section-list-renderer>
+        </div>
+        <div id="related">
+          <ytd-watch-next-secondary-results-renderer id="fixture-recs">Recommendations</ytd-watch-next-secondary-results-renderer>
+        </div>
+      </div></div>
+    </div>
+  </ytd-watch-flexy>
   <script>
     // Record player quality-API calls so the QoL bench can assert forced quality.
     window.__ytaQualityCalls = [];

@@ -174,6 +174,7 @@ nav:
       - AMO Distribution Setup: history/2026-07-12-amo-distribution-setup.md
       - Bundle Size & Perf Optimization: history/2026-07-12-bundle-size-perf-optimization.md
       - Status Hardening & Real-YouTube UI Fixes: history/2026-07-12-status-hardening-and-real-youtube-ui-fixes.md
+      - Comments, Downloads & ADR-0009 Caveat: history/2026-07-12-comments-download-and-adr0009.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

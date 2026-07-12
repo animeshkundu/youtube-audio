@@ -585,17 +585,24 @@ export async function runSession({
         return {
           qualityCalls: window.__ytaQualityCalls || [],
           shortsHidden: hidden('#fixture-shorts'),
-          recsHidden: hidden('#secondary'),
+          recsHidden: hidden('#fixture-recs'),
           commentsHidden: hidden('#fixture-comments'),
+          secondaryPanelCommentsHidden: hidden('#fixture-secondary-comments'),
         };
       };
-      // Poll until the MAIN-world quality-of-life pass has applied (quality forced AND a
-      // distraction hidden) so a slow CI runner cannot read the state before it runs. Falls back
-      // to the last read so a genuine failure still surfaces real detail instead of null.
+      // Poll until the MAIN-world quality-of-life pass has applied (quality forced AND at least one
+      // distraction hidden) so a slow CI runner cannot read the state before it runs. Uses "any
+      // distraction hidden" rather than shorts specifically, so a combo that hides only recs or only
+      // comments is still detected as applied. Falls back to the last read so a genuine failure still
+      // surfaces real detail instead of null.
       qol =
         (await waitFor(async () => {
           const state = await driver.executeScript(readQol);
-          return state.qualityCalls.length > 0 && state.shortsHidden === true ? state : null;
+          const distractionApplied =
+            state.shortsHidden === true ||
+            state.recsHidden === true ||
+            state.commentsHidden === true;
+          return state.qualityCalls.length > 0 && distractionApplied ? state : null;
         }, 8000)) || (await driver.executeScript(readQol));
     }
 
@@ -1283,9 +1290,9 @@ async function main() {
     record(
       'm5:download-enabled-initiates-selected-audio',
       downloadEnabled.downloadButtonVisible === true &&
-        downloadData?.filename === 'Fixture Watch Page.webm' &&
+        downloadData?.filename === 'Fixture Watch Page.m4a' &&
         typeof downloadData?.url === 'string' &&
-        downloadData.url.includes('/videoplayback?itag=251'),
+        downloadData.url.includes('/videoplayback?itag=140'),
       { visible: downloadEnabled.downloadButtonVisible, download: downloadData }
     );
 
@@ -1387,6 +1394,40 @@ async function main() {
         qolRun.qol?.commentsHidden === true &&
         control.qol?.shortsHidden === false,
       { treatment: qolRun.qol, control: control.qol }
+    );
+
+    // Regression lock for the "comments vanish when only Hide-recommendations is on" bug: with
+    // hideRecommendations ON and hideComments OFF, the recommendations renderer must be hidden while
+    // BOTH comments nodes stay visible — the #primary block AND the comments-bearing engagement panel
+    // that YouTube reparents into #secondary at the wide layout. A revert to a broad
+    // `#secondary{display:none}` selector would hide `#fixture-secondary-comments` and fail here.
+    const recsOnlyRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '480p',
+        disableAutoplayNext: false,
+        hideShorts: false,
+        hideRecommendations: true,
+        hideComments: false,
+      },
+      probeQol: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm3b:hide-recs-preserves-comments',
+      recsOnlyRun.qol?.recsHidden === true &&
+        recsOnlyRun.qol?.commentsHidden === false &&
+        recsOnlyRun.qol?.secondaryPanelCommentsHidden === false,
+      { treatment: recsOnlyRun.qol }
     );
   } finally {
     await fixture.close();

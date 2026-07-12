@@ -59,9 +59,10 @@ describe('distraction stylesheet', () => {
     expect(css).toContain('ytm-related-chip-cloud-renderer');
     expect(css).not.toContain('ytd-reel-shelf-renderer');
     expect(css).not.toContain('ytd-comments');
-    // Regression: must NOT hide the whole `#secondary` container. Newer watch layouts nest the
-    // comments inside `#secondary`, so hiding the container collapsed comments even with
-    // hideComments off. This matches a bare `#secondary,` / `#secondary {`, not the narrowed descendant.
+    // Regression: must NOT hide the whole `#secondary` container. At the wide two-column layout
+    // YouTube reparents a comments-bearing engagement panel into `#secondary`, so hiding the
+    // container could collapse comments even with hideComments off. This matches a bare
+    // `#secondary,` / `#secondary {`, not the narrowed descendant.
     expect(css).not.toMatch(/#secondary\s*[,{]/);
   });
 

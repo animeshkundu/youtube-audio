@@ -7,8 +7,9 @@ M5 adds an opt-in, user-initiated download action for the current YouTube watch 
 ## Goals
 
 - Expose an in-player download button only when `downloadEnabled` is enabled.
-- Acquire the best direct audio format on explicit user action, preferring itag 251 then 140.
+- Acquire the best direct audio format on explicit user action. The download path prefers the widely compatible AAC itag 140 (`.m4a`, zero transcoding), while in-page playback keeps preferring Opus itag 251 for quality.
 - Save itag 251 as `.webm`, itag 140 as `.m4a`, and unknown audio formats as `.m4a`.
+- Emit exactly one `downloads.download` call and one saved file per explicit user click.
 - Sanitize and bound filenames derived from `videoDetails.title`.
 - Permit only HTTPS `googlevideo.com` subdomains in production.
 - Prefer `downloads.download({ url, filename })`, with a credentialless Blob fallback.
@@ -30,6 +31,12 @@ M5 adds an opt-in, user-initiated download action for the current YouTube watch 
 
 A click dispatches a nonce-authenticated JSON-string `CustomEvent` from isolated content to MAIN world. MAIN world performs a fresh credentialless ANDROID_VR player request for the current video, selects the preferred direct audio format, validates its URL, derives a sanitized filename from the title and itag, and returns only `{url, filename}` in a JSON-string event. The content script validates the response shape and forwards it to the fixed background download operation.
 
+### Download format
+
+Format selection calls `pickBestAudioFormat(playerResponse, preferCompatible=true)` (`src/shared/innertube.ts`) so the download prefers AAC itag 140 (`.m4a`), which plays almost everywhere and needs no transcoding, ahead of Opus itag 251 (`.webm`). In-page playback calls the same helper with the default (compatibility off), keeping Opus itag 251 for quality. MP3 and MP4 are out of scope: they would require in-browser transcoding (wasm / ffmpeg), whereas `.m4a` and `.webm` are zero-transcode remuxes of the already-fetched stream.
+
+The feature has a single privileged download call site (`entrypoints/background.ts`), so one explicit click produces exactly one `downloads.download` call and one saved file, independent of whether audio-only mode is on. Adaptive range requests made by YouTube's own player stay in memory and never reach the OS Downloads folder.
+
 ### Privileged download
 
 The background validates the message again. Production accepts only HTTPS `googlevideo.com` or subdomains and a filename that exactly matches shared sanitization. It first passes the direct URL to `browser.downloads.download`. If that fails, it fetches the same validated URL with `credentials: "omit"`, creates a Blob URL, downloads it, and revokes that object URL after completion or interruption.
@@ -43,7 +50,7 @@ Every page, bridge, acquisition, validation, fetch, and downloads API boundary c
 ## Testing Strategy
 
 - Unit tests import real source helpers for title sanitization, itag extension mapping, filename construction, and URL allowlisting.
-- The packaged bench verifies the button is absent while disabled and that an enabled click reaches the background with the expected selected URL and sanitized filename.
+- The packaged bench verifies the button is absent while disabled and that an enabled click reaches the background with the expected selected URL and sanitized filename, asserting the `.m4a` / itag-140 outcome (`m5:download-enabled-initiates-selected-audio`).
 - Release gates are strict typecheck, zero-warning lint, empty gate-weakener scan, real-source unit coverage, packaged Firefox bench, production build, and manifest inspection.
 
 ## Security and Privacy Considerations
