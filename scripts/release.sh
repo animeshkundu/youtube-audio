@@ -1,7 +1,9 @@
 #!/bin/bash
 # Script: release.sh
-# Purpose: Build, validate, and request an unlisted Mozilla signature for Firefox MV2.
-# Usage: AMO_JWT_ISSUER=... AMO_JWT_SECRET=... npm run release:sign
+# Purpose: Build, validate, and request an unlisted Mozilla signature for Firefox MV2 (the beta
+#          channel under the single permanent add-on ID, ADR-0006). Set BETA_SUFFIX (e.g. b1) to
+#          sign a pre-release beta version; the manifest version becomes e.g. 0.0.2.5b1.
+# Usage: AMO_JWT_ISSUER=... AMO_JWT_SECRET=... [BETA_SUFFIX=b1] npm run release:sign
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,7 +40,9 @@ if [ -z "$SIGNED_XPI" ]; then
   exit 1
 fi
 
-VERSION="$(node -p "require('./package.json').version")"
+# Derive the version from the BUILT manifest so a BETA_SUFFIX build (e.g. 0.0.2.5b1) names the
+# artifact after the version that was actually signed, not the clean package.json base.
+VERSION="$(node -p "require('./.output/firefox-mv2/manifest.json').version")"
 DESTINATION="dist/youtube-audio-${VERSION}-signed.xpi"
 cp "$SIGNED_XPI" "$DESTINATION"
 printf 'signed %s (%s bytes)\n' "$DESTINATION" "$(wc -c < "$DESTINATION")"

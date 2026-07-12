@@ -29,7 +29,7 @@ This folder contains automation scripts for development and CI/CD.
 
 ### release.sh
 
-Requires `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`. It builds Firefox MV2, runs `web-ext lint`, submits the generated extension to AMO with the unlisted channel, and copies the returned signed XPI to `dist/`. Set `FIREFOX_EXTENSION_ID` and `SELF_HOSTED_UPDATE_URL` for a real self-hosted desktop release. See `RELEASE.md`.
+Requires `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`. It builds Firefox MV2, runs `web-ext lint`, submits the generated extension to AMO with the unlisted channel (the beta channel under the single permanent add-on ID), and copies the returned signed XPI to `dist/`. Set `BETA_SUFFIX` (e.g. `BETA_SUFFIX=b1`) to sign a pre-release beta version. See `RELEASE.md`. The tag-triggered `.github/workflows/beta.yml` does the same in CI; production listed publishing is the manual `.github/workflows/publish-amo.yml`.
 
 ### validate.sh
 

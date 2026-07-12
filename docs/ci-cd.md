@@ -6,18 +6,20 @@ nightly canaries that never block a merge.
 
 ## Workflow map
 
-| Workflow            | File                                | Trigger                                       | Gating?                     |
-| ------------------- | ----------------------------------- | --------------------------------------------- | --------------------------- |
-| CI                  | `.github/workflows/ci.yml`          | push + PR (`main`/`master`/`rebuild`), manual | Gating (all 3 jobs)         |
-| Release             | `.github/workflows/release.yml`     | tag push `v*`                                 | Gating (blocks the publish) |
-| Mobile E2E          | `.github/workflows/mobile-e2e.yml`  | nightly 04:17 UTC + manual                    | Non-gating (best-effort)    |
-| Live YouTube Canary | `.github/workflows/live-canary.yml` | nightly 05:42 UTC + manual                    | Non-gating (best-effort)    |
-| Pages               | `.github/workflows/pages.yml`       | (owned by another workflow)                   | n/a                         |
+| Workflow            | File                                | Trigger                                       | Gating?                    |
+| ------------------- | ----------------------------------- | --------------------------------------------- | -------------------------- |
+| CI                  | `.github/workflows/ci.yml`          | push + PR (`main`/`master`/`rebuild`), manual | Gating (all 3 jobs)        |
+| Beta                | `.github/workflows/beta.yml`        | pre-release tag `v*[a-z]*` + manual           | Gating (blocks the sign)   |
+| Publish to AMO      | `.github/workflows/publish-amo.yml` | manual `workflow_dispatch` only               | Gating (blocks the submit) |
+| Mobile E2E          | `.github/workflows/mobile-e2e.yml`  | nightly 04:17 UTC + manual                    | Non-gating (best-effort)   |
+| Live YouTube Canary | `.github/workflows/live-canary.yml` | nightly 05:42 UTC + manual                    | Non-gating (best-effort)   |
+| Pages               | `.github/workflows/pages.yml`       | (owned by another workflow)                   | n/a                        |
 
-All workflows use least-privilege `permissions: contents: read` (release needs `contents: write`
-to publish assets) and a `concurrency` group keyed on `${{ github.workflow }}-${{ github.ref }}`.
-CI and the canaries cancel superseded runs per ref; the release does **not** cancel in progress,
-so a publish that has started always finishes.
+All workflows use least-privilege `permissions: contents: read` (beta needs `contents: write` to
+publish the prerelease asset; publish-amo needs only read). The beta and publish-amo workflows share
+a single `concurrency` group (`amo-submit`, `cancel-in-progress: false`) so every AMO submission for
+the one add-on ID is serialized and an in-flight submission always finishes. CI and the canaries use
+a `${{ github.workflow }}-${{ github.ref }}` group and cancel superseded runs per ref.
 
 ## CI (gating)
 
@@ -49,13 +51,32 @@ npm run test:bench     # hermetic bench (needs a local Firefox)
 ./scripts/validate.sh
 ```
 
-## Release (gating)
+## Beta (gating)
 
-Triggered by a `v*` tag. Reuses the same deterministic gates
-(`typecheck && lint && test && build` + `web-ext lint`), then signs the unlisted MV2 XPI via AMO
-(`AMO_JWT_ISSUER` / `AMO_JWT_SECRET`), verifies the tag matches `package.json` version, and
-publishes the signed XPI plus a self-hosted `updates.json`
-(`https://animeshkundu.github.io/youtube-audio/updates.json`).
+`.github/workflows/beta.yml` signs the **unlisted** beta channel for the single add-on ID
+`youtube-audio@animesh.kundus.in` (ADR-0006). It triggers on a **pre-release** version tag whose
+name carries the suffix letter (glob `v*[a-z]*`, e.g. `v0.0.2.5b1`; a clean `v0.0.2.5` tag never
+matches), or on a manual `workflow_dispatch` with the suffix as input. It **validates before
+signing**: it derives and validates the pre-release suffix, runs `typecheck && lint && test`, builds
+with the `BETA_SUFFIX` env so the manifest carries the pre-release version, asserts the built
+manifest's version, permanent ID, and absence of `update_url`, runs `web-ext lint`, then
+`web-ext sign --channel=unlisted`. After signing it re-checks the signed XPI (valid signed zip;
+bundled manifest version/id/no-`update_url`), uploads it as a workflow artifact for recoverability,
+and attaches it to a GitHub **prerelease** pinned to the built commit. The XPI is hand-installed for
+desktop and Android testing; it does not auto-update.
+
+## Publish to AMO (gating, manual-only)
+
+`.github/workflows/publish-amo.yml` is the **only** path to the AMO **listed** channel and is
+`workflow_dispatch`-only (no push/tag/release/schedule trigger), so a tag push can never publish to
+AMO. Inputs are `ref` (the clean release tag to check out and publish) and `dry_run`. It asserts
+`ref == v<package.json version>` and that the version is clean **before** signing, runs the same
+gates and build (no `BETA_SUFFIX`, so no `update_url`), asserts the built manifest is clean, runs
+`web-ext lint`, packages a reviewer **source archive** with `git archive` (tracked files only), then
+`web-ext sign --channel=listed --upload-source-code=<zip> --amo-metadata=amo-metadata.json
+--approval-timeout=0`. AMO hosts the signed XPI and becomes the sole update authority for desktop
+and Android; there is no Release asset and no self-hosted `updates.json`. The recommended human gate
+is a GitHub Environment `amo-production` with a required reviewer. See `RELEASE.md`.
 
 ## Mobile E2E (non-gating, best-effort)
 

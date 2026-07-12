@@ -1,5 +1,12 @@
 # AMO Channels and an On-Demand Publish Flow
 
+> **Decision update:** [ADR-0006](../adrs/0006-firefox-amo-distribution-and-beta-channel.md)
+> adopted the **single permanent add-on ID** `youtube-audio@animesh.kundus.in` (shape (a) in
+> section 3), not the two-identity split this brief leaned toward. Production is AMO **listed**
+> and beta is the **same ID** signed **unlisted** at a distinct pre-release version; the
+> self-hosted `updates.json` path is retired for production. The channel analysis below stands as
+> the grounding research; the identity choice was resolved by ADR-0006.
+
 Research brief for **YouTube Audio** (Manifest V2, Firefox desktop + Firefox for
 Android). The owner just created AMO Developer Hub API credentials (JWT issuer +
 secret), stored as the GitHub repo secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`,
@@ -322,9 +329,9 @@ workflow, a tag push never publishes to AMO.
 These are ADR-level gates that must be settled before the first real listed
 publish; the workflow *design* does not remove them:
 
-1. **A permanent AMO-listed `FIREFOX_EXTENSION_ID`**, distinct from the
-   self-hosted ID and from the `youtube-audio@local` placeholder. An installed ID
-   is permanent (ADR-0002).
+1. **A permanent AMO-listed `FIREFOX_EXTENSION_ID`.** ADR-0006 finalized this as the single
+   permanent ID `youtube-audio@animesh.kundus.in` (wired in `wxt.config.ts`, the workflows, and
+   the bench `ADDON_ID`). An installed ID is permanent (ADR-0002).
 2. **AMO policy readiness** (ADR-0003): honest `data_collection_permissions`, the
    listed-clean feature flag if adopted, and **source-code submission** for the
    WXT/esbuild bundle (un-minified sources + pinned toolchain for a diff-clean

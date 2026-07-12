@@ -1,84 +1,108 @@
 # Firefox Release Guide
 
-YouTube Audio has two deliberately separate distribution channels. Desktop self-hosting uses an **unlisted** Mozilla-signed XPI with `update_url`. Hands-off Firefox for Android updates require a separate **AMO-listed** add-on. A single Gecko add-on identity cannot be both AMO-listed and submitted with a self-hosted `update_url`, so each channel needs a permanent, distinct `FIREFOX_EXTENSION_ID`.
+YouTube Audio ships to Firefox (desktop and Android) from a **single permanent add-on ID**,
+`youtube-audio@animesh.kundus.in`, under the model fixed by
+[ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md):
 
-## Prerequisites and user gates
+- **Production** is the AMO **listed** channel. The listed build omits `update_url`; **AMO is the
+  sole update authority**, delivering hands-off auto-update on Firefox desktop and Firefox for
+  Android. Publishing is **on demand** (a manual run), never automatic on a tag.
+- **Beta** is the **same ID** signed **unlisted** at a distinct pre-release version. It is a
+  Mozilla-signed XPI installed by hand for desktop and Android testing. It does not auto-update;
+  testers reinstall the next signed beta.
 
-Before the first release:
+Self-hosted distribution (a `SELF_HOSTED_UPDATE_URL` build flag feeding a hosted `updates.json`) is
+**retired for production**. AMO is the only update path.
 
-1. Complete the S5 AMO policy preflight. Remote code and remotely supplied executable configuration remain prohibited.
-2. Create AMO Developer Hub API credentials and save the JWT issuer and secret as `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`. Add encrypted repository secrets with the same names for GitHub Actions. Never commit them.
-3. Choose permanent, distinct Gecko IDs for the self-hosted and AMO-listed channels. The checked-in `youtube-audio@local` value is a template and must be replaced for real distribution.
-4. Complete the S4 test on a real Firefox for Android device before publishing an Android-compatible listing.
-5. Submit the Android channel to AMO as **listed** and complete any review. This cannot be automated safely by the repository workflow.
+## Prerequisites and owner gates
 
-## Local unlisted signing
+Before the first listed publish:
 
-Set the self-hosted channel identity and HTTPS update URL, then sign:
+1. Complete the S5 AMO policy preflight. Remote code and remotely supplied executable configuration
+   remain prohibited.
+2. Create AMO Developer Hub API credentials and save the JWT issuer and secret as the GitHub repo
+   secrets `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`. Never commit them.
+3. Review `amo-metadata.json` (the first-listing summary, category, and license). It is used only
+   for the **first** listed submission; later versions reuse the prior listing metadata.
+4. Complete the S4 test on a real Firefox for Android device before publishing an Android-compatible
+   listing.
+5. (Recommended) Create a GitHub Environment named `amo-production` with a **required reviewer**, so
+   the on-demand publish pauses for a human approval click before it can touch AMO. Optionally scope
+   `AMO_JWT_ISSUER` / `AMO_JWT_SECRET` to that environment. Optionally protect the `v*` tag
+   namespace so only maintainers can create release tags.
+
+## Versioning
+
+`package.json` holds the single **base** version (for example `0.0.2.5`). The clean base is the
+production/listed version. A beta build appends a Firefox-toolkit pre-release suffix via the
+`BETA_SUFFIX` build env, for example `BETA_SUFFIX=b1` yields the manifest version `0.0.2.5b1`. AMO
+rejects hyphens, so the suffix attaches directly (no `-`); valid forms are `a`/`b`/`pre`/`rc` + a
+number. The toolkit comparator sorts `0.0.2.5b1` **below** the clean `0.0.2.5`, so the beta never
+collides with or supersedes the listed version under the shared ID.
+
+## Beta channel (unlisted, hand-installed)
+
+`.github/workflows/beta.yml` signs the unlisted beta. It triggers on a **pre-release** version tag
+whose name contains the suffix letter (for example `v0.0.2.5b1`; a clean `v0.0.2.5` tag never
+triggers it), or on a manual `workflow_dispatch` with the suffix as input. It validates first, then
+signs: it derives and validates the suffix, runs `typecheck`/`lint`/`test`, builds with
+`BETA_SUFFIX`, asserts the built manifest carries the expected pre-release version, the permanent
+ID, and no `update_url` (all **before** signing), runs `web-ext lint`, signs with
+`web-ext sign --channel=unlisted`, re-checks the signed XPI (valid signed zip; bundled manifest
+version/id/no-`update_url`), uploads the signed XPI as a workflow artifact, and attaches it to a
+GitHub **prerelease**.
+
+To cut a beta:
 
 ```bash
-export AMO_JWT_ISSUER='user:...'
-export AMO_JWT_SECRET='...'
-export FIREFOX_EXTENSION_ID='youtube-audio-selfhost@your-domain.example'
-export SELF_HOSTED_UPDATE_URL='https://example.github.io/youtube-audio/updates.json'
-npm run release:sign
+# Local gates first
+npm run typecheck && npm run lint && npm test && npm run build && npm run test:bench
+
+# Then tag a pre-release version and push it (letter suffix, no hyphen):
+git tag v0.0.2.5b1
+git push origin v0.0.2.5b1
 ```
 
-The script builds `.output/firefox-mv2`, runs `web-ext lint`, submits it with `web-ext sign --channel=unlisted`, and copies the Mozilla-signed artifact to `dist/youtube-audio-<version>-signed.xpi`. Missing credentials fail before contacting AMO. AMO rejects an already-submitted version, so bump the version in `package.json` before signing; the packaged manifest version derives from it automatically, so there is no second file to keep in sync.
+Download the signed XPI from the resulting GitHub prerelease and install it by hand on Firefox
+desktop and Firefox for Android to test. Local beta signing is also available with
+`BETA_SUFFIX=b1 npm run release:sign` (see `scripts/release.sh`).
 
-## Tagged GitHub release
+## Production (AMO listed, on demand)
 
-`.github/workflows/release.yml` runs on `v*` tags with Node 20. It installs locked dependencies, runs typecheck, lint, unit coverage, the MV2 build, and `web-ext lint`, then signs unlisted through the repository secrets. The workflow verifies that `vX.Y.Z` matches the package version, computes the exact signed XPI's SHA-256 digest, generates `dist/updates.json`, and publishes the signed XPI before the update manifest as GitHub Release assets. The manifest is built with `update_url` set to `https://github.com/animeshkundu/youtube-audio/releases/latest/download/updates.json`, a stable GitHub redirect to the newest release's asset, so desktop auto-update works with no separate hosting (no GitHub Pages step). The same signed XPI installs on Firefox for Android, but Android does not auto-update self-hosted XPIs (see below).
+`.github/workflows/publish-amo.yml` is `workflow_dispatch`-only; it has **no** push/tag/release/
+schedule trigger, so tagging or releasing never publishes to AMO. Run it manually after a beta is
+hand-tested:
 
-Before enabling the workflow for production, replace its template self-hosted ID (`youtube-audio@local`) with the selected permanent value; the update URL is already the stable `releases/latest/download/updates.json` redirect and needs no change. Create the tag only after all local gates pass:
+1. Tag the tested commit with the **clean** version and push it: `git tag v0.0.2.5 && git push
+origin v0.0.2.5`. (The tag itself triggers nothing.)
+2. Run the **Publish to AMO (listed)** workflow, with `ref = v0.0.2.5`. Use `dry_run = true` first
+   for a local rehearsal (gates + build + `web-ext lint` + source archive, no AMO contact).
+3. If the `amo-production` environment is configured, approve the deployment.
 
-```bash
-npm run typecheck
-npm run lint
-npm test
-npm run test:bench
-npm run build
-npm run build:mv3
-git tag v0.0.2.5
-git push origin v0.0.2.5
-```
+The workflow checks out the exact ref, asserts `ref == v<package.json version>` and that the version
+is clean (a beta suffix can never reach the listed channel), runs the gates and build (no
+`BETA_SUFFIX`, so the clean version with no `update_url`), asserts the built manifest is clean
+(version, permanent ID, no `update_url`), runs `web-ext lint`, packages a reviewer **source
+archive** with `git archive` (only tracked files, so `node_modules` / `.output` / `dist` are
+excluded), then runs `web-ext sign --channel=listed --upload-source-code=<source.zip>
+--amo-metadata=amo-metadata.json --approval-timeout=0`. AMO hosts the signed XPI; there is no GitHub
+Release asset on the listed path. The source archive is a review artifact for AMO's un-minified
+source requirement, never shipped to users.
 
-The bench is intentionally optional/non-gating in GitHub Actions because it requires Selenium and Firefox. It remains a required local release check.
-
-## Desktop self-hosted auto-update
-
-The default build contains no `update_url`. Opt in only for the self-hosted desktop artifact:
-
-```bash
-FIREFOX_EXTENSION_ID='youtube-audio-selfhost@your-domain.example' \
-SELF_HOSTED_UPDATE_URL='https://example.github.io/youtube-audio/updates.json' \
-npm run build
-```
-
-Publish the signed XPI first. Then publish an `updates.json` based on the checked-in template over HTTPS, replacing:
-
-- the add-on key with the self-hosted build's exact Gecko ID;
-- `version` with the XPI manifest version;
-- `update_link` with the GitHub Release asset URL;
-- `update_hash` with `sha256:` followed by the digest of the exact signed XPI.
-
-Firefox desktop checks this URL periodically and installs higher compatible signed versions. Keep prior update entries when maintaining a long-lived hosted manifest. Do not add the self-hosted `update_url` to default production builds.
-
-## AMO-listed Android auto-update
-
-Firefox for Android does not provide automatic updates for file-installed/self-hosted XPIs. Hands-off Android updates require an AMO listing:
-
-1. Build the default no-`update_url` manifest with the Android channel's distinct permanent `FIREFOX_EXTENSION_ID`.
-2. Submit it as a **listed** version through AMO and provide the required metadata and policy declarations.
-3. Complete AMO review and install it from AMO on the Android device.
-4. Publish later listed versions under that same Android channel ID.
-
-AMO then supplies updates to AMO-installed desktop and Android copies. A manually installed unlisted XPI can still run on Android, but every update must be installed manually.
+A dry run never contacts AMO, so it cannot catch AMO-side problems (credentials, metadata
+acceptance, developer-agreement state, first-listing eligibility). The first real listed submission
+is an irreversible operation gated on the owner preconditions above.
 
 ## Compatibility floor
 
-Both channels retain `browser_specific_settings.gecko.strict_min_version: "128.0"` and `gecko_android: {}`. The floor accounts for Mozilla's March 2025 signing-root transition: current signatures and updates require Firefox 115+ ESR or 128+ non-ESR. The project deliberately targets 128+.
+Both channels retain `browser_specific_settings.gecko.strict_min_version: "128.0"` and
+`gecko_android: {}`. The floor accounts for Mozilla's March 2025 signing-root transition: current
+signatures and updates require Firefox 115+ ESR or 128+ non-ESR. The project deliberately targets
+128+.
 
 ## Rollback
 
-Never reuse a rejected or already-signed version number, change an installed channel's ID, or move an ID between listed and self-hosted distribution. Roll back by publishing a new, higher version containing the prior known-good code. Firefox update ordering will not install a lower version as an automatic rollback.
+Never reuse a rejected or already-signed version number. Because the beta and the listed version
+share one ID, keep each beta suffix ahead of the last one and never regress the clean base below a
+published listed version. Roll back by publishing a new, higher clean version containing the prior
+known-good code; Firefox update ordering will not install a lower version as an automatic rollback.

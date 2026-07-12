@@ -1,0 +1,180 @@
+name: Beta
+
+# Signs the SAME permanent add-on ID as production, but on the AMO **unlisted** channel at a
+# distinct pre-release version (ADR-0006). The signed XPI is hand-installed for desktop and
+# Android testing; it does not auto-update (self-hosted distribution is retired). Promotion of the
+# clean version to the AMO listed channel is a separate, manual step (`publish-amo.yml`).
+on:
+  push:
+    tags:
+      # Pre-release tags only: the glob requires a lowercase letter (e.g. v0.0.2.5b1), so a clean
+      # numeric-and-dot production tag (v0.0.2.5) never triggers a beta sign. The suffix is
+      # re-validated strictly below before anything is signed.
+      - 'v*[a-z]*'
+  workflow_dispatch:
+    inputs:
+      suffix:
+        description: 'Pre-release suffix appended to the package.json version (e.g. b1, rc2). Must match (a|b|pre|rc)N.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Serialize every AMO submission for the single add-on ID across BOTH the beta and the
+# publish-amo workflows (they share this group name). Never cancel an in-flight submission.
+concurrency:
+  group: amo-submit
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    name: Validate, sign unlisted, publish beta prerelease
+    runs-on: ubuntu-latest
+    env:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      # Permanent single add-on ID (ADR-0006). Must stay in lockstep with wxt.config.ts and the
+      # bench ADDON_ID (tests/e2e/bench/run-bench.mjs).
+      FIREFOX_EXTENSION_ID: youtube-audio@animesh.kundus.in
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Resolve the pre-release version + suffix from the trigger and validate the format BEFORE
+      # building or signing. For a tag push the suffix is derived from the tag; for a manual run it
+      # comes from the input.
+      - name: Resolve beta version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="$(node -p "require('./package.json').version")"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SUFFIX="${{ inputs.suffix }}"
+          else
+            TAG="${GITHUB_REF_NAME#v}"
+            case "$TAG" in
+              "$BASE"*) SUFFIX="${TAG#"$BASE"}" ;;
+              *) echo "Tag $GITHUB_REF_NAME does not start with package version v$BASE" >&2; exit 1 ;;
+            esac
+          fi
+          if ! printf '%s' "$SUFFIX" | grep -Eq '^(a|b|pre|rc)[0-9]+$'; then
+            echo "Invalid beta suffix '$SUFFIX' (must match (a|b|pre|rc)[0-9]+, e.g. b1; AMO rejects hyphens)" >&2
+            exit 1
+          fi
+          VERSION="${BASE}${SUFFIX}"
+          {
+            echo "suffix=$SUFFIX"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building beta $VERSION"
+
+      # Gates run BEFORE signing (the old release.yml signed first; that ordering is fixed here).
+      - name: Run gates
+        run: npm run typecheck && npm run lint && npm test
+
+      - name: Build beta MV2
+        run: npm run build
+        env:
+          BETA_SUFFIX: ${{ steps.version.outputs.suffix }}
+
+      # Version + identity gate BEFORE signing: the built manifest must carry the resolved
+      # pre-release version, the single permanent add-on ID, and NO update_url (AMO is the sole
+      # update authority; self-hosted distribution is retired).
+      - name: Assert built manifest (version, id, no update_url)
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=.output/firefox-mv2/manifest.json
+          BUILT="$(node -p "require('./$M').version")"
+          if [ "$BUILT" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Built manifest version $BUILT != expected ${{ steps.version.outputs.version }}" >&2
+            exit 1
+          fi
+          ID="$(node -p "require('./$M').browser_specific_settings.gecko.id")"
+          if [ "$ID" != "$FIREFOX_EXTENSION_ID" ]; then
+            echo "Built manifest id $ID != $FIREFOX_EXTENSION_ID" >&2
+            exit 1
+          fi
+          HAS_URL="$(node -p "!!(require('./$M').browser_specific_settings?.gecko?.update_url)")"
+          if [ "$HAS_URL" = "true" ]; then
+            echo "Beta build must not contain gecko.update_url" >&2
+            exit 1
+          fi
+          echo "Verified beta manifest $BUILT id=$ID (no update_url)"
+
+      - name: Validate Firefox MV2 package
+        run: npx web-ext lint --source-dir=.output/firefox-mv2
+
+      - name: Sign unlisted Firefox MV2 package
+        id: sign
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist/web-ext-signed
+          mkdir -p dist/web-ext-signed dist
+          npx web-ext sign \
+            --source-dir=.output/firefox-mv2 \
+            --artifacts-dir=dist/web-ext-signed \
+            --channel=unlisted \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET"
+          SIGNED="$(find dist/web-ext-signed -maxdepth 1 -name '*.xpi' -print -quit)"
+          if [ -z "$SIGNED" ]; then
+            echo "AMO returned no signed XPI" >&2
+            exit 1
+          fi
+          DEST="dist/youtube-audio-${{ steps.version.outputs.version }}-beta.xpi"
+          cp "$SIGNED" "$DEST"
+          echo "xpi=$DEST" >> "$GITHUB_OUTPUT"
+
+      # Post-sign sanity: the produced XPI is a valid, non-empty, actually-signed zip whose bundled
+      # manifest still carries the expected id and pre-release version and no update_url.
+      - name: Verify signed XPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          XPI="${{ steps.sign.outputs.xpi }}"
+          test -s "$XPI"
+          unzip -t "$XPI" >/dev/null
+          unzip -l "$XPI" | grep -q 'META-INF/mozilla.rsa'
+          unzip -p "$XPI" manifest.json > dist/signed-manifest.json
+          SV="$(node -p "require('./dist/signed-manifest.json').version")"
+          SID="$(node -p "require('./dist/signed-manifest.json').browser_specific_settings.gecko.id")"
+          SU="$(node -p "!!(require('./dist/signed-manifest.json').browser_specific_settings?.gecko?.update_url)")"
+          if [ "$SV" != "${{ steps.version.outputs.version }}" ] || [ "$SID" != "$FIREFOX_EXTENSION_ID" ] || [ "$SU" = "true" ]; then
+            echo "Signed XPI manifest mismatch: version=$SV id=$SID has_update_url=$SU" >&2
+            exit 1
+          fi
+          echo "Signed XPI OK: $XPI ($(wc -c < "$XPI") bytes), manifest $SV id=$SID"
+
+      # Preserve the signed bytes immediately so a later Release-publish failure never strands a
+      # version that AMO has already signed (AMO rejects a re-sign of the same version).
+      - name: Upload signed XPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-audio-${{ steps.version.outputs.version }}-beta-xpi
+          path: ${{ steps.sign.outputs.xpi }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish beta prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          # Pin the tag/release to the exact commit that was built and signed (a manual run must not
+          # create the tag at a newer default-branch commit).
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          files: ${{ steps.sign.outputs.xpi }}

@@ -2,11 +2,25 @@ import preact from '@preact/preset-vite';
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'wxt';
 
-// Single source of truth for the version: read it from package.json so the packaged manifest,
-// the signed XPI filename, and the self-hosted updates.json can never drift apart.
-const { version } = JSON.parse(
+// Single source of truth for the base version: read it from package.json so the packaged
+// manifest and the signed XPI filename can never drift apart.
+const { version: baseVersion } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
 ) as { version: string };
+
+// Optional pre-release suffix appended to the base version at build time (ADR-0006). A beta build
+// sets e.g. BETA_SUFFIX=b1 so the manifest carries a Firefox-toolkit pre-release version
+// (`0.0.2.5b1`) that sorts BELOW the clean listed version (`0.0.2.5`). AMO rejects hyphens, so the
+// suffix attaches directly with no `-`. Production builds set no BETA_SUFFIX and get the clean
+// version; package.json stays the single base. Only the toolkit forms `a`/`b`/`pre`/`rc` + a number
+// are accepted so a malformed suffix can never produce an unsortable or AMO-rejected version.
+const BETA_SUFFIX = process.env.BETA_SUFFIX ?? '';
+if (BETA_SUFFIX && !/^(a|b|pre|rc)\d+$/.test(BETA_SUFFIX)) {
+  throw new Error(
+    'BETA_SUFFIX must be a Firefox pre-release suffix like b1, a2, pre1, or rc3 (no hyphen; AMO rejects hyphens)'
+  );
+}
+const version = `${baseVersion}${BETA_SUFFIX}`;
 
 const YOUTUBE_MATCHES = [
   '*://*.youtube.com/*',
@@ -28,6 +42,10 @@ const LRCLIB_ORIGIN = 'https://lrclib.net/*';
 // exact ID (tests/e2e/bench/run-bench.mjs ADDON_ID), so keep the two in lockstep. The env override
 // exists only for local experiments.
 const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@animesh.kundus.in';
+// Dormant optional capability (ADR-0006): the self-hosted `update_url` path is RETIRED for
+// production and set by no workflow. AMO is the sole update authority, so listed and beta builds
+// both omit `update_url`. The flag is retained only for a hypothetical local desktop-only
+// self-update experiment; it must never be set when signing a listed build.
 const SELF_HOSTED_UPDATE_URL = process.env.SELF_HOSTED_UPDATE_URL;
 
 if (SELF_HOSTED_UPDATE_URL && !SELF_HOSTED_UPDATE_URL.startsWith('https://')) {

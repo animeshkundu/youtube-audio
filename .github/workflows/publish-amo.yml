@@ -1,0 +1,153 @@
+name: Publish to AMO (listed)
+
+# PRODUCTION publish, on demand only (ADR-0006). This is the ONLY workflow that signs the AMO
+# **listed** channel, and it has NO push / tag / release / schedule trigger, so a tag push can
+# never publish to AMO. AMO becomes the sole update authority for the clean version on Firefox
+# desktop and Firefox for Android. Run it after a beta has been hand-tested.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Release tag to publish, e.g. v0.0.2.5. Must equal v<package.json version> (the clean, tested commit). Checked out so the exact tested bytes are what ships.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Rehearsal: run gates + build + web-ext lint + source archive but SKIP the AMO sign/submit. Note: a dry run does not contact AMO, so it cannot catch auth, metadata, developer-agreement, or first-listing-eligibility problems.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Shares the beta workflow's group name so all AMO submissions for the single add-on ID are
+# serialized repository-wide and an in-flight submission is never cancelled.
+concurrency:
+  group: amo-submit
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sign listed and submit to AMO
+    runs-on: ubuntu-latest
+    # Recommended manual gate: create a GitHub Environment named `amo-production` with a required
+    # reviewer (and optionally scope AMO_JWT_ISSUER / AMO_JWT_SECRET to it). The deployment then
+    # pauses for human approval before any step runs.
+    environment: amo-production
+    env:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      # Permanent single add-on ID (ADR-0006). Must stay in lockstep with wxt.config.ts and the
+      # bench ADDON_ID (tests/e2e/bench/run-bench.mjs).
+      FIREFOX_EXTENSION_ID: youtube-audio@animesh.kundus.in
+    steps:
+      - name: Checkout the requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Guard BEFORE signing: the ref must be the CLEAN production tag v<version>. A pre-release
+      # (suffixed) version must never reach the listed channel.
+      - name: Assert ref matches the clean package version
+        id: guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+            echo "package.json version $VERSION is not a clean release version (a beta suffix must never be published listed)" >&2
+            exit 1
+          fi
+          if [ "${{ inputs.ref }}" != "v$VERSION" ]; then
+            echo "Input ref '${{ inputs.ref }}' must equal v$VERSION (the clean package version). Tag the tested commit as v$VERSION first." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION to AMO (listed)"
+
+      - name: Run gates
+        run: npm run typecheck && npm run lint && npm test && npm run build
+
+      # The listed build must carry the clean version, the single permanent add-on ID, and NO
+      # update_url (AMO rejects an update_url on the listed channel and manages listed updates).
+      - name: Assert listed manifest is clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=.output/firefox-mv2/manifest.json
+          BUILT="$(node -p "require('./$M').version")"
+          if [ "$BUILT" != "${{ steps.guard.outputs.version }}" ]; then
+            echo "Built manifest version $BUILT != ${{ steps.guard.outputs.version }}" >&2
+            exit 1
+          fi
+          ID="$(node -p "require('./$M').browser_specific_settings.gecko.id")"
+          if [ "$ID" != "$FIREFOX_EXTENSION_ID" ]; then
+            echo "Built manifest id $ID != $FIREFOX_EXTENSION_ID" >&2
+            exit 1
+          fi
+          HAS_URL="$(node -p "!!(require('./$M').browser_specific_settings?.gecko?.update_url)")"
+          if [ "$HAS_URL" = "true" ]; then
+            echo "Listed build must not contain gecko.update_url (AMO rejects it)" >&2
+            exit 1
+          fi
+          echo "Listed manifest $BUILT id=$ID verified (no update_url)"
+
+      - name: Validate Firefox MV2 package
+        run: npx web-ext lint --source-dir=.output/firefox-mv2
+
+      # Reviewer source archive: exactly the tracked files at this ref. node_modules/.output/dist
+      # are gitignored/untracked, and git archive reads the committed tree, so they are excluded.
+      # (Assumes no git submodules or LFS pointers, which this repo does not use.) The archive is a
+      # review artifact for AMO's un-minified-source requirement, never shipped to users.
+      - name: Assert build left tracked source unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet; then
+            echo "Build modified tracked source; the source archive would not match the built bytes:" >&2
+            git --no-pager diff --stat >&2
+            exit 1
+          fi
+
+      - name: Package source archive
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ZIP="dist/youtube-audio-${{ steps.guard.outputs.version }}-source.zip"
+          git archive --format=zip -o "$ZIP" HEAD
+          test -s "$ZIP"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "Source archive: $ZIP ($(wc -c < "$ZIP") bytes)"
+
+      - name: Sign listed and submit to AMO
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx web-ext sign \
+            --source-dir=.output/firefox-mv2 \
+            --channel=listed \
+            --upload-source-code="${{ steps.source.outputs.zip }}" \
+            --amo-metadata=amo-metadata.json \
+            --approval-timeout=0 \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET"
+          echo "Submitted ${{ steps.guard.outputs.version }} to AMO (listed). AMO hosts the signed XPI."
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "dry_run=true: gates + build + manifest checks + web-ext lint + source archive completed."
+          echo "The AMO sign/submit step was skipped. No AMO contact was made."

@@ -4,8 +4,10 @@
 > model below is superseded: production now ships from a single add-on ID
 > (`youtube-audio@animesh.kundus.in`) on the AMO **listed** channel with AMO as the sole update
 > authority, plus an unlisted beta on the same ID; the self-hosted `updates.json` path is
-> retired for production. The build/signing mechanics this spec documents remain accurate; only
-> the channel and update-authority decision changed. See
+> retired for production. The tag-triggered `release.yml` was replaced by `beta.yml` (unlisted
+> pre-release signing) and `publish-amo.yml` (manual, listed on-demand publishing). The
+> build/signing mechanics this spec documents remain accurate; only the channel, identity, and
+> update-authority decisions changed. See
 > [`../adrs/0006-firefox-amo-distribution-and-beta-channel.md`](../adrs/0006-firefox-amo-distribution-and-beta-channel.md).
 
 ## Overview
@@ -16,24 +18,24 @@ M7 adds reproducible Firefox release validation, Mozilla unlisted signing, GitHu
 
 - Build and validate Firefox MV2 and MV3 from the same source on every push and pull request.
 - Sign the Firefox MV2 artifact through AMO's API with credentials supplied only at runtime.
-- Publish a signed XPI and a matching update manifest from version tags.
-- Support an opt-in self-hosted desktop build carrying `gecko.update_url` while keeping default builds compatible with an AMO listing.
-- Document the separate AMO-listed Android path and all remaining human gates.
+- Publish a signed unlisted beta XPI to a GitHub prerelease from a pre-release version tag.
+- Keep every build AMO-listing-compatible by omitting `update_url`, and publish the clean listed version to AMO on demand under the single permanent ID.
+- Document the AMO-listed desktop/Android path and all remaining human gates.
 
 ## Non-Goals
 
 - No product behavior, setting, permission, host-match, or content-match changes.
 - No committed AMO credentials or automated AMO listing submission.
-- No claim that a self-hosted XPI auto-updates on Firefox for Android.
+- No claim that a hand-installed unlisted beta XPI auto-updates on Firefox for Android; only the AMO listing gives hands-off Android updates.
 - No completion of S4 real-device testing or S5 AMO policy preflight.
 
 ## Technical Design
 
 ### Build variants
 
-The default WXT build emits no `browser_specific_settings.gecko.update_url`. Setting `SELF_HOSTED_UPDATE_URL` at build time opts into a self-hosted desktop variant and inserts that HTTPS URL. `FIREFOX_EXTENSION_ID` may select a stable channel-specific ID; it defaults to `youtube-audio@local`.
+The default WXT build emits no `browser_specific_settings.gecko.update_url` and carries the single permanent add-on ID `youtube-audio@animesh.kundus.in` (ADR-0006; the `FIREFOX_EXTENSION_ID` env is a local-experiment override only). Setting `BETA_SUFFIX` at build time appends a Firefox-toolkit pre-release suffix (e.g. `0.0.2.5b1`) for the unlisted beta. The `SELF_HOSTED_UPDATE_URL` build flag is retired for production and set by no workflow; it survives only as a dormant optional capability and must never be applied to a listed build.
 
-The channels use distinct permanent IDs because one AMO identity cannot simultaneously be an unlisted self-hosted add-on with `update_url` and an AMO-listed add-on. The tag workflow is the self-hosted/unlisted channel. The AMO-listed Android channel is built separately from the default no-`update_url` manifest with its own ID.
+Both channels share one identity, differentiated by AMO channel and version: the **listed** production version is the clean base with no `update_url`, and the **unlisted** beta is a distinct pre-release version signed under the same ID. A single AMO submission can never be both listed and self-hosted-auto-updating (a listed version must omit `update_url`).
 
 ### Signing
 
@@ -43,7 +45,7 @@ The channels use distinct permanent IDs because one AMO identity cannot simultan
 
 CI runs strict typecheck, zero-warning lint, unit tests, Firefox MV2/MV3 builds, and `web-ext lint`. The Selenium Firefox bench remains a non-gating manual workflow job because it requires a browser stack.
 
-A `v*` tag runs the same release gates, builds the self-hosted MV2 variant, signs it through AMO, computes its SHA-256 digest, generates a versioned `updates.json`, and attaches both files to the GitHub Release. The XPI is published before the update manifest is made available as an asset.
+A **pre-release** version tag (e.g. `v0.0.2.5b1`) runs `beta.yml`: it validates before signing, builds with `BETA_SUFFIX`, signs the unlisted MV2 XPI through AMO, re-checks the signed bytes, and attaches the XPI to a GitHub prerelease. Promotion to the AMO listed channel is a separate, manual `publish-amo.yml` (`workflow_dispatch` only) that signs `--channel=listed` with a reviewer source archive; AMO hosts the listed XPI, so there is no Release asset and no self-hosted update manifest.
 
 ## Error Handling
 
@@ -56,7 +58,7 @@ A `v*` tag runs the same release gates, builds the self-hosted MV2 variant, sign
 - Run typecheck, lint, unit coverage, and all 20 hermetic bench cases.
 - Build Firefox MV2 and MV3.
 - Run `web-ext lint` on MV2.
-- Parse both workflow YAML files and validate `updates.json` as JSON.
+- Parse the workflow YAML files as valid YAML and confirm `publish-amo.yml` has no automatic (push/tag/release/schedule) trigger.
 - Run `bash -n scripts/release.sh`.
 - Inspect the default production manifest for exactly four YouTube content matches, no localhost match, and no `update_url`.
 
@@ -64,7 +66,7 @@ A `v*` tag runs the same release gates, builds the self-hosted MV2 variant, sign
 
 - AMO API credentials exist only in environment variables or GitHub encrypted secrets.
 - Release workflow permissions are limited to `contents: write`.
-- Update links use HTTPS and the generated update entry contains a SHA-256 hash of the exact signed XPI bytes.
+- The listed submission uploads an un-minified source archive of exactly the tracked files (via `git archive`) for reviewer rebuild; it is a review artifact, never shipped to users.
 - Default builds stay AMO-listing-compatible by omitting `update_url`.
 
 ## Rollout and Rollback
