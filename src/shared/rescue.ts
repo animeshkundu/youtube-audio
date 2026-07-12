@@ -13,6 +13,7 @@ const BUNDLED_BASELINE: RescueConfig = Object.freeze({
   flags: Object.freeze({ playerResponsePruning: true }),
   scriptlets: Object.freeze([
     Object.freeze({ id: 'prune-inline-player-response', args: Object.freeze({}) }),
+    Object.freeze({ id: 'prune-fetched-player-response', args: Object.freeze({}) }),
     Object.freeze({ id: 'neutralize-exposed-abnormality-callback', args: Object.freeze({}) }),
     Object.freeze({ id: 'set-inline-playback-no-ad', args: Object.freeze({}) }),
   ]),
