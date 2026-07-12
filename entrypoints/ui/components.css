@@ -73,6 +73,15 @@
   background: var(--surface-3);
 }
 
+.switch-control:disabled {
+  opacity: 0.52;
+  cursor: default;
+}
+
+.switch-control:disabled .switch-track {
+  background: var(--surface-2);
+}
+
 .switch-control:active .switch-thumb {
   width: 21px;
 }
@@ -139,8 +148,14 @@
   gap: var(--space-3);
 }
 
+.setting-copy {
+  display: block;
+}
+
 .setting-label,
 .setting-description,
+.setting-consequence,
+.setting-error,
 .hero-copy strong,
 .hero-copy small {
   display: block;
@@ -168,6 +183,52 @@
   color: var(--text-secondary);
   font: var(--type-caption);
   vertical-align: 1px;
+}
+
+.high-impact-badge {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 32%, transparent);
+}
+
+.setting-consequence,
+.setting-error {
+  margin-top: var(--space-1);
+  font: var(--type-desc);
+}
+
+.setting-consequence {
+  color: var(--warning);
+}
+
+.setting-error {
+  color: var(--danger);
+}
+
+.setting-row.is-high-impact {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--warning) 72%, transparent);
+}
+
+.setting-row.is-high-impact:focus-within {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--warning) 72%, transparent),
+    inset 0 0 0 2px var(--accent-wash);
+}
+
+.setting-row.is-disabled {
+  cursor: default;
+}
+
+.setting-row.is-disabled .setting-copy {
+  opacity: 0.64;
+}
+
+.setting-row.is-disabled:hover {
+  background: transparent;
+}
+
+.setting-row.is-disabled:active {
+  transform: none;
 }
 
 .quick-controls {

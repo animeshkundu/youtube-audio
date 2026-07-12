@@ -5,10 +5,11 @@ export type SwitchProps = {
   label: string;
   checked: boolean;
   describedBy?: string;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 };
 
-export function Switch({ label, checked, describedBy, onChange }: SwitchProps) {
+export function Switch({ label, checked, describedBy, disabled = false, onChange }: SwitchProps) {
   return (
     <button
       class={`switch-control${checked ? ' is-on' : ''}`}
@@ -17,9 +18,10 @@ export function Switch({ label, checked, describedBy, onChange }: SwitchProps) {
       aria-checked={checked}
       aria-label={label}
       aria-describedby={describedBy}
+      disabled={disabled}
       onClick={(event) => {
         event.stopPropagation();
-        onChange(!checked);
+        if (!disabled) onChange(!checked);
       }}
     >
       <span class="switch-track" aria-hidden="true">
@@ -39,6 +41,10 @@ export type SettingRowProps = {
   checked: boolean;
   onChange: (checked: boolean) => void;
   recommended?: boolean;
+  highImpact?: boolean;
+  consequence?: string;
+  error?: string | null | undefined;
+  disabled?: boolean;
   className?: string;
 };
 
@@ -49,30 +55,50 @@ export function SettingRow({
   checked,
   onChange,
   recommended = false,
+  highImpact = false,
+  consequence,
+  error,
+  disabled = false,
   className = '',
 }: SettingRowProps) {
   const descriptionId = `${id}-description`;
+  const errorId = `${id}-error`;
+  const describedBy = error ? `${descriptionId} ${errorId}` : descriptionId;
   return (
     <div
       id={id}
-      class={`setting-row ${className}`.trim()}
+      class={`setting-row${highImpact ? ' is-high-impact' : ''}${disabled ? ' is-disabled' : ''}${className ? ` ${className}` : ''}`}
       role="group"
-      onClick={() => onChange(!checked)}
+      aria-disabled={disabled || undefined}
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
     >
       <span class="setting-copy">
         <span class="setting-label">
           {label}
-          {recommended && (
-            <span class="badge" aria-hidden="true">
-              Recommended
-            </span>
-          )}
+          {recommended && <span class="badge">Recommended</span>}
+          {highImpact && <span class="badge high-impact-badge">High impact</span>}
         </span>
         <span class="setting-description" id={descriptionId}>
           {description}
         </span>
+        {highImpact && checked && consequence && (
+          <span class="setting-consequence">{consequence}</span>
+        )}
+        {error && (
+          <span class="setting-error" id={errorId} role="alert">
+            {error}
+          </span>
+        )}
       </span>
-      <Switch label={label} checked={checked} describedBy={descriptionId} onChange={onChange} />
+      <Switch
+        label={label}
+        checked={checked}
+        describedBy={describedBy}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </div>
   );
 }
@@ -95,66 +121,107 @@ export function Brand({ suffix }: { suffix?: string }) {
   );
 }
 
+export const QUICK_CONTROL_LABELS = {
+  enabled: 'YouTube Audio',
+  audioOnly: 'Audio-only',
+  backgroundPlay: 'Background play',
+} as const;
+
 export type QuickControlsProps = {
   enabled: boolean;
+  enabledDescription?: string | undefined;
+  enabledError?: string | null | undefined;
   audioOnlyEnabled: boolean;
+  audioOnlyDescription?: string | undefined;
+  audioOnlyError?: string | null | undefined;
   backgroundPlayEnabled: boolean;
+  backgroundPlayDescription?: string | undefined;
+  backgroundPlayError?: string | null | undefined;
   onEnabledChange: (checked: boolean) => void;
   onAudioOnlyChange: (checked: boolean) => void;
   onBackgroundPlayChange: (checked: boolean) => void;
+  showEnabled?: boolean;
+  showAudioOnly?: boolean;
+  showBackgroundPlay?: boolean;
   layout: 'popup' | 'page';
 };
 
 export function QuickControls({
   enabled,
+  enabledDescription = enabled
+    ? 'Active. Your preferences apply instantly.'
+    : 'Paused. YouTube works normally.',
+  enabledError,
   audioOnlyEnabled,
+  audioOnlyDescription = audioOnlyEnabled
+    ? 'On. Saving video data and battery.'
+    : 'Off. Video plays normally.',
+  audioOnlyError,
   backgroundPlayEnabled,
+  backgroundPlayDescription = backgroundPlayEnabled
+    ? 'On. Keeps playing when hidden.'
+    : 'Off. Follows normal page visibility.',
+  backgroundPlayError,
   onEnabledChange,
   onAudioOnlyChange,
   onBackgroundPlayChange,
+  showEnabled = true,
+  showAudioOnly = true,
+  showBackgroundPlay = true,
   layout,
 }: QuickControlsProps) {
+  const heroDescriptionId = `quick-description-${layout}`;
+  const heroErrorId = `quick-error-${layout}`;
   return (
     <section
       class={`quick-controls quick-controls-${layout}`}
-      aria-labelledby={`quick-title-${layout}`}
+      aria-label={showEnabled ? undefined : 'Quick Controls'}
+      aria-labelledby={showEnabled ? `quick-title-${layout}` : undefined}
     >
-      <div class="hero-row" onClick={() => onEnabledChange(!enabled)}>
-        <span class="hero-copy">
-          <span class="now-playing" aria-hidden="true" />
-          <span>
-            <strong id={`quick-title-${layout}`}>YouTube Audio</strong>
-            <small>
-              {enabled
-                ? 'Active · your preferences apply instantly'
-                : 'Paused · YouTube works normally'}
-            </small>
+      {showEnabled && (
+        <div class="hero-row" onClick={() => onEnabledChange(!enabled)}>
+          <span class="hero-copy">
+            <span class="now-playing" aria-hidden="true" />
+            <span>
+              <strong id={`quick-title-${layout}`}>{QUICK_CONTROL_LABELS.enabled}</strong>
+              <small id={heroDescriptionId}>{enabledDescription}</small>
+              {enabledError && (
+                <small class="setting-error" id={heroErrorId} role="alert">
+                  {enabledError}
+                </small>
+              )}
+            </span>
           </span>
-        </span>
-        <Switch label="YouTube Audio" checked={enabled} onChange={onEnabledChange} />
-      </div>
-      <SettingRow
-        id={`audio-only-${layout}`}
-        label="Audio-only"
-        description={
-          audioOnlyEnabled ? 'On · saving video data and battery' : 'Off · video plays normally'
-        }
-        checked={audioOnlyEnabled}
-        onChange={onAudioOnlyChange}
-        recommended
-      />
-      <SettingRow
-        id={`background-play-${layout}`}
-        label="Background play"
-        description={
-          backgroundPlayEnabled
-            ? 'On · keeps playing when hidden'
-            : 'Off · follows normal page visibility'
-        }
-        checked={backgroundPlayEnabled}
-        onChange={onBackgroundPlayChange}
-        recommended
-      />
+          <Switch
+            label={QUICK_CONTROL_LABELS.enabled}
+            checked={enabled}
+            describedBy={enabledError ? `${heroDescriptionId} ${heroErrorId}` : heroDescriptionId}
+            onChange={onEnabledChange}
+          />
+        </div>
+      )}
+      {showAudioOnly && (
+        <SettingRow
+          id={`audio-only-${layout}`}
+          label={QUICK_CONTROL_LABELS.audioOnly}
+          description={audioOnlyDescription}
+          error={audioOnlyError}
+          checked={audioOnlyEnabled}
+          onChange={onAudioOnlyChange}
+          recommended
+        />
+      )}
+      {showBackgroundPlay && (
+        <SettingRow
+          id={`background-play-${layout}`}
+          label={QUICK_CONTROL_LABELS.backgroundPlay}
+          description={backgroundPlayDescription}
+          error={backgroundPlayError}
+          checked={backgroundPlayEnabled}
+          onChange={onBackgroundPlayChange}
+          recommended
+        />
+      )}
     </section>
   );
 }

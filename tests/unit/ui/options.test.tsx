@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Options, type OptionsActions } from '../../../entrypoints/options/App';
 import {
+  adBlockEnabledSignal,
+  aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
   equalizerEnabledSignal,
   segmentSkipEnabledSignal,
@@ -26,6 +28,7 @@ function actions(): OptionsActions {
     setForceQualityMax: vi.fn(async () => undefined),
     setDownloadEnabled: vi.fn(async () => undefined),
     setAggressiveTelemetry: vi.fn(async () => undefined),
+    resetSettings: vi.fn(async () => undefined),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
   };
@@ -43,16 +46,33 @@ function click(element: Element | null): void {
   act(() => element.click());
 }
 
+function searchFor(container: HTMLElement, query: string): void {
+  const search = container.querySelector('input[type="search"]');
+  if (!(search instanceof HTMLInputElement)) throw new Error('Expected settings search');
+  act(() => {
+    search.value = query;
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  });
+}
+
+async function flushPromises(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 afterEach(() => {
   render(null, document.body);
   document.body.replaceChildren();
+  adBlockEnabledSignal.value = true;
+  aggressiveTelemetrySignal.value = false;
   audioOnlyEnabledSignal.value = true;
   segmentSkipEnabledSignal.value = true;
   equalizerEnabledSignal.value = false;
 });
 
 describe('Options', () => {
-  it('renders every settings group with accessible switches', () => {
+  it('renders every intent-named settings group with accessible switches', () => {
     segmentSkipEnabledSignal.value = true;
     equalizerEnabledSignal.value = false;
     const container = mount(<Options actions={actions()} />);
@@ -64,15 +84,21 @@ describe('Options', () => {
     expect(headings).toEqual([
       'Quick Controls',
       'Playback',
-      'Protection & Ghost',
-      'Enhancers',
+      'Privacy & Blocking',
+      'Skipping',
+      'Cleaner YouTube',
       'Music',
-      'Advanced',
+      'Downloads',
+      'Advanced/About',
       'Help & feedback',
     ]);
     expect(switches).toHaveLength(17);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(16);
+    expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
+      'Quick Controls'
+    );
   });
 
   it('keeps Audio-only and Background play only in Quick Controls', () => {
@@ -99,47 +125,68 @@ describe('Options', () => {
     ).toHaveLength(0);
   });
 
-  it('hides SponsorBlock category rows when segment skipping is disabled', () => {
+  it('marks Block ads and Aggressive telemetry as high impact with text chips', () => {
+    aggressiveTelemetrySignal.value = true;
+    const container = mount(<Options actions={actions()} />);
+    const highImpactRows = container.querySelectorAll('.setting-row.is-high-impact');
+    const chips = Array.from(container.querySelectorAll('.high-impact-badge'));
+
+    expect(highImpactRows).toHaveLength(2);
+    expect(container.querySelector('#option-ads.is-high-impact')).not.toBeNull();
+    expect(container.querySelector('#option-aggressive.is-high-impact')).not.toBeNull();
+    expect(chips).toHaveLength(2);
+    expect(chips.map((chip) => chip.textContent)).toEqual(['High impact', 'High impact']);
+    expect(container.querySelector('#option-ads .setting-consequence')?.textContent).toBe(
+      'May rarely affect playback.'
+    );
+    expect(container.querySelector('#option-aggressive .setting-consequence')?.textContent).toBe(
+      'Your history and resume-where-you-left-off may stop working.'
+    );
+  });
+
+  it('keeps SponsorBlock category rows absent until segment skipping is enabled', () => {
     segmentSkipEnabledSignal.value = false;
     const container = mount(<Options actions={actions()} />);
 
     expect(container.querySelector('#option-skip [role="switch"]')).not.toBeNull();
     expect(container.querySelector('#option-sponsor')).toBeNull();
     expect(container.querySelector('#option-music_offtopic')).toBeNull();
-    expect(container.textContent).not.toContain('Sponsored segments');
-    expect(container.textContent).not.toContain('Non-music segments');
-  });
+    expect(container.querySelector('#skipping .dependent-reveal')).toBeNull();
 
-  it('shows SponsorBlock category rows when segment skipping is enabled', () => {
-    segmentSkipEnabledSignal.value = true;
-    const container = mount(<Options actions={actions()} />);
+    act(() => {
+      segmentSkipEnabledSignal.value = true;
+    });
 
     const categoryRows = container.querySelectorAll(
       '#option-sponsor.nested-row, #option-music_offtopic.nested-row'
     );
     expect(categoryRows).toHaveLength(2);
+    expect(container.querySelector('#skipping .dependent-reveal')).not.toBeNull();
     expect(container.querySelector('#option-sponsor [role="switch"]')).not.toBeNull();
     expect(container.querySelector('#option-music_offtopic [role="switch"]')).not.toBeNull();
-    expect(container.textContent).toContain('Sponsored segments');
-    expect(container.textContent).toContain('Non-music segments');
+
+    act(() => {
+      segmentSkipEnabledSignal.value = false;
+    });
+    expect(container.querySelector('#option-sponsor')).toBeNull();
+    expect(container.querySelector('#option-music_offtopic')).toBeNull();
   });
 
-  it('hides equalizer band controls when the equalizer is disabled', () => {
+  it('keeps equalizer bands absent until the equalizer is enabled', () => {
     equalizerEnabledSignal.value = false;
     const container = mount(<Options actions={actions()} />);
 
     expect(container.querySelector('#option-equalizer [role="switch"]')).not.toBeNull();
     expect(container.querySelector('.range-grid')).toBeNull();
     expect(container.querySelector('[aria-label="60 Hz gain"]')).toBeNull();
-    expect(container.querySelectorAll('input[type="range"]')).toHaveLength(0);
-  });
+    expect(container.querySelector('#music .dependent-reveal')).toBeNull();
 
-  it('shows equalizer band controls when the equalizer is enabled', () => {
-    equalizerEnabledSignal.value = true;
-    const container = mount(<Options actions={actions()} />);
+    act(() => {
+      equalizerEnabledSignal.value = true;
+    });
 
     const bandControls = Array.from(container.querySelectorAll('input[type="range"]'));
-    expect(container.querySelector('#option-equalizer [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('#music .dependent-reveal')).not.toBeNull();
     expect(container.querySelector('.range-grid')).not.toBeNull();
     expect(bandControls).toHaveLength(5);
     expect(bandControls.map((control) => control.getAttribute('aria-label'))).toEqual([
@@ -149,21 +196,75 @@ describe('Options', () => {
       '4000 Hz gain',
       '12000 Hz gain',
     ]);
-  });
-
-  it('filters settings across sections from the persistent search field', () => {
-    const container = mount(<Options actions={actions()} />);
-    const search = container.querySelector('input[type="search"]');
-    if (!(search instanceof HTMLInputElement)) throw new Error('Expected settings search');
 
     act(() => {
-      search.value = 'lyrics';
-      search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      equalizerEnabledSignal.value = false;
     });
+    expect(container.querySelector('.range-grid')).toBeNull();
+    expect(container.querySelectorAll('input[type="range"]')).toHaveLength(0);
+  });
+
+  it('filters settings across sections from row labels and descriptions', () => {
+    const container = mount(<Options actions={actions()} />);
+
+    searchFor(container, 'time-synced lyrics');
 
     expect(container.textContent).toContain('Synced lyrics');
-    expect(container.textContent).not.toContain('Hide Shorts');
-    expect(container.textContent).not.toContain('Maximum video quality');
+    expect(container.querySelector('#music')).not.toBeNull();
+    expect(container.querySelector('#cleaner-youtube')).toBeNull();
+    expect(container.querySelector('#playback')).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll('.settings-nav a')).map((link) => link.textContent)
+    ).toEqual(['●Music']);
+  });
+
+  it('does not render an empty Playback card for removed Audio-only or Background terms', () => {
+    const container = mount(<Options actions={actions()} />);
+
+    searchFor(container, 'audio-only');
+    expect(container.querySelector('#audio-only-page')).not.toBeNull();
+    expect(container.querySelector('#playback')).toBeNull();
+    expect(container.querySelector('a[href="#playback"]')).toBeNull();
+
+    searchFor(container, 'background');
+    expect(container.querySelector('#background-play-page')).not.toBeNull();
+    expect(container.querySelector('#playback')).toBeNull();
+    expect(container.querySelector('a[href="#playback"]')).toBeNull();
+  });
+
+  it('renders the empty-search status and hides all nav links when nothing matches', () => {
+    const container = mount(<Options actions={actions()} />);
+
+    searchFor(container, 'no-setting-has-this-value');
+
+    const empty = container.querySelector('.empty-search[role="status"]');
+    expect(empty).not.toBeNull();
+    expect(empty?.textContent).toContain('No settings match “no-setting-has-this-value”.');
+    expect(empty?.textContent).toContain('Clear search');
+    expect(container.querySelectorAll('.settings-section')).toHaveLength(0);
+    expect(container.querySelectorAll('.settings-nav a')).toHaveLength(0);
+  });
+
+  it('shows a rejected setter as an inline alert next to its row', async () => {
+    const optionsActions = actions();
+    optionsActions.setAdBlockEnabled = vi.fn(async (checked) => {
+      adBlockEnabledSignal.value = checked;
+      await Promise.resolve();
+      adBlockEnabledSignal.value = !checked;
+      throw new Error('storage failed');
+    });
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-ads [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setAdBlockEnabled).toHaveBeenCalledWith(false);
+    const alert = container.querySelector('#option-ads [role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toBe("Couldn't apply that change. Try again.");
+    const adSwitch = container.querySelector('#option-ads [role="switch"]');
+    expect(adSwitch?.getAttribute('aria-checked')).toBe('true');
+    expect(adSwitch?.getAttribute('aria-describedby')).toContain('option-ads-error');
   });
 
   it('instant-applies options controls', () => {
@@ -177,6 +278,23 @@ describe('Options', () => {
     expect(optionsActions.setAudioOnlyEnabled).toHaveBeenCalledWith(false);
     expect(optionsActions.setAdBlockEnabled).toHaveBeenCalledWith(false);
     expect(optionsActions.setDownloadEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('resets only after confirmation and shows a success toast', async () => {
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('.action-row .secondary-action'));
+    expect(optionsActions.resetSettings).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Confirm reset"]')).not.toBeNull();
+
+    click(container.querySelector('.reset-confirmation .secondary-action.is-danger'));
+    await flushPromises();
+
+    expect(optionsActions.resetSettings).toHaveBeenCalledOnce();
+    expect(container.querySelector('.options-toast[role="status"]')?.textContent).toBe(
+      'Settings reset to defaults.'
+    );
   });
 
   it('shows onboarding once and persists dismissal', async () => {

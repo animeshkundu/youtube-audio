@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   downloadEnabled: false,
 };
 
-let currentSettings = DEFAULT_SETTINGS;
+let currentSettings = cloneSettings(DEFAULT_SETTINGS);
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
 
 export async function initializeSettings(): Promise<ExtensionSettings> {
@@ -136,6 +136,10 @@ export async function setDownloadEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, downloadEnabled: enabled });
 }
 
+export async function resetSettings(): Promise<void> {
+  await persistSettings(cloneSettings(DEFAULT_SETTINGS));
+}
+
 export async function setEqualizerBand(index: number, gain: number): Promise<void> {
   if (!Number.isInteger(index) || index < 0 || index >= FLAT_EQUALIZER.length) return;
   const bands = normalizeEqualizerBands(currentSettings.equalizerBands);
@@ -172,19 +176,28 @@ export function watchSettings(): () => void {
 }
 
 async function persistSettings(settings: ExtensionSettings): Promise<void> {
-  const previous = currentSettings;
-  applySettings(settings);
+  const previous = cloneSettings(currentSettings);
+  const next = cloneSettings(settings);
+  applySettings(next);
 
   try {
-    await browser.storage.local.set({ [STORAGE_KEY]: settings });
+    await browser.storage.local.set({ [STORAGE_KEY]: next });
   } catch (error) {
     applySettings(previous);
     throw error;
   }
 }
 
+function cloneSettings(settings: ExtensionSettings): ExtensionSettings {
+  return {
+    ...settings,
+    segmentSkipCategories: [...settings.segmentSkipCategories],
+    equalizerBands: [...settings.equalizerBands],
+  };
+}
+
 function applySettings(settings: ExtensionSettings): void {
-  currentSettings = { ...settings };
+  currentSettings = cloneSettings(settings);
   subscribers.forEach((listener) => listener(getSettings()));
 }
 

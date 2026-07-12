@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import {
+  resetSettings,
   setAdBlockEnabled,
   setAggressiveTelemetry,
   setAudioOnlyEnabled,
@@ -37,10 +38,35 @@ import {
 } from '../../src/shared/settings-signals';
 import type { QualityCap } from '../../src/shared/quality-of-life';
 import type { SponsorCategory } from '../../src/shared/sponsorblock';
-import { Brand, Onboarding, QuickControls, SectionHeader, SettingRow } from '../ui/components';
+import {
+  Brand,
+  Onboarding,
+  QuickControls,
+  QUICK_CONTROL_LABELS,
+  SectionHeader,
+  SettingRow,
+} from '../ui/components';
 import { IssueReporter } from '../ui/IssueReporter';
 
 const SEEN_ONBOARDING_KEY = 'seenOnboarding';
+const APPLY_ERROR = "Couldn't apply that change. Try again.";
+
+const OPTION_LABELS = {
+  autoplay: 'Disable autoplay next',
+  quality: 'Maximum video quality',
+  ads: 'Block ads',
+  ghost: 'Ghost mode',
+  aggressive: 'Aggressive telemetry blocking',
+  skip: 'Skip segments',
+  shorts: 'Hide Shorts',
+  recommendations: 'Hide recommendations',
+  comments: 'Hide comments',
+  loudness: 'Normalize loudness',
+  equalizer: 'Equalizer',
+  lyrics: 'Synced lyrics',
+  download: 'Download audio',
+  reset: 'Reset to defaults',
+} as const;
 
 export type OptionsActions = {
   setEnabled: typeof setEnabled;
@@ -56,6 +82,7 @@ export type OptionsActions = {
   setForceQualityMax: typeof setForceQualityMax;
   setDownloadEnabled: typeof setDownloadEnabled;
   setAggressiveTelemetry: typeof setAggressiveTelemetry;
+  resetSettings: typeof resetSettings;
   markOnboardingSeen: () => Promise<void>;
   openYouTube: () => void;
 };
@@ -74,21 +101,36 @@ export const defaultOptionsActions: OptionsActions = {
   setForceQualityMax,
   setDownloadEnabled,
   setAggressiveTelemetry,
+  resetSettings,
   markOnboardingSeen: async () => browser.storage.local.set({ [SEEN_ONBOARDING_KEY]: true }),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
 };
 
-const sponsorRows: readonly [SponsorCategory, string, string][] = [
-  ['sponsor', 'Sponsored segments', 'Paid promotions embedded in a video.'],
-  ['music_offtopic', 'Non-music segments', 'Talking, credits, and other non-music sections.'],
+const sponsorRows: readonly [SponsorCategory, string, string, string][] = [
+  [
+    'sponsor',
+    'Sponsored segments',
+    'Paid promotions are skipped automatically.',
+    'Paid promotions play normally.',
+  ],
+  [
+    'music_offtopic',
+    'Non-music segments',
+    'Talking, credits, and other non-music parts are skipped.',
+    'Non-music parts play normally.',
+  ],
 ];
 
-function matchesSearch(query: string, ...text: string[]): boolean {
-  const normalized = query.trim().toLocaleLowerCase();
-  return (
-    normalized.length === 0 || text.some((value) => value.toLocaleLowerCase().includes(normalized))
-  );
+function matchesSearch(query: string, label: string, description: string): boolean {
+  if (query.length === 0) return true;
+  return `${label} ${description}`.toLocaleLowerCase().includes(query);
 }
+
+function stateDescription(checked: boolean, on: string, off: string): string {
+  return `${checked ? 'On' : 'Off'}. ${checked ? on : off}`;
+}
+
+type Toast = { kind: 'ok' | 'error'; message: string };
 
 export function Options({
   actions = defaultOptionsActions,
@@ -99,14 +141,248 @@ export function Options({
 }) {
   const [query, setQuery] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(showOnboardingInitially);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [activeSection, setActiveSection] = useState('quick-controls');
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const requestIds = useRef<Record<string, number>>({});
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = useMemo(() => query.trim().toLocaleLowerCase(), [query]);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    },
+    []
+  );
+
   const dismissOnboarding = () => {
     setShowOnboarding(false);
     void actions.markOnboardingSeen().catch(() => undefined);
   };
-  const settingVisible = (...text: string[]) => matchesSearch(normalizedQuery, ...text);
-  const sectionVisible = (...text: string[]) =>
-    normalizedQuery.length === 0 || settingVisible(...text);
+
+  const apply = (key: string, operation: () => Promise<void>) => {
+    const requestId = (requestIds.current[key] ?? 0) + 1;
+    requestIds.current[key] = requestId;
+    setErrors((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    void operation().catch(() => {
+      if (requestIds.current[key] === requestId) {
+        setErrors((current) => ({ ...current, [key]: APPLY_ERROR }));
+      }
+    });
+  };
+
+  const showToast = (nextToast: Toast) => {
+    if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    setToast(nextToast);
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+      toastTimer.current = null;
+    }, 3200);
+  };
+
+  const confirmReset = () => {
+    setConfirmingReset(false);
+    void actions
+      .resetSettings()
+      .then(() => showToast({ kind: 'ok', message: 'Settings reset to defaults.' }))
+      .catch(() =>
+        showToast({ kind: 'error', message: "Couldn't reset settings. Nothing was changed." })
+      );
+  };
+
+  const enabledDescription = enabledSignal.value
+    ? 'Active. Your preferences apply instantly.'
+    : 'Paused. YouTube works normally.';
+  const audioOnlyDescription = stateDescription(
+    audioOnlyEnabledSignal.value,
+    'Stops video from loading. Saves data and battery.',
+    'Video loads and plays normally.'
+  );
+  const backgroundDescription = stateDescription(
+    backgroundPlayEnabledSignal.value,
+    'Keeps playing when YouTube is hidden.',
+    'Playback follows normal page visibility.'
+  );
+  const autoplayDescription = stateDescription(
+    disableAutoplayNextSignal.value,
+    'Stops YouTube from starting the next video.',
+    'YouTube can start the next video.'
+  );
+  const qualityDescription =
+    forceQualityMaxSignal.value === 'off'
+      ? 'Automatic. YouTube chooses quality when video is enabled.'
+      : `${forceQualityMaxSignal.value} maximum when video is enabled.`;
+  const adBlockDescription = stateDescription(
+    adBlockEnabledSignal.value,
+    'Blocks ads before they play.',
+    'YouTube may play ads normally.'
+  );
+  const ghostDescription = stateDescription(
+    ghostEnabledSignal.value,
+    "Blocks YouTube's tracking. Playback stays normal.",
+    "YouTube's normal tracking is allowed."
+  );
+  const aggressiveDescription = ghostEnabledSignal.value
+    ? stateDescription(
+        aggressiveTelemetrySignal.value,
+        'Also blocks watch-time stats.',
+        'Watch history and resume can update normally.'
+      )
+    : `${aggressiveTelemetrySignal.value ? 'On' : 'Off'}, unavailable. Turn on Ghost mode to use this.`;
+  const skipDescription = stateDescription(
+    segmentSkipEnabledSignal.value,
+    'Skips sponsored and non-music parts. Lookups are anonymous.',
+    'Every part of the video plays.'
+  );
+  const shortsDescription = stateDescription(
+    hideShortsSignal.value,
+    'Removes Shorts shelves and cards.',
+    'Shorts remain visible.'
+  );
+  const recommendationsDescription = stateDescription(
+    hideRecommendationsSignal.value,
+    'Removes related videos beside the watch page.',
+    'Related videos remain visible.'
+  );
+  const commentsDescription = stateDescription(
+    hideCommentsSignal.value,
+    'Removes comments and their mobile entry point.',
+    'Comments remain visible.'
+  );
+  const loudnessDescription = stateDescription(
+    loudnessNormalizationSignal.value,
+    'Keeps volume more consistent between tracks.',
+    'Tracks use their original volume levels.'
+  );
+  const equalizerDescription = stateDescription(
+    equalizerEnabledSignal.value,
+    'Shapes sound with five frequency bands.',
+    'Plays sound without equalizer adjustments.'
+  );
+  const lyricsDescription = stateDescription(
+    lyricsEnabledSignal.value,
+    'Shows time-synced lyrics from LRCLIB. Lookup is anonymous.',
+    'Time-synced lyrics stay hidden.'
+  );
+  const downloadDescription = stateDescription(
+    downloadEnabledSignal.value,
+    'Shows a save-audio button in the player.',
+    'Keeps the save-audio button hidden.'
+  );
+  const resetDescription = 'Restore every option to the shipped defaults.';
+  const helpDescription =
+    'Review private on-device diagnostics, copy them, or report a playback issue.';
+
+  const enabledVisible = matchesSearch(
+    normalizedQuery,
+    QUICK_CONTROL_LABELS.enabled,
+    enabledDescription
+  );
+  const audioOnlyVisible = matchesSearch(
+    normalizedQuery,
+    QUICK_CONTROL_LABELS.audioOnly,
+    audioOnlyDescription
+  );
+  const backgroundVisible = matchesSearch(
+    normalizedQuery,
+    QUICK_CONTROL_LABELS.backgroundPlay,
+    backgroundDescription
+  );
+  const autoplayVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.autoplay,
+    autoplayDescription
+  );
+  const qualityVisible = matchesSearch(normalizedQuery, OPTION_LABELS.quality, qualityDescription);
+  const adBlockVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ads, adBlockDescription);
+  const ghostVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ghost, ghostDescription);
+  const aggressiveVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.aggressive,
+    aggressiveDescription
+  );
+  const skipVisible = matchesSearch(normalizedQuery, OPTION_LABELS.skip, skipDescription);
+  const sponsorVisibility = sponsorRows.map(([category, label, on, off]) => {
+    const checked = segmentSkipCategoriesSignal.value.includes(category);
+    return matchesSearch(normalizedQuery, label, stateDescription(checked, on, off));
+  });
+  const shortsVisible = matchesSearch(normalizedQuery, OPTION_LABELS.shorts, shortsDescription);
+  const recommendationsVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.recommendations,
+    recommendationsDescription
+  );
+  const commentsVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.comments,
+    commentsDescription
+  );
+  const loudnessVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.loudness,
+    loudnessDescription
+  );
+  const equalizerVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.equalizer,
+    equalizerDescription
+  );
+  const lyricsVisible = matchesSearch(normalizedQuery, OPTION_LABELS.lyrics, lyricsDescription);
+  const downloadVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.download,
+    downloadDescription
+  );
+  const resetVisible = matchesSearch(normalizedQuery, OPTION_LABELS.reset, resetDescription);
+  const helpVisible = matchesSearch(normalizedQuery, 'Help and feedback', helpDescription);
+
+  const quickVisible = enabledVisible || audioOnlyVisible || backgroundVisible;
+  const playbackVisible = autoplayVisible || qualityVisible;
+  const privacyVisible = adBlockVisible || ghostVisible || aggressiveVisible;
+  const skippingVisible =
+    skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
+  const cleanerVisible = shortsVisible || recommendationsVisible || commentsVisible;
+  const musicVisible = loudnessVisible || equalizerVisible || lyricsVisible;
+  const sections = [
+    { id: 'quick-controls', label: 'Quick Controls', visible: quickVisible },
+    { id: 'playback', label: 'Playback', visible: playbackVisible },
+    { id: 'privacy-blocking', label: 'Privacy & Blocking', visible: privacyVisible },
+    { id: 'skipping', label: 'Skipping', visible: skippingVisible },
+    { id: 'cleaner-youtube', label: 'Cleaner YouTube', visible: cleanerVisible },
+    { id: 'music', label: 'Music', visible: musicVisible },
+    { id: 'downloads', label: 'Downloads', visible: downloadVisible },
+    { id: 'advanced-about', label: 'Advanced/About', visible: resetVisible },
+    { id: 'help-feedback', label: 'Help & feedback', visible: helpVisible },
+  ];
+  const visibleSections = sections.filter((section) => section.visible);
+  const visibleSectionIds = visibleSections.map((section) => section.id).join('|');
+  const currentSection = visibleSections.some((section) => section.id === activeSection)
+    ? activeSection
+    : visibleSections[0]?.id;
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const nearest = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
+        if (nearest?.target.id) setActiveSection(nearest.target.id);
+      },
+      { rootMargin: '-88px 0px -65% 0px', threshold: [0, 0.1] }
+    );
+    visibleSections.forEach(({ id }) => {
+      const section = document.getElementById(id);
+      if (section) observer.observe(section);
+    });
+    return () => observer.disconnect();
+  }, [visibleSectionIds, showOnboarding]);
 
   if (showOnboarding) {
     return (
@@ -127,9 +403,10 @@ export function Options({
       <header class="options-header">
         <Brand suffix="Settings" />
         <label class="search-field">
-          <span class="search-icon" aria-hidden="true">
-            ⌕
-          </span>
+          <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4 4" />
+          </svg>
           <span class="visually-hidden">Search settings</span>
           <input
             type="search"
@@ -142,67 +419,91 @@ export function Options({
 
       <div class="options-layout">
         <nav class="settings-nav" aria-label="Settings sections">
-          {[
-            'Quick Controls',
-            'Playback',
-            'Protection & Ghost',
-            'Enhancers',
-            'Music',
-            'Advanced',
-            'Help & feedback',
-          ].map((label) => (
+          {visibleSections.map(({ id, label }) => (
             <a
-              key={label}
-              href={`#${label.toLocaleLowerCase().replaceAll(' ', '-').replace('&-', '')}`}
+              key={id}
+              href={`#${id}`}
+              aria-current={currentSection === id ? 'true' : undefined}
+              onClick={() => setActiveSection(id)}
             >
+              <span class="nav-indicator" aria-hidden="true">
+                ●
+              </span>
               {label}
             </a>
           ))}
         </nav>
 
         <main class="settings-content">
-          {sectionVisible('quick controls audio only background play') && (
+          {quickVisible && (
             <section id="quick-controls" class="settings-section pinned-section">
               <SectionHeader>Quick Controls</SectionHeader>
               <QuickControls
                 enabled={enabledSignal.value}
+                enabledDescription={enabledDescription}
+                enabledError={errors.enabled}
                 audioOnlyEnabled={audioOnlyEnabledSignal.value}
+                audioOnlyDescription={audioOnlyDescription}
+                audioOnlyError={errors.audioOnly}
                 backgroundPlayEnabled={backgroundPlayEnabledSignal.value}
-                onEnabledChange={(checked) => void actions.setEnabled(checked)}
-                onAudioOnlyChange={(checked) => void actions.setAudioOnlyEnabled(checked)}
-                onBackgroundPlayChange={(checked) => void actions.setBackgroundPlayEnabled(checked)}
+                backgroundPlayDescription={backgroundDescription}
+                backgroundPlayError={errors.background}
+                onEnabledChange={(checked) => apply('enabled', () => actions.setEnabled(checked))}
+                onAudioOnlyChange={(checked) =>
+                  apply('audioOnly', () => actions.setAudioOnlyEnabled(checked))
+                }
+                onBackgroundPlayChange={(checked) =>
+                  apply('background', () => actions.setBackgroundPlayEnabled(checked))
+                }
+                showEnabled={enabledVisible}
+                showAudioOnly={audioOnlyVisible}
+                showBackgroundPlay={backgroundVisible}
                 layout="page"
               />
             </section>
           )}
 
-          {sectionVisible('playback audio only background autoplay quality') && (
+          {playbackVisible && (
             <section id="playback" class="settings-section">
               <SectionHeader>Playback</SectionHeader>
               <div class="settings-card">
-                {settingVisible('disable autoplay next video') && (
+                {autoplayVisible && (
                   <SettingRow
                     id="option-autoplay"
-                    label="Disable autoplay next"
-                    description="Turn off YouTube's native Up next control."
+                    label={OPTION_LABELS.autoplay}
+                    description={autoplayDescription}
+                    error={errors.autoplay}
                     checked={disableAutoplayNextSignal.value}
                     onChange={(checked) =>
-                      void actions.setQualityOfLifeSetting('disableAutoplayNext', checked)
+                      apply('autoplay', () =>
+                        actions.setQualityOfLifeSetting('disableAutoplayNext', checked)
+                      )
                     }
                   />
                 )}
-                {settingVisible('maximum video quality data saver resolution') && (
+                {qualityVisible && (
                   <label class="select-row">
                     <span>
-                      <strong>Maximum video quality</strong>
-                      <small>Cap adaptive quality when video is enabled.</small>
+                      <strong>{OPTION_LABELS.quality}</strong>
+                      <small id="option-quality-description">{qualityDescription}</small>
+                      {errors.quality && (
+                        <small class="setting-error" id="option-quality-error" role="alert">
+                          {errors.quality}
+                        </small>
+                      )}
                     </span>
                     <select
-                      aria-label="Maximum video quality"
-                      value={forceQualityMaxSignal.value}
-                      onChange={(event) =>
-                        void actions.setForceQualityMax(event.currentTarget.value as QualityCap)
+                      aria-label={OPTION_LABELS.quality}
+                      aria-describedby={
+                        errors.quality
+                          ? 'option-quality-description option-quality-error'
+                          : 'option-quality-description'
                       }
+                      value={forceQualityMaxSignal.value}
+                      onChange={(event) => {
+                        const quality = event.currentTarget.value as QualityCap;
+                        apply('quality', () => actions.setForceQualityMax(quality));
+                      }}
                     >
                       {['off', '144p', '240p', '360p', '480p', '720p', '1080p'].map((quality) => (
                         <option key={quality} value={quality}>
@@ -216,94 +517,141 @@ export function Options({
             </section>
           )}
 
-          {sectionVisible('protection ghost ads telemetry trackers privacy') && (
-            <section id="protection-ghost" class="settings-section">
-              <SectionHeader>Protection & Ghost</SectionHeader>
+          {privacyVisible && (
+            <section id="privacy-blocking" class="settings-section">
+              <SectionHeader>Privacy &amp; Blocking</SectionHeader>
               <div class="settings-card">
-                {settingVisible('block ads protection') && (
+                {adBlockVisible && (
                   <SettingRow
                     id="option-ads"
-                    label="Block ads"
-                    description="Remove known ad interruptions from player responses."
+                    label={OPTION_LABELS.ads}
+                    description={adBlockDescription}
+                    error={errors.ads}
+                    consequence="May rarely affect playback."
                     checked={adBlockEnabledSignal.value}
-                    onChange={(checked) => void actions.setAdBlockEnabled(checked)}
+                    onChange={(checked) => apply('ads', () => actions.setAdBlockEnabled(checked))}
+                    highImpact
                   />
                 )}
-                {settingVisible('ghost reduce tracking telemetry privacy') && (
+                {ghostVisible && (
                   <SettingRow
                     id="option-ghost"
-                    label="Ghost mode"
-                    description="Reduce safe first-party quality and instrumentation tracking."
+                    label={OPTION_LABELS.ghost}
+                    description={ghostDescription}
+                    error={errors.ghost}
                     checked={ghostEnabledSignal.value}
-                    onChange={(checked) => void actions.setGhostEnabled(checked)}
+                    onChange={(checked) => apply('ghost', () => actions.setGhostEnabled(checked))}
                     recommended
                   />
                 )}
+                {aggressiveVisible && (
+                  <SettingRow
+                    id="option-aggressive"
+                    label={OPTION_LABELS.aggressive}
+                    description={aggressiveDescription}
+                    error={errors.aggressive}
+                    consequence="Your history and resume-where-you-left-off may stop working."
+                    checked={aggressiveTelemetrySignal.value}
+                    onChange={(checked) =>
+                      apply('aggressive', () => actions.setAggressiveTelemetry(checked))
+                    }
+                    disabled={!ghostEnabledSignal.value}
+                    className="nested-row"
+                    highImpact
+                  />
+                )}
               </div>
             </section>
           )}
 
-          {sectionVisible(
-            'enhancers skip segments shorts recommendations comments distraction'
-          ) && (
-            <section id="enhancers" class="settings-section">
-              <SectionHeader>Enhancers</SectionHeader>
+          {skippingVisible && (
+            <section id="skipping" class="settings-section">
+              <SectionHeader>Skipping</SectionHeader>
               <div class="settings-card">
-                {settingVisible('skip segments sponsor non-music') && (
+                {skipVisible && (
                   <SettingRow
                     id="option-skip"
-                    label="Skip segments"
-                    description="Privately look up and skip enabled categories."
+                    label={OPTION_LABELS.skip}
+                    description={skipDescription}
+                    error={errors.skip}
                     checked={segmentSkipEnabledSignal.value}
-                    onChange={(checked) => void actions.setSegmentSkipEnabled(checked)}
+                    onChange={(checked) =>
+                      apply('skip', () => actions.setSegmentSkipEnabled(checked))
+                    }
                   />
                 )}
-                {segmentSkipEnabledSignal.value &&
-                  sponsorRows
-                    .filter(([, label, description]) => settingVisible('skip', label, description))
-                    .map(([category, label, description]) => (
-                      <SettingRow
-                        key={category}
-                        id={`option-${category}`}
-                        label={label}
-                        description={description}
-                        checked={segmentSkipCategoriesSignal.value.includes(category)}
-                        onChange={(checked) =>
-                          void actions.setSegmentSkipCategory(category, checked)
-                        }
-                        className="nested-row"
-                      />
-                    ))}
-                {settingVisible('hide shorts distraction') && (
+                {segmentSkipEnabledSignal.value && sponsorVisibility.some(Boolean) && (
+                  <div class="dependent-reveal">
+                    <div class="dependent-reveal-inner">
+                      {sponsorRows.map(([category, label, on, off], index) => {
+                        if (!sponsorVisibility[index]) return null;
+                        const checked = segmentSkipCategoriesSignal.value.includes(category);
+                        const key = `category-${category}`;
+                        return (
+                          <SettingRow
+                            key={category}
+                            id={`option-${category}`}
+                            label={label}
+                            description={stateDescription(checked, on, off)}
+                            error={errors[key]}
+                            checked={checked}
+                            onChange={(nextChecked) =>
+                              apply(key, () =>
+                                actions.setSegmentSkipCategory(category, nextChecked)
+                              )
+                            }
+                            className="nested-row"
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {cleanerVisible && (
+            <section id="cleaner-youtube" class="settings-section">
+              <SectionHeader>Cleaner YouTube</SectionHeader>
+              <div class="settings-card">
+                {shortsVisible && (
                   <SettingRow
                     id="option-shorts"
-                    label="Hide Shorts"
-                    description="Remove Shorts shelves and cards."
+                    label={OPTION_LABELS.shorts}
+                    description={shortsDescription}
+                    error={errors.shorts}
                     checked={hideShortsSignal.value}
                     onChange={(checked) =>
-                      void actions.setQualityOfLifeSetting('hideShorts', checked)
+                      apply('shorts', () => actions.setQualityOfLifeSetting('hideShorts', checked))
                     }
                   />
                 )}
-                {settingVisible('hide recommendations related videos distraction') && (
+                {recommendationsVisible && (
                   <SettingRow
                     id="option-recommendations"
-                    label="Hide recommendations"
-                    description="Remove related videos beside the watch page."
+                    label={OPTION_LABELS.recommendations}
+                    description={recommendationsDescription}
+                    error={errors.recommendations}
                     checked={hideRecommendationsSignal.value}
                     onChange={(checked) =>
-                      void actions.setQualityOfLifeSetting('hideRecommendations', checked)
+                      apply('recommendations', () =>
+                        actions.setQualityOfLifeSetting('hideRecommendations', checked)
+                      )
                     }
                   />
                 )}
-                {settingVisible('hide comments distraction') && (
+                {commentsVisible && (
                   <SettingRow
                     id="option-comments"
-                    label="Hide comments"
-                    description="Remove the comments section and mobile entry point."
+                    label={OPTION_LABELS.comments}
+                    description={commentsDescription}
+                    error={errors.comments}
                     checked={hideCommentsSignal.value}
                     onChange={(checked) =>
-                      void actions.setQualityOfLifeSetting('hideComments', checked)
+                      apply('comments', () =>
+                        actions.setQualityOfLifeSetting('hideComments', checked)
+                      )
                     }
                   />
                 )}
@@ -311,104 +659,179 @@ export function Options({
             </section>
           )}
 
-          {sectionVisible('music loudness equalizer lyrics bands') && (
+          {musicVisible && (
             <section id="music" class="settings-section">
               <SectionHeader>Music</SectionHeader>
               <div class="settings-card">
-                {settingVisible('normalize loudness volume music') && (
+                {loudnessVisible && (
                   <SettingRow
                     id="option-loudness"
-                    label="Normalize loudness"
-                    description="Keep track volume consistent using YouTube's loudness value."
+                    label={OPTION_LABELS.loudness}
+                    description={loudnessDescription}
+                    error={errors.loudness}
                     checked={loudnessNormalizationSignal.value}
                     onChange={(checked) =>
-                      void actions.setMusicSetting('loudnessNormalization', checked)
+                      apply('loudness', () =>
+                        actions.setMusicSetting('loudnessNormalization', checked)
+                      )
                     }
                   />
                 )}
-                {settingVisible('equalizer music sound bands') && (
+                {equalizerVisible && (
                   <SettingRow
                     id="option-equalizer"
-                    label="Equalizer"
-                    description="Apply the five-band sound profile below."
+                    label={OPTION_LABELS.equalizer}
+                    description={equalizerDescription}
+                    error={errors.equalizer}
                     checked={equalizerEnabledSignal.value}
                     onChange={(checked) =>
-                      void actions.setMusicSetting('equalizerEnabled', checked)
+                      apply('equalizer', () => actions.setMusicSetting('equalizerEnabled', checked))
                     }
                   />
                 )}
-                {settingVisible('synced lyrics music lrclib') && (
+                {lyricsVisible && (
                   <SettingRow
                     id="option-lyrics"
-                    label="Synced lyrics"
-                    description="Opt in to an anonymous LRCLIB lookup."
+                    label={OPTION_LABELS.lyrics}
+                    description={lyricsDescription}
+                    error={errors.lyrics}
                     checked={lyricsEnabledSignal.value}
-                    onChange={(checked) => void actions.setMusicSetting('lyricsEnabled', checked)}
+                    onChange={(checked) =>
+                      apply('lyrics', () => actions.setMusicSetting('lyricsEnabled', checked))
+                    }
                   />
                 )}
               </div>
-              {equalizerEnabledSignal.value && settingVisible('equalizer music sound bands') && (
-                <details class="advanced-disclosure" open={normalizedQuery.length > 0}>
-                  <summary>Equalizer bands</summary>
-                  <div class="range-grid">
-                    {[60, 250, 1000, 4000, 12000].map((frequency, index) => (
-                      <label key={frequency}>
-                        <span>
-                          {frequency >= 1000 ? `${frequency / 1000} kHz` : `${frequency} Hz`}
-                        </span>
-                        <input
-                          aria-label={`${frequency} Hz gain`}
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="1"
-                          value={equalizerBandsSignal.value[index] ?? 0}
-                          onInput={(event) =>
-                            void actions.setEqualizerBand(index, Number(event.currentTarget.value))
-                          }
-                        />
-                        <output>{equalizerBandsSignal.value[index] ?? 0} dB</output>
-                      </label>
-                    ))}
+              {equalizerEnabledSignal.value && equalizerVisible && (
+                <div class="dependent-reveal">
+                  <div class="dependent-reveal-inner">
+                    <div class="advanced-disclosure equalizer-bands">
+                      <div class="disclosure-title">Equalizer bands</div>
+                      <div class="range-grid">
+                        {[60, 250, 1000, 4000, 12000].map((frequency, index) => {
+                          const errorKey = `equalizer-band-${index}`;
+                          const descriptionId = `${errorKey}-description`;
+                          const errorId = `${errorKey}-error`;
+                          return (
+                            <label key={frequency} class="range-control">
+                              <span>
+                                {frequency >= 1000 ? `${frequency / 1000} kHz` : `${frequency} Hz`}
+                              </span>
+                              <input
+                                aria-label={`${frequency} Hz gain`}
+                                aria-describedby={
+                                  errors[errorKey] ? `${descriptionId} ${errorId}` : descriptionId
+                                }
+                                type="range"
+                                min="-12"
+                                max="12"
+                                step="1"
+                                value={equalizerBandsSignal.value[index] ?? 0}
+                                onInput={(event) => {
+                                  const gain = Number(event.currentTarget.value);
+                                  apply(errorKey, () => actions.setEqualizerBand(index, gain));
+                                }}
+                              />
+                              <output id={descriptionId}>
+                                {equalizerBandsSignal.value[index] ?? 0} dB
+                              </output>
+                              {errors[errorKey] && (
+                                <span class="setting-error range-error" id={errorId} role="alert">
+                                  {errors[errorKey]}
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                </details>
+                </div>
               )}
             </section>
           )}
 
-          {sectionVisible('advanced download aggressive telemetry privacy') && (
-            <section id="advanced" class="settings-section">
-              <SectionHeader>Advanced</SectionHeader>
-              <details class="advanced-disclosure" open={normalizedQuery.length > 0}>
-                <summary>Power-user controls</summary>
-                <div class="settings-card disclosure-card">
-                  {settingVisible('download audio save advanced') && (
-                    <SettingRow
-                      id="option-download"
-                      label="Download audio"
-                      description="Show an explicit save button inside the player."
-                      checked={downloadEnabledSignal.value}
-                      onChange={(checked) => void actions.setDownloadEnabled(checked)}
-                    />
-                  )}
-                  {settingVisible(
-                    'aggressive telemetry blocking privacy history resume advanced'
-                  ) && (
-                    <SettingRow
-                      id="option-aggressive"
-                      label="Aggressive telemetry blocking"
-                      description="Also block watch-time statistics; history and resume may be affected."
-                      checked={aggressiveTelemetrySignal.value}
-                      onChange={(checked) => void actions.setAggressiveTelemetry(checked)}
-                    />
-                  )}
-                </div>
-              </details>
+          {downloadVisible && (
+            <section id="downloads" class="settings-section">
+              <SectionHeader>Downloads</SectionHeader>
+              <div class="settings-card">
+                <SettingRow
+                  id="option-download"
+                  label={OPTION_LABELS.download}
+                  description={downloadDescription}
+                  error={errors.download}
+                  checked={downloadEnabledSignal.value}
+                  onChange={(checked) =>
+                    apply('download', () => actions.setDownloadEnabled(checked))
+                  }
+                />
+              </div>
             </section>
           )}
-          {sectionVisible('help feedback report issue diagnostics logs bug') && <IssueReporter />}
+
+          {resetVisible && (
+            <section id="advanced-about" class="settings-section">
+              <SectionHeader>Advanced/About</SectionHeader>
+              <div class="settings-card reset-card">
+                <div class="action-row">
+                  <span>
+                    <strong>{OPTION_LABELS.reset}</strong>
+                    <small>{resetDescription}</small>
+                  </span>
+                  <button
+                    type="button"
+                    class="secondary-action"
+                    onClick={() => setConfirmingReset(true)}
+                  >
+                    {OPTION_LABELS.reset}
+                  </button>
+                </div>
+                {confirmingReset && (
+                  <div class="reset-confirmation" role="group" aria-label="Confirm reset">
+                    <p>Reset every setting to its default value?</p>
+                    <div>
+                      <button
+                        type="button"
+                        class="text-action"
+                        onClick={() => setConfirmingReset(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        class="secondary-action is-danger"
+                        onClick={confirmReset}
+                      >
+                        Confirm reset
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {helpVisible && <IssueReporter />}
+
+          {visibleSections.length === 0 && (
+            <div class="empty-search" role="status">
+              <p>No settings match “{query.trim()}”.</p>
+              <button type="button" class="text-action" onClick={() => setQuery('')}>
+                Clear search
+              </button>
+            </div>
+          )}
         </main>
       </div>
+
+      {toast && (
+        <p
+          class={`options-toast is-${toast.kind}`}
+          role={toast.kind === 'error' ? 'alert' : 'status'}
+        >
+          {toast.message}
+        </p>
+      )}
     </div>
   );
 }
