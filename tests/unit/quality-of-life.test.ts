@@ -53,12 +53,16 @@ describe('distraction stylesheet', () => {
     expect(css).not.toContain('ytd-comments');
   });
 
-  it('emits only recommendation selectors when requested', () => {
+  it('emits recommendation selectors narrowed so they cannot collapse comments', () => {
     const css = buildDistractionStyles({ ...visibleSettings, hideRecommendations: true });
-    expect(css).toContain('ytd-watch-flexy #secondary');
+    expect(css).toContain('ytd-watch-flexy #secondary ytd-watch-next-secondary-results-renderer');
     expect(css).toContain('ytm-related-chip-cloud-renderer');
     expect(css).not.toContain('ytd-reel-shelf-renderer');
     expect(css).not.toContain('ytd-comments');
+    // Regression: must NOT hide the whole `#secondary` container. Newer watch layouts nest the
+    // comments inside `#secondary`, so hiding the container collapsed comments even with
+    // hideComments off. This matches a bare `#secondary,` / `#secondary {`, not the narrowed descendant.
+    expect(css).not.toMatch(/#secondary\s*[,{]/);
   });
 
   it('emits desktop and mobile comment selectors when requested', () => {

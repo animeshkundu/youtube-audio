@@ -40,8 +40,11 @@ ytm-rich-section-renderer:has(ytm-reel-shelf-renderer) {
 }`);
   }
   if (settings.hideRecommendations) {
+    // Target the related-results renderer specifically, not the whole `#secondary` container:
+    // newer watch-page layouts nest the comments inside `#secondary`, so hiding the container
+    // collapsed comments too even when `hideComments` was off.
     rules.push(`
-ytd-watch-flexy #secondary,
+ytd-watch-flexy #secondary ytd-watch-next-secondary-results-renderer,
 ytd-watch-flexy #related,
 ytm-item-section-renderer[section-identifier="related-items"],
 ytm-related-chip-cloud-renderer {
