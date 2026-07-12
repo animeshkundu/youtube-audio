@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { reconcileInPlayerControls } from '../../entrypoints/content';
+import {
+  createDownloadFeedbackController,
+  createSegmentToastController,
+  reconcileInPlayerControls,
+} from '../../entrypoints/content';
 
 function createDesktopPlayer(): {
   player: HTMLElement;
@@ -28,7 +32,12 @@ function createDesktopPlayer(): {
 describe('reconcileInPlayerControls', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     document.body.replaceChildren();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('mounts the interactive audio toggle in the right cluster immediately before settings', () => {
@@ -94,5 +103,188 @@ describe('reconcileInPlayerControls', () => {
     expect(result?.audioOnlyButton.disabled).toBe(false);
     expect(result?.downloadButton.disabled).toBe(false);
     expect(result?.statusRegion.getAttribute('role')).toBe('status');
+  });
+
+  it('shows the Audio only tooltip on keyboard focus and excludes synthetic touch input', () => {
+    const { player } = createDesktopPlayer();
+    const result = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      mobile: false,
+    });
+    const button = result!.audioOnlyButton;
+    const tooltip = document.querySelector<HTMLElement>('#yta-audio-only-tooltip')!;
+
+    expect(button.getAttribute('aria-label')).toBe('Toggle audio-only playback');
+    expect(tooltip.textContent).toBe('Audio only');
+    expect(tooltip.hidden).toBe(true);
+
+    button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+    button.focus();
+    expect(tooltip.hidden).toBe(false);
+
+    button.blur();
+    const touchPointer = new Event('pointerdown', { bubbles: true });
+    Object.defineProperty(touchPointer, 'pointerType', { value: 'touch' });
+    button.dispatchEvent(touchPointer);
+    button.focus();
+    expect(tooltip.hidden).toBe(true);
+
+    button.blur();
+    const touchHover = new Event('pointerenter');
+    Object.defineProperty(touchHover, 'pointerType', { value: 'touch' });
+    button.dispatchEvent(touchHover);
+    expect(tooltip.hidden).toBe(true);
+  });
+
+  it('renders audio-only on and off with a structural slash, not only color', () => {
+    const { player } = createDesktopPlayer();
+    const onResult = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      mobile: false,
+    });
+    const slash = onResult?.audioOnlyButton.querySelector<SVGPathElement>('.yta-audio-only-slash');
+
+    expect(onResult?.audioOnlyButton.dataset.audioState).toBe('on');
+    expect(onResult?.audioOnlyButton.getAttribute('aria-pressed')).toBe('true');
+    expect(slash).not.toBeNull();
+    expect(slash?.hasAttribute('hidden')).toBe(true);
+
+    const offResult = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: false,
+      downloadVisible: false,
+      mobile: false,
+    });
+
+    expect(offResult?.audioOnlyButton.dataset.audioState).toBe('off');
+    expect(offResult?.audioOnlyButton.getAttribute('aria-pressed')).toBe('false');
+    expect(offResult?.audioOnlyButton.querySelector('.yta-audio-only-slash')).toBe(slash);
+    expect(slash?.hasAttribute('hidden')).toBe(false);
+  });
+});
+
+describe('in-player contextual feedback', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mounts an undoable segment toast that seeks back and dismisses', () => {
+    const host = document.createElement('div');
+    const video = document.createElement('video');
+    document.body.append(host, video);
+    video.currentTime = 24.5;
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    host.append(status);
+    const controller = createSegmentToastController(
+      host,
+      (message) => {
+        status.textContent = message;
+      },
+      4_000,
+      180
+    );
+
+    controller.show('Skipped sponsor', () => {
+      video.currentTime = 10;
+    });
+
+    expect(controller.toast.parentElement).toBe(host);
+    expect(controller.toast.hidden).toBe(false);
+    expect(controller.toast.dataset.state).toBe('visible');
+    expect(controller.toast.querySelector('.yta-segment-toast__text')?.textContent).toBe(
+      'Skipped sponsor'
+    );
+    expect(status.textContent).toBe('Skipped sponsor');
+
+    const undo = controller.toast.querySelector<HTMLButtonElement>('.yta-segment-toast__undo')!;
+    expect(undo.textContent).toBe('Undo');
+    undo.click();
+
+    expect(video.currentTime).toBe(10);
+    expect(controller.toast.hidden).toBe(true);
+    expect(controller.toast.dataset.state).toBe('hidden');
+    expect(status.textContent).toBe('Skip undone');
+  });
+
+  it('auto-hides the segment toast after its exit transition', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const controller = createSegmentToastController(host, vi.fn(), 4_000, 180);
+    controller.show('Skipped music off-topic', vi.fn());
+
+    vi.advanceTimersByTime(3_999);
+    expect(controller.toast.dataset.state).toBe('visible');
+    expect(controller.toast.hidden).toBe(false);
+
+    vi.advanceTimersByTime(1);
+    expect(controller.toast.dataset.state).toBe('exiting');
+    expect(controller.toast.hidden).toBe(false);
+
+    vi.advanceTimersByTime(180);
+    expect(controller.toast.dataset.state).toBe('hidden');
+    expect(controller.toast.hidden).toBe(true);
+  });
+
+  it('transitions download feedback from idle to progress and success with announcements', () => {
+    const button = document.createElement('button');
+    button.innerHTML = '<svg class="yta-player-icon"><path></path></svg>';
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    document.body.append(button, status);
+    const controller = createDownloadFeedbackController(button, status, 2_400);
+
+    expect(controller.getState()).toEqual({ kind: 'idle' });
+    expect(button.dataset.downloadState).toBe('idle');
+
+    expect(controller.transition({ type: 'start' })).toEqual({ kind: 'progress' });
+    expect(button.dataset.downloadState).toBe('progress');
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.querySelector('.yta-download-progress-indicator')).not.toBeNull();
+    expect(status.textContent).toBe('Preparing audio download');
+
+    expect(controller.transition({ type: 'succeed' })).toEqual({ kind: 'success' });
+    expect(button.dataset.downloadState).toBe('success');
+    expect(button.disabled).toBe(false);
+    expect(button.hasAttribute('aria-busy')).toBe(false);
+    expect(button.querySelector('.yta-download-success')).not.toBeNull();
+    expect(status.textContent).toBe('Audio download started');
+
+    vi.advanceTimersByTime(2_400);
+    expect(controller.getState()).toEqual({ kind: 'idle' });
+    expect(button.dataset.downloadState).toBe('idle');
+  });
+
+  it('transitions download feedback from progress to visible failure and announces the reason', () => {
+    const button = document.createElement('button');
+    button.innerHTML = '<svg class="yta-player-icon"><path></path></svg>';
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    document.body.append(button, status);
+    const controller = createDownloadFeedbackController(button, status, 2_400);
+
+    controller.transition({ type: 'start' });
+    expect(controller.transition({ type: 'fail', reason: 'Audio is unavailable' })).toEqual({
+      kind: 'failure',
+      reason: 'Audio is unavailable',
+    });
+
+    expect(button.dataset.downloadState).toBe('failure');
+    expect(button.disabled).toBe(false);
+    expect(button.classList.contains('yta-download-button--failure')).toBe(true);
+    expect(button.querySelector('.yta-download-failure')).not.toBeNull();
+    expect(button.querySelector('.yta-download-reason')?.textContent).toBe('Audio is unavailable');
+    expect(status.textContent).toBe('Audio download failed: Audio is unavailable');
   });
 });

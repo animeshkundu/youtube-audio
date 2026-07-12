@@ -45,6 +45,8 @@ const BUTTON_ID = 'yta-audio-only-toggle';
 const LEGACY_SEGMENT_BUTTON_ID = 'yta-segment-status';
 const DOWNLOAD_BUTTON_ID = 'yta-download-audio';
 const PLAYER_STATUS_ID = 'yta-player-status';
+const PLAYER_TOOLTIP_ID = 'yta-audio-only-tooltip';
+const SEGMENT_TOAST_ID = 'yta-segment-toast';
 const COACH_ID = 'yta-audio-only-coach';
 const COACH_STORAGE_KEY = 'seenAudioOnlyCoach';
 const LYRICS_ID = 'yta-synced-lyrics';
@@ -334,6 +336,8 @@ export function reconcileInPlayerControls(
   audioOnlyButton.setAttribute('aria-label', 'Toggle audio-only playback');
   audioOnlyButton.setAttribute('aria-pressed', String(options.audioOnlyActive));
   audioOnlyButton.disabled = false;
+  updateAudioOnlyButtonShape(audioOnlyButton, options.audioOnlyActive);
+  installAudioOnlyTooltip(audioOnlyButton);
 
   const downloadButton = getOrCreatePlayerButton(
     documentRef,
@@ -389,6 +393,8 @@ function installPlayerControls(bridgeNonce: string): () => void {
   let observedPlayer: HTMLElement | null = null;
   let playerObserver: MutationObserver | null = null;
   let documentObserver: MutationObserver | null = null;
+  let segmentToast: SegmentToastController | null = null;
+  let lastPlaybackSample: { media: HTMLMediaElement; time: number } | null = null;
 
   const reconcile = () => {
     if (!observedPlayer?.isConnected) return;
@@ -406,8 +412,14 @@ function installPlayerControls(bridgeNonce: string): () => void {
         void requestAudioDownload(bridgeNonce, button);
       },
     });
-    if (result && settings.enabled && settings.audioOnlyEnabled) {
-      void showAudioOnlyCoachOnce(result.audioOnlyButton);
+    if (result) {
+      if (!segmentToast || !segmentToast.toast.isConnected) {
+        segmentToast?.dispose();
+        segmentToast = createSegmentToastController(observedPlayer, announcePlayerStatus);
+      }
+      if (settings.enabled && settings.audioOnlyEnabled) {
+        void showAudioOnlyCoachOnce(result.audioOnlyButton);
+      }
     }
   };
 
@@ -428,6 +440,8 @@ function installPlayerControls(bridgeNonce: string): () => void {
     }
     playerObserver?.disconnect();
     playerObserver = null;
+    segmentToast?.dispose();
+    segmentToast = null;
     coachCleanup();
     observedPlayer = nextPlayer;
     if (!observedPlayer) return;
@@ -441,6 +455,9 @@ function installPlayerControls(bridgeNonce: string): () => void {
     documentObserver?.disconnect();
     playerObserver = null;
     documentObserver = null;
+    segmentToast?.dispose();
+    segmentToast = null;
+    lastPlaybackSample = null;
     observedPlayer = null;
     coachCleanup();
   };
@@ -451,16 +468,38 @@ function installPlayerControls(bridgeNonce: string): () => void {
     documentObserver.observe(document.documentElement, { childList: true, subtree: true });
   };
 
+  const rememberPlaybackPosition = (event: Event) => {
+    const media = event.target;
+    if (!(media instanceof HTMLMediaElement)) return;
+    const time = media.currentTime;
+    if (Number.isFinite(time) && time >= 0) lastPlaybackSample = { media, time };
+  };
+  const handleSegmentSkipped = (event: Event) => {
+    try {
+      const message = getSkippedSegmentMessage((event as CustomEvent<unknown>).detail);
+      if (!message) return;
+      const sample = lastPlaybackSample;
+      segmentToast?.show(message, () => {
+        if (!sample || !sample.media.isConnected || !Number.isFinite(sample.time)) return;
+        sample.media.currentTime = sample.time;
+      });
+      if (!segmentToast) announcePlayerStatus(message);
+    } catch {
+      // Feedback failures must never affect playback after the page world has skipped a segment.
+    }
+  };
   const onPageHide = () => stopObservers();
   const onPageShow = () => startObservers();
-  document.addEventListener(SEGMENT_SKIPPED_EVENT, announceSkippedSegment);
+  document.addEventListener('timeupdate', rememberPlaybackPosition, true);
+  document.addEventListener(SEGMENT_SKIPPED_EVENT, handleSegmentSkipped);
   window.addEventListener('pagehide', onPageHide);
   window.addEventListener('pageshow', onPageShow);
   startObservers();
 
   return () => {
     stopObservers();
-    document.removeEventListener(SEGMENT_SKIPPED_EVENT, announceSkippedSegment);
+    document.removeEventListener('timeupdate', rememberPlaybackPosition, true);
+    document.removeEventListener(SEGMENT_SKIPPED_EVENT, handleSegmentSkipped);
     window.removeEventListener('pagehide', onPageHide);
     window.removeEventListener('pageshow', onPageShow);
   };
@@ -498,7 +537,7 @@ function createPlayerButton(
   button.className = 'ytp-button yta-player-button';
   button.setAttribute('aria-label', label);
   const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.classList.add('yta-player-icon');
+  svg.classList.add('yta-player-icon', 'yta-player-icon--default');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
@@ -509,12 +548,393 @@ function createPlayerButton(
   return button;
 }
 
+function updateAudioOnlyButtonShape(button: HTMLButtonElement, active: boolean): void {
+  try {
+    button.dataset.audioState = active ? 'on' : 'off';
+    const svg = button.querySelector<SVGSVGElement>('.yta-player-icon--default');
+    if (!svg) return;
+    let slash = svg.querySelector<SVGPathElement>('.yta-audio-only-slash');
+    if (!slash) {
+      slash = button.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'path');
+      slash.classList.add('yta-audio-only-slash');
+      slash.setAttribute('d', 'M4.5 4.5 19.5 19.5');
+      svg.append(slash);
+    }
+    slash.toggleAttribute('hidden', active);
+  } catch {
+    // A decorative shape failure must not affect the toggle.
+  }
+}
+
+const audioOnlyTooltipButtons = new WeakSet<HTMLButtonElement>();
+
+/** Installs the visual-only tooltip once while preserving the button's stable accessible name. */
+export function installAudioOnlyTooltip(button: HTMLButtonElement): void {
+  if (audioOnlyTooltipButtons.has(button)) return;
+  audioOnlyTooltipButtons.add(button);
+
+  try {
+    const documentRef = button.ownerDocument;
+    let tooltip = documentRef.getElementById(PLAYER_TOOLTIP_ID);
+    if (!tooltip) {
+      tooltip = documentRef.createElement('div');
+      tooltip.id = PLAYER_TOOLTIP_ID;
+      tooltip.className = 'yta-player-tooltip';
+      tooltip.setAttribute('role', 'tooltip');
+      tooltip.setAttribute('aria-hidden', 'true');
+      tooltip.textContent = 'Audio only';
+      tooltip.hidden = true;
+      (documentRef.body ?? documentRef.documentElement).append(tooltip);
+    }
+
+    let hovered = false;
+    let focused = false;
+    let touchFocus = false;
+    const position = () => {
+      if (!tooltip || tooltip.hidden || !button.isConnected) return;
+      const anchor = button.getBoundingClientRect();
+      const tip = tooltip.getBoundingClientRect();
+      const left = Math.min(
+        window.innerWidth - tip.width - 8,
+        Math.max(8, anchor.left + anchor.width / 2 - tip.width / 2)
+      );
+      const above = anchor.top - tip.height - 8;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${above >= 8 ? above : anchor.bottom + 8}px`;
+    };
+    const update = () => {
+      if (!tooltip) return;
+      const visible = button.isConnected && !touchFocus && (hovered || focused);
+      tooltip.hidden = !visible;
+      if (visible) position();
+    };
+    const onPointerEnter = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') {
+        touchFocus = true;
+        hovered = false;
+      } else {
+        touchFocus = false;
+        hovered = true;
+      }
+      update();
+    };
+    const onPointerLeave = () => {
+      hovered = false;
+      update();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      touchFocus = event.pointerType === 'touch';
+      if (touchFocus) hovered = false;
+      update();
+    };
+    const onTouchStart = () => {
+      touchFocus = true;
+      hovered = false;
+      update();
+    };
+    const onKeyDown = () => {
+      touchFocus = false;
+      update();
+    };
+    const onFocus = () => {
+      focused = true;
+      update();
+    };
+    const onBlur = () => {
+      focused = false;
+      touchFocus = false;
+      update();
+    };
+
+    button.addEventListener('pointerenter', onPointerEnter);
+    button.addEventListener('pointerleave', onPointerLeave);
+    button.addEventListener('pointerdown', onPointerDown);
+    button.addEventListener('touchstart', onTouchStart, { passive: true });
+    button.addEventListener('keydown', onKeyDown);
+    button.addEventListener('focus', onFocus);
+    button.addEventListener('blur', onBlur);
+  } catch {
+    // Tooltip failures must never make the underlying player control unavailable.
+  }
+}
+
+export type DownloadFeedbackState =
+  | { kind: 'idle' }
+  | { kind: 'progress' }
+  | { kind: 'success' }
+  | { kind: 'failure'; reason: string };
+
+export type DownloadFeedbackEvent =
+  | { type: 'start' }
+  | { type: 'succeed' }
+  | { type: 'fail'; reason: string }
+  | { type: 'reset' };
+
+export function reduceDownloadFeedbackState(
+  state: DownloadFeedbackState,
+  event: DownloadFeedbackEvent
+): DownloadFeedbackState {
+  if (event.type === 'start') return { kind: 'progress' };
+  if (event.type === 'reset') return { kind: 'idle' };
+  if (state.kind !== 'progress') return state;
+  if (event.type === 'succeed') return { kind: 'success' };
+  if (event.type === 'fail') {
+    const reason = event.reason.trim().slice(0, 120) || 'Could not download audio';
+    return { kind: 'failure', reason };
+  }
+  return state;
+}
+
+export interface DownloadFeedbackController {
+  getState(): DownloadFeedbackState;
+  bind(button: HTMLButtonElement, statusRegion: HTMLElement | (() => HTMLElement | null)): void;
+  transition(event: DownloadFeedbackEvent): DownloadFeedbackState;
+  dispose(): void;
+}
+
+function createFeedbackIcon(
+  documentRef: Document,
+  className: string,
+  pathData: string
+): SVGSVGElement {
+  const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('yta-player-icon', 'yta-download-feedback', className);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', pathData);
+  svg.append(path);
+  return svg;
+}
+
+/** Owns visible and announced download feedback without owning the download request itself. */
+export function createDownloadFeedbackController(
+  initialButton: HTMLButtonElement,
+  initialStatusRegion: HTMLElement | (() => HTMLElement | null),
+  resetAfterMs = 2_400
+): DownloadFeedbackController {
+  let button = initialButton;
+  let statusRegion = initialStatusRegion;
+  let state: DownloadFeedbackState = { kind: 'idle' };
+  let resetTimer: number | null = null;
+
+  const prepareButton = (target: HTMLButtonElement) => {
+    const documentRef = target.ownerDocument;
+    const defaultIcon = target.querySelector<SVGSVGElement>('svg.yta-player-icon');
+    defaultIcon?.classList.add('yta-player-icon--default');
+    if (!target.querySelector('.yta-download-progress')) {
+      const progress = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      progress.classList.add('yta-player-icon', 'yta-download-feedback', 'yta-download-progress');
+      progress.setAttribute('viewBox', '0 0 24 24');
+      progress.setAttribute('aria-hidden', 'true');
+      progress.setAttribute('focusable', 'false');
+      const track = documentRef.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      track.classList.add('yta-download-progress-track');
+      track.setAttribute('cx', '12');
+      track.setAttribute('cy', '12');
+      track.setAttribute('r', '8');
+      const indicator = documentRef.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      indicator.classList.add('yta-download-progress-indicator');
+      indicator.setAttribute('cx', '12');
+      indicator.setAttribute('cy', '12');
+      indicator.setAttribute('r', '8');
+      progress.append(track, indicator);
+      target.append(progress);
+    }
+    if (!target.querySelector('.yta-download-success')) {
+      target.append(
+        createFeedbackIcon(
+          documentRef,
+          'yta-download-success',
+          'M9.2 16.2 4.8 11.8l-1.6 1.6 6 6L21 7.6 19.4 6l-10.2 10.2Z'
+        )
+      );
+    }
+    if (!target.querySelector('.yta-download-failure')) {
+      target.append(
+        createFeedbackIcon(documentRef, 'yta-download-failure', 'M11 6h2v8h-2V6Zm0 10h2v2h-2v-2Z')
+      );
+    }
+    if (!target.querySelector('.yta-download-reason')) {
+      const reason = documentRef.createElement('span');
+      reason.className = 'yta-download-reason';
+      reason.setAttribute('aria-hidden', 'true');
+      target.append(reason);
+    }
+  };
+  const announce = (message: string) => {
+    try {
+      const region = typeof statusRegion === 'function' ? statusRegion() : statusRegion;
+      if (region) region.textContent = message;
+    } catch {
+      // Live-region failure is non-fatal and must not block state rendering.
+    }
+  };
+  const render = (shouldAnnounce: boolean) => {
+    try {
+      prepareButton(button);
+      button.dataset.downloadState = state.kind;
+      button.classList.toggle('yta-download-button--failure', state.kind === 'failure');
+      button.disabled = state.kind === 'progress';
+      if (state.kind === 'progress') button.setAttribute('aria-busy', 'true');
+      else button.removeAttribute('aria-busy');
+      const reason = button.querySelector<HTMLElement>('.yta-download-reason');
+      if (reason) reason.textContent = state.kind === 'failure' ? state.reason : '';
+
+      if (!shouldAnnounce) return;
+      if (state.kind === 'progress') announce('Preparing audio download');
+      else if (state.kind === 'success') announce('Audio download started');
+      else if (state.kind === 'failure') announce(`Audio download failed: ${state.reason}`);
+    } catch {
+      // Visual feedback must never interfere with downloading or player controls.
+    }
+  };
+  const bind = (
+    nextButton: HTMLButtonElement,
+    nextStatusRegion: HTMLElement | (() => HTMLElement | null)
+  ) => {
+    button = nextButton;
+    statusRegion = nextStatusRegion;
+    render(false);
+  };
+  const transition = (event: DownloadFeedbackEvent) => {
+    if (resetTimer !== null) {
+      window.clearTimeout(resetTimer);
+      resetTimer = null;
+    }
+    state = reduceDownloadFeedbackState(state, event);
+    render(true);
+    if (state.kind === 'success' || state.kind === 'failure') {
+      resetTimer = window.setTimeout(() => {
+        resetTimer = null;
+        state = reduceDownloadFeedbackState(state, { type: 'reset' });
+        render(false);
+      }, resetAfterMs);
+    }
+    return state;
+  };
+  render(false);
+  return {
+    getState: () => state,
+    bind,
+    transition,
+    dispose: () => {
+      if (resetTimer !== null) window.clearTimeout(resetTimer);
+      resetTimer = null;
+    },
+  };
+}
+
+export interface SegmentToastController {
+  toast: HTMLElement;
+  show(message: string, undo: () => void): void;
+  dismiss(immediate?: boolean): void;
+  dispose(): void;
+}
+
+/** Creates one timer-tokenized contextual toast so stale timers cannot dismiss a newer skip. */
+export function createSegmentToastController(
+  host: HTMLElement,
+  announce: (message: string) => void,
+  hideAfterMs = 4_000,
+  exitAfterMs = 180
+): SegmentToastController {
+  const documentRef = host.ownerDocument;
+  const toast = documentRef.createElement('div');
+  toast.id = SEGMENT_TOAST_ID;
+  toast.className = 'yta-segment-toast';
+  toast.hidden = true;
+  toast.dataset.state = 'hidden';
+  const text = documentRef.createElement('span');
+  text.className = 'yta-segment-toast__text';
+  const undoButton = documentRef.createElement('button');
+  undoButton.type = 'button';
+  undoButton.className = 'yta-segment-toast__undo';
+  undoButton.textContent = 'Undo';
+  toast.append(text, undoButton);
+  host.append(toast);
+
+  let generation = 0;
+  let hideTimer: number | null = null;
+  let exitTimer: number | null = null;
+  let undoAction: (() => void) | null = null;
+  const clearTimers = () => {
+    if (hideTimer !== null) window.clearTimeout(hideTimer);
+    if (exitTimer !== null) window.clearTimeout(exitTimer);
+    hideTimer = null;
+    exitTimer = null;
+  };
+  const finishHide = (token: number) => {
+    if (token !== generation) return;
+    toast.hidden = true;
+    toast.dataset.state = 'hidden';
+    undoAction = null;
+  };
+  const dismiss = (immediate = false) => {
+    generation += 1;
+    const token = generation;
+    clearTimers();
+    if (immediate || toast.hidden) {
+      finishHide(token);
+      return;
+    }
+    toast.dataset.state = 'exiting';
+    exitTimer = window.setTimeout(() => finishHide(token), exitAfterMs);
+  };
+  const show = (message: string, undo: () => void) => {
+    generation += 1;
+    const token = generation;
+    clearTimers();
+    text.textContent = message;
+    undoAction = undo;
+    toast.hidden = false;
+    toast.dataset.state = 'visible';
+    try {
+      announce(message);
+    } catch {
+      // The visible contextual action remains useful if the live region is unavailable.
+    }
+    hideTimer = window.setTimeout(() => {
+      if (token !== generation) return;
+      toast.dataset.state = 'exiting';
+      exitTimer = window.setTimeout(() => finishHide(token), exitAfterMs);
+    }, hideAfterMs);
+  };
+  undoButton.addEventListener('click', () => {
+    const action = undoAction;
+    if (!action) return;
+    try {
+      action();
+    } catch {
+      // Seeking can fail during media replacement; the toast must still dismiss.
+    }
+    try {
+      announce('Skip undone');
+    } catch {
+      // Keep Undo fail-open if its confirmation cannot be announced.
+    }
+    dismiss(true);
+  });
+
+  return {
+    toast,
+    show,
+    dismiss,
+    dispose: () => {
+      dismiss(true);
+      toast.remove();
+    },
+  };
+}
+
 function installPlayerControlStyles(): void {
   if (document.getElementById(PLAYER_CONTROL_STYLE_ID)) return;
   const style = document.createElement('style');
   style.id = PLAYER_CONTROL_STYLE_ID;
   style.textContent = `
     .yta-player-button {
+      position: relative;
       color: #fff;
       background: transparent;
       border: 0;
@@ -523,8 +943,115 @@ function installPlayerControlStyles(): void {
     .yta-player-button--mobile { width: 44px; height: 44px; }
     .yta-player-icon { display: block; width: 100%; height: 100%; pointer-events: none; }
     .yta-player-icon path { fill: currentColor; }
+    .yta-audio-only-slash {
+      fill: none !important;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+    .yta-audio-only-slash[hidden] { display: none; }
     .yta-player-button:focus-visible { outline: 2px solid #3fe0c4; outline-offset: -4px; }
     .yta-player-button[aria-pressed="true"] .yta-player-icon path { fill: #22d3b4; }
+    .yta-player-tooltip {
+      position: fixed;
+      z-index: 2147483646;
+      padding: 5px 8px;
+      border-radius: 2px;
+      color: #fff;
+      background: rgba(28, 28, 28, .96);
+      box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+      font: 500 12px/1.4 Roboto, Arial, Helvetica, sans-serif;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .yta-segment-toast {
+      position: absolute;
+      left: 16px;
+      bottom: 58px;
+      z-index: 61;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: min(360px, calc(100% - 32px));
+      padding: 8px 8px 8px 12px;
+      border-radius: 4px;
+      color: #fff;
+      background: rgba(28, 28, 28, .96);
+      box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+      font: 500 13px/1.4 Roboto, Arial, Helvetica, sans-serif;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 180ms cubic-bezier(.4, 0, 1, 1),
+        transform 180ms cubic-bezier(.4, 0, 1, 1);
+    }
+    .yta-segment-toast[hidden] { display: none; }
+    .yta-segment-toast[data-state="exiting"] {
+      opacity: 0;
+      transform: translateY(4px);
+      pointer-events: none;
+    }
+    .yta-segment-toast__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .yta-segment-toast__undo {
+      flex: none;
+      min-width: 44px;
+      min-height: 32px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 2px;
+      color: #5fead2;
+      background: transparent;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .yta-segment-toast__undo:hover { background: rgb(34 211 180 / 14%); }
+    .yta-segment-toast__undo:focus-visible { outline: 2px solid #3fe0c4; outline-offset: -2px; }
+    .yta-download-feedback { display: none; }
+    .yta-player-button[data-download-state="progress"] .yta-player-icon--default,
+    .yta-player-button[data-download-state="success"] .yta-player-icon--default,
+    .yta-player-button[data-download-state="failure"] .yta-player-icon--default { display: none; }
+    .yta-player-button[data-download-state="progress"] .yta-download-progress,
+    .yta-player-button[data-download-state="success"] .yta-download-success,
+    .yta-player-button[data-download-state="failure"] .yta-download-failure { display: block; }
+    .yta-download-progress circle {
+      fill: none;
+      stroke-width: 2;
+    }
+    .yta-download-progress-track { stroke: rgb(255 255 255 / 35%); }
+    .yta-download-progress-indicator {
+      stroke: #22d3b4;
+      stroke-linecap: round;
+      stroke-dasharray: 34 17;
+      transform-origin: 12px 12px;
+      animation: yta-download-spin 800ms linear infinite;
+    }
+    .yta-download-success { color: #22d3b4; }
+    .yta-download-failure { color: #ff5b57; }
+    .yta-download-button--failure { animation: yta-download-shake 240ms ease-out 1; }
+    .yta-download-reason {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      display: none;
+      width: max-content;
+      max-width: 240px;
+      padding: 6px 8px;
+      border-radius: 2px;
+      color: #fff;
+      background: rgba(28, 28, 28, .96);
+      box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+      font: 500 12px/1.4 Roboto, Arial, Helvetica, sans-serif;
+      white-space: normal;
+      pointer-events: none;
+    }
+    .yta-player-button[data-download-state="failure"] .yta-download-reason { display: block; }
+    @keyframes yta-download-spin { to { transform: rotate(360deg); } }
+    @keyframes yta-download-shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-2px); }
+      50% { transform: translateX(2px); }
+      75% { transform: translateX(-1px); }
+    }
     .yta-player-status {
       position: absolute;
       width: 1px;
@@ -551,11 +1078,23 @@ function installPlayerControlStyles(): void {
       transition: opacity 120ms cubic-bezier(.2, 0, 0, 1);
     }
     @media (prefers-reduced-motion: reduce) {
-      .yta-audio-only-coach { transition-duration: .001ms; }
+      .yta-audio-only-coach, .yta-segment-toast { transition-duration: .001ms; }
+      .yta-download-progress-indicator { animation: none; stroke-dasharray: 17 34; }
+      .yta-download-button--failure { animation: none; }
     }
     @media (forced-colors: active) {
-      .yta-player-button:focus-visible { outline-color: Highlight; }
-      .yta-player-button[aria-pressed="true"] .yta-player-icon path { fill: Highlight; }
+      .yta-player-button:focus-visible, .yta-segment-toast__undo:focus-visible {
+        outline-color: Highlight;
+      }
+      .yta-player-button[aria-pressed="true"] .yta-player-icon path,
+      .yta-download-success path { fill: Highlight; }
+      .yta-audio-only-slash { stroke: CanvasText; }
+      .yta-download-failure path { fill: Mark; }
+      .yta-player-tooltip, .yta-segment-toast, .yta-download-reason {
+        color: CanvasText;
+        background: Canvas;
+        border: 1px solid CanvasText;
+      }
     }
   `;
   (document.head ?? document.documentElement).append(style);
@@ -611,11 +1150,10 @@ async function showAudioOnlyCoachOnce(button: HTMLButtonElement): Promise<void> 
   return coachRequest;
 }
 
-function announceSkippedSegment(event: Event): void {
-  const category = (event as CustomEvent<unknown>).detail;
-  if (typeof category !== 'string' || !isSponsorCategory(category)) return;
+function getSkippedSegmentMessage(category: unknown): string | null {
+  if (!isSponsorCategory(category)) return null;
   const label = category === 'music_offtopic' ? 'music off-topic' : category;
-  announcePlayerStatus(`Skipped ${label}`);
+  return `Skipped ${label}`;
 }
 
 function announcePlayerStatus(message: string): void {
@@ -623,10 +1161,37 @@ function announcePlayerStatus(message: string): void {
   if (region) region.textContent = message;
 }
 
+const downloadFeedbackControllers = new WeakMap<HTMLButtonElement, DownloadFeedbackController>();
+
+function getDownloadFeedbackController(button: HTMLButtonElement): DownloadFeedbackController {
+  const existing = downloadFeedbackControllers.get(button);
+  if (existing) return existing;
+  const controller = createDownloadFeedbackController(button, () =>
+    document.getElementById(PLAYER_STATUS_ID)
+  );
+  downloadFeedbackControllers.set(button, controller);
+  return controller;
+}
+
+function getDownloadFailureReason(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.message === 'download-timeout') return 'Timed out while preparing audio';
+    if (error.message === 'download-unavailable') return 'Audio is unavailable';
+    if (error.message === 'download-failed') return 'Browser could not start the download';
+  }
+  return 'Could not download audio';
+}
+
 async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonElement): Promise<void> {
   if (!getSettings().enabled || !getSettings().downloadEnabled || button.disabled) return;
-  button.disabled = true;
-  announcePlayerStatus('Preparing audio download');
+  let feedback: DownloadFeedbackController | null = null;
+  try {
+    feedback = getDownloadFeedbackController(button);
+    feedback.transition({ type: 'start' });
+  } catch {
+    button.disabled = true;
+    announcePlayerStatus('Preparing audio download');
+  }
   const requestId = crypto.randomUUID();
   try {
     const payload = await new Promise<{ url: string; filename: string }>((resolve, reject) => {
@@ -686,12 +1251,15 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     ) {
       throw new Error('download-failed');
     }
-    announcePlayerStatus('Audio download started');
+    if (feedback) feedback.transition({ type: 'succeed' });
+    else announcePlayerStatus('Audio download started');
     if (__BENCH__) document.documentElement.dataset.ytaDownload = JSON.stringify(payload);
-  } catch {
-    announcePlayerStatus('Audio download failed');
+  } catch (error) {
+    const reason = getDownloadFailureReason(error);
+    if (feedback) feedback.transition({ type: 'fail', reason });
+    else announcePlayerStatus(`Audio download failed: ${reason}`);
   } finally {
-    button.disabled = false;
+    if (!feedback) button.disabled = false;
   }
 }
 
@@ -705,6 +1273,7 @@ function updateToggle(active: boolean): void {
   if (!button) return;
   button.setAttribute('aria-pressed', String(active));
   button.setAttribute('aria-label', 'Toggle audio-only playback');
+  updateAudioOnlyButtonShape(button as HTMLButtonElement, active);
 }
 
 function updateStatusMarker(event: Event): void {
