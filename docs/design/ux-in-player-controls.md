@@ -45,14 +45,14 @@ navigation. The foundation is sound; the finish is not.
 
 Scoreboard against the §1 principles:
 
-| Rule | Intent | Status |
-|---|---|---|
-| R1 One obvious path | one hero affordance per surface | **Fail**: 2 to 3 competing glyphs in the bar by default |
-| R6 One accent, sparingly | accent only for active/on | Pass (accent used only for active) |
-| R7 Honest motion | no decorative animation | **Fail**: `scale(1.06)` hover is decorative and non-native |
-| R8 Native, not skinned | inherit YouTube's controls | **Fail**: placement, geometry, hover, tooltip all diverge |
-| R10 Accessibility | 44px, focus, contrast, not color-alone | Partial: good on desktop, absent on mobile; a11y gaps below |
-| R11 Deference | chrome recedes, content leads | **Fail**: black screen in audio mode; clutter in the bar |
+| Rule                     | Intent                                 | Status                                                      |
+| ------------------------ | -------------------------------------- | ----------------------------------------------------------- |
+| R1 One obvious path      | one hero affordance per surface        | **Fail**: 2 to 3 competing glyphs in the bar by default     |
+| R6 One accent, sparingly | accent only for active/on              | Pass (accent used only for active)                          |
+| R7 Honest motion         | no decorative animation                | **Fail**: `scale(1.06)` hover is decorative and non-native  |
+| R8 Native, not skinned   | inherit YouTube's controls             | **Fail**: placement, geometry, hover, tooltip all diverge   |
+| R10 Accessibility        | 44px, focus, contrast, not color-alone | Partial: good on desktop, absent on mobile; a11y gaps below |
+| R11 Deference            | chrome recedes, content leads          | **Fail**: black screen in audio mode; clutter in the bar    |
 
 ---
 
@@ -173,7 +173,7 @@ the fix and how it should coordinate with the toggle.
 
 - **SPA:** `installPlayerControls` runs `attach()` once and then on every mutation
   via `new MutationObserver(attach).observe(document.documentElement, {childList,
-  subtree})` (`:279-283`). Buttons are id-guarded, so they are re-added when
+subtree})` (`:279-283`). Buttons are id-guarded, so they are re-added when
   YouTube rebuilds the bar. Resilient, and correct in spirit. Two costs: the
   observer fires `attach` on **every** DOM mutation across the whole document
   (YouTube mutates constantly) and it is **never disconnected**. `attach` early-outs
@@ -274,7 +274,7 @@ be the inconsistency; explaining them is the fix.
 
 **P0-1. Mount as a reconciled lifecycle in the right cluster, not a one-shot
 prepend.** YouTube replaces the control subtree across SPA navigation, ad breaks,
-and mode changes, so placement is a *reconciliation* problem, not a single insert.
+and mode changes, so placement is a _reconciliation_ problem, not a single insert.
 
 - Before: `querySelector('.ytp-right-controls, .ytp-left-controls')` then
   `prepend`, landing before Play in the left cluster.
@@ -352,7 +352,7 @@ default is at least perceivable to everyone.
 ### P1: high value (fully native, feedback, defaults framing)
 
 **P1-1. Redesign the segment surface as a native contextual affordance.** Borrow
-SponsorBlock's *pattern* (contextual, appears only during a skippable segment,
+SponsorBlock's _pattern_ (contextual, appears only during a skippable segment,
 auto-hides with the control bar) but **not** its third-party green visual. Use a
 YouTube-native transient toast/chip: on auto-skip, a brief "Skipped sponsor" toast
 with an **Undo** action (forgiving and native-feeling); for a manual-skip mode, a
@@ -538,5 +538,5 @@ A change to this surface should pass all of these before it ships:
   fall back to `hqdefault`) for the backdrop.
 - Whether an audio-only keyboard shortcut collides with YouTube's own bindings
   (P2-4).
-</content>
-</invoke>
+  </content>
+  </invoke>

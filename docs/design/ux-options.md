@@ -60,14 +60,14 @@ to a numbered research note (next free is `15-`) or fold decisions into an ADR, 
 
 Source: `entrypoints/options/App.tsx`. Nav rail + search + six sections:
 
-| Section (nav) | Rows, in order | Control | Disclosure |
-|---|---|---|---|
-| **Quick Controls** (pinned card) | Master (`enabled`), Audio-only, Background play | switches | none |
-| **Playback** | Audio-only *(again)*, Background & lock-screen play *(again)*, Disable autoplay next, Maximum video quality | switches + native `<select>` | none |
-| **Protection & Ghost** | Block ads, Ghost mode | switches | none |
-| **Enhancers** | Skip segments, Sponsored segments*, Non-music segments*, Hide Shorts, Hide recommendations, Hide comments | switches (2 nested with `↳`) | none |
-| **Music** | Normalize loudness, Equalizer, Synced lyrics | switches | `<details>` "Equalizer bands" (5 sliders) |
-| **Advanced** | Download audio, Aggressive telemetry blocking | switches | `<details>` "Power-user controls" |
+| Section (nav)                    | Rows, in order                                                                                              | Control                      | Disclosure                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------- |
+| **Quick Controls** (pinned card) | Master (`enabled`), Audio-only, Background play                                                             | switches                     | none                                      |
+| **Playback**                     | Audio-only _(again)_, Background & lock-screen play _(again)_, Disable autoplay next, Maximum video quality | switches + native `<select>` | none                                      |
+| **Protection & Ghost**           | Block ads, Ghost mode                                                                                       | switches                     | none                                      |
+| **Enhancers**                    | Skip segments, Sponsored segments*, Non-music segments*, Hide Shorts, Hide recommendations, Hide comments   | switches (2 nested with `↳`) | none                                      |
+| **Music**                        | Normalize loudness, Equalizer, Synced lyrics                                                                | switches                     | `<details>` "Equalizer bands" (5 sliders) |
+| **Advanced**                     | Download audio, Aggressive telemetry blocking                                                               | switches                     | `<details>` "Power-user controls"         |
 
 The shared kit (`entrypoints/ui/components.tsx` + `components.css` + `tokens.css`) is genuinely
 good and worth defending: a real `Switch` (`role="switch"`, `aria-checked`, `aria-describedby`,
@@ -98,6 +98,7 @@ scroll a user sees the same two switches twice. It reads like a mistake, doubles
 and violates "one obvious path per surface" (R1). See `App.tsx:149-183`.
 
 **F2 - Dependent controls are not gated [P0/P1].**
+
 - SponsorBlock category rows (Sponsored / Non-music, `App.tsx:263-275`) always render, even when
   `segmentSkipEnabled` is false. The design intent (14 section 3.3) is categories only when Skip is
   on. Today you can toggle categories that do nothing.
@@ -106,7 +107,7 @@ and violates "one obvious path per surface" (R1). See `App.tsx:149-183`.
   EQ on) is not expressed.
 - Aggressive telemetry (`App.tsx:396-403`) is nested under a generic "Advanced -> Power-user
   controls" drawer next to Download, and is not gated on `ghostEnabled`, even though it is
-  conceptually a *sub-mode of Ghost* ("also block watch-time stats"). With Ghost off it is orphaned.
+  conceptually a _sub-mode of Ghost_ ("also block watch-time stats"). With Ghost off it is orphaned.
 
 **F3 - Instant-apply is half-built [P1].** Only Quick-Controls rows echo state. Every
 `SettingRow` in Playback/Protection/Enhancers/Music/Advanced passes a static description, so the
@@ -122,6 +123,7 @@ can break history/resume (the copy admits it). The `--warning`/`--danger` tokens
 in options. There is no non-modal "this is high-impact" cue.
 
 **F5 - Search dead ends [P1].** `matchesSearch` filters rows and sections, but:
+
 - A query that matches nothing renders an empty `<main>` (header + nav only). `.empty-search` is
   defined in `style.css:254-259` and never used in `App.tsx`.
 - The nav rail (`App.tsx:127-143`) always lists all six sections; when search hides a section's
@@ -129,7 +131,7 @@ in options. There is no non-modal "this is high-impact" cue.
 - The nav has **no active-section indicator** (the design showed a `●` on the current group) and no
   `aria-current`.
 - Keywords are hard-coded magic strings per row (`settingVisible('audio only playback data
-  battery')`), which will silently drift from labels as copy changes.
+battery')`), which will silently drift from labels as copy changes.
 
 **F6 - Grouping is vague [P1].** "Enhancers" mixes segment-skipping (a watch-time cleanup) with
 site decluttering (hide shorts/recs/comments) - different jobs under a marketing word (R4 bans
@@ -138,18 +140,19 @@ riskier control. There is no Reset-to-defaults, no About/what's-on, no import/ex
 
 **F7 - Android quick surface is thin [P1].** The pinned card is master + audio-only + background
 only. The desktop popup additionally shows segment-skip status and an ads/tracking protection glance
-(`popup/App.tsx` StatusRows). On Android, where this page is the *only* surface, users get less
+(`popup/App.tsx` StatusRows). On Android, where this page is the _only_ surface, users get less
 status than desktop popup users. The card is also not actually pinned - it is just the first section
-and scrolls away, and on mobile the horizontal nav strip sits *above* it, pushing the hero down.
+and scrolls away, and on mobile the horizontal nav strip sits _above_ it, pushing the hero down.
 
 **F8 - Copy leans on mechanism, not outcome [P1].** Several descriptions break R4:
+
 - Ghost mode: "Reduce safe first-party quality and instrumentation tracking." - near-meaningless to
   a user.
 - Block ads: "Remove known ad interruptions from player responses." - "player responses" is
   internal jargon.
 - Audio-only: "Play the direct audio track and stop video bytes." - "video bytes" is jargon.
-Copy should state the outcome ("Blocks ads before they play", "Stops video from loading to save
-data and battery").
+  Copy should state the outcome ("Blocks ads before they play", "Stops video from loading to save
+  data and battery").
 
 **F9 - Now-playing pulse always animates [P2].** `QuickControls` renders the breathing aqua
 `.now-playing` dot unconditionally (`components.tsx:123`), so it keeps pulsing even when the master
@@ -172,20 +175,21 @@ trap, no initial focus move, and no Escape handler.
 ## 3. Proposed IA (grouped, searchable, progressively disclosed)
 
 One pinned quick surface, then intent-named groups. Every stored setting has exactly one home; no
-setting appears twice. Defaults shown in *italics*.
+setting appears twice. Defaults shown in _italics_.
 
-| Group (nav) | Rows (default) | Control | Disclosed / dependent |
-|---|---|---|---|
-| **Quick Controls** (pinned) | Master *(on)*; Audio-only *(on)*; Background play *(on)*; live status: Skipping, Ads & tracking | switches + read-only status rows | - |
-| **Playback** | Disable autoplay-next *(off; see note)*; | switch | **Advanced:** Max video quality / Data saver `<select>` *(Automatic)* - "applies when Audio-only is off" |
-| **Privacy & Blocking** | Block ads *(on, high-impact)*; Ghost mode *(on, recommended)* | switches | Under Ghost: **Aggressive telemetry** *(off, high-impact)* - enabled only when Ghost is on |
-| **Skipping** | Skip segments *(on)* | switch | Category rows Sponsored / Non-music - shown only when Skip is on |
-| **Cleaner YouTube** | Hide Shorts *(off)*; Hide recommendations *(off)*; Hide comments *(off)* | switches | - |
-| **Music** | Normalize loudness *(on)*; Equalizer *(off)*; Synced lyrics *(off)* | switches | EQ band sliders - shown only when Equalizer is on |
-| **Downloads** | Download audio *(off; absent in the AMO/listed build per ADR-0003)* | switch | **Advanced (later):** format / filename |
-| **Advanced / About** | Reset to defaults; (later) import/export; version + "what's on" checklist | button + text | - |
+| Group (nav)                 | Rows (default)                                                                                  | Control                          | Disclosed / dependent                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Quick Controls** (pinned) | Master _(on)_; Audio-only _(on)_; Background play _(on)_; live status: Skipping, Ads & tracking | switches + read-only status rows | -                                                                                                        |
+| **Playback**                | Disable autoplay-next _(off; see note)_;                                                        | switch                           | **Advanced:** Max video quality / Data saver `<select>` _(Automatic)_ - "applies when Audio-only is off" |
+| **Privacy & Blocking**      | Block ads _(on, high-impact)_; Ghost mode _(on, recommended)_                                   | switches                         | Under Ghost: **Aggressive telemetry** _(off, high-impact)_ - enabled only when Ghost is on               |
+| **Skipping**                | Skip segments _(on)_                                                                            | switch                           | Category rows Sponsored / Non-music - shown only when Skip is on                                         |
+| **Cleaner YouTube**         | Hide Shorts _(off)_; Hide recommendations _(off)_; Hide comments _(off)_                        | switches                         | -                                                                                                        |
+| **Music**                   | Normalize loudness _(on)_; Equalizer _(off)_; Synced lyrics _(off)_                             | switches                         | EQ band sliders - shown only when Equalizer is on                                                        |
+| **Downloads**               | Download audio _(off; absent in the AMO/listed build per ADR-0003)_                             | switch                           | **Advanced (later):** format / filename                                                                  |
+| **Advanced / About**        | Reset to defaults; (later) import/export; version + "what's on" checklist                       | button + text                    | -                                                                                                        |
 
 Notes:
+
 - Audio-only and Background play live **only** in the pinned Quick Controls (they are the two most
   touched controls and the Android hero). Playback then holds the less-frequent playback tuning. This
   removes F1 without losing anything.
@@ -212,19 +216,19 @@ Notes:
 2. **Search overrides disclosure** (already true): typing expands matching advanced blocks so a
    hidden child is still findable.
 3. **Advanced drawers hold only genuinely rare/tuning controls** (quality cap, EQ bands, download
-   format), never a *different feature* (Download is its own group, not "Advanced").
+   format), never a _different feature_ (Download is its own group, not "Advanced").
 
 ### Micro-copy (outcome, not mechanism)
 
-| Row | Before | After |
-|---|---|---|
-| Audio-only | "Play the direct audio track and stop video bytes." | "Stops video from loading. Saves data and battery." |
-| Background play | "Keep playing when YouTube is hidden." | keep (already outcome-first) |
-| Block ads | "Remove known ad interruptions from player responses." | "Blocks ads before they play. May rarely affect playback." |
-| Ghost mode | "Reduce safe first-party quality and instrumentation tracking." | "Blocks YouTube's tracking. Playback stays normal." |
+| Row                  | Before                                                                  | After                                                                                        |
+| -------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Audio-only           | "Play the direct audio track and stop video bytes."                     | "Stops video from loading. Saves data and battery."                                          |
+| Background play      | "Keep playing when YouTube is hidden."                                  | keep (already outcome-first)                                                                 |
+| Block ads            | "Remove known ad interruptions from player responses."                  | "Blocks ads before they play. May rarely affect playback."                                   |
+| Ghost mode           | "Reduce safe first-party quality and instrumentation tracking."         | "Blocks YouTube's tracking. Playback stays normal."                                          |
 | Aggressive telemetry | "Also block watch-time statistics; history and resume may be affected." | "Also blocks watch-time stats. Your history and resume-where-you-left-off may stop working." |
-| Skip segments | "Privately look up and skip enabled categories." | "Skips sponsored and non-music parts. Lookups are anonymous." |
-| Synced lyrics | "Opt in to an anonymous LRCLIB lookup." | "Shows time-synced lyrics from LRCLIB. Anonymous lookup." |
+| Skip segments        | "Privately look up and skip enabled categories."                        | "Skips sponsored and non-music parts. Lookups are anonymous."                                |
+| Synced lyrics        | "Opt in to an anonymous LRCLIB lookup."                                 | "Shows time-synced lyrics from LRCLIB. Anonymous lookup."                                    |
 
 ### Risky-toggle framing (non-modal)
 
@@ -241,6 +245,7 @@ telemetry. This is color **plus text** (R10: never color alone).
 
 **P0-1. De-duplicate (F1).** Remove the Audio-only and Background rows from the Playback section;
 keep them only in the pinned Quick-Controls card.
+
 - Before: Quick Controls {master, audio-only, background}; Playback {audio-only, background, autoplay,
   quality}.
 - After: Quick Controls {master, audio-only, background, +status}; Playback {autoplay; Advanced:
@@ -248,12 +253,14 @@ keep them only in the pinned Quick-Controls card.
 
 **P0-2. Gate segment categories on the master (F2).** Render Sponsored/Non-music rows only when
 `segmentSkipEnabled` is true.
+
 - Before: `sponsorRows.filter(...).map(...)` always runs (`App.tsx:263-275`).
 - After: `{segmentSkipEnabledSignal.value && sponsorRows...}` inside the Skipping group; reveal with
   `--dur-2` height+fade.
 
 **P0-3. Gate EQ bands on the EQ toggle (F2).** Render the bands disclosure only when
 `equalizerEnabled`.
+
 - Before: `<details class="advanced-disclosure">` always present in Music (`App.tsx:349-374`).
 - After: `{equalizerEnabledSignal.value && <details ...>}` - and consider making it inline (no
   `<details>`) once the EQ is on, since a visible-EQ-with-hidden-bands is an extra needless click.
@@ -267,6 +274,7 @@ Ghost row in Privacy & Blocking; `disabled` with "Turn on Ghost to use" when Gho
 **P1-2. Finish instant-apply + honest failure (F3).** Give every row a live description that echoes
 state (mirror `QuickControls`), and wrap options setters in the popup's `apply()` pattern so a
 rejected write surfaces an inline `role="alert"` message instead of vanishing.
+
 - Before: `onChange={(checked) => void actions.setAdBlockEnabled(checked)}`, static description.
 - After: shared `apply()` with try/catch -> inline error; description switches on `checked`.
 

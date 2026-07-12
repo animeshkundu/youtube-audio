@@ -99,3 +99,54 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:bench
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  matrix:
+    name: Settings-permutation matrix (Firefox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # Drives the real built add-on across the full toggle permutation space (all-off, each
+      # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
+      # edges) against the hermetic fixture. Deterministic; safe to gate on.
+      - name: Run settings-permutation matrix
+        run: xvfb-run --auto-servernum npm run test:matrix
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  docs:
+    name: MkDocs strict build (nav + links)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements-docs.txt
+
+      # --strict fails on a broken nav entry, a dangling internal link, or a page missing from
+      # the nav, so a stale docs tree cannot merge green.
+      - name: Build docs (strict)
+        run: mkdocs build --strict

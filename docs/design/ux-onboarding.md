@@ -21,12 +21,12 @@ Both are fixable with a small, high-leverage change. The correct minimal onboard
 
 ### 2.1 What is implemented
 
-| Element | Location | Behavior |
-|---|---|---|
-| Welcome card | `entrypoints/ui/components.tsx` `Onboarding` | Modal: `.onboarding-backdrop` (translucent `--scrim`) over a centered `role="dialog" aria-modal="true"` card. |
-| Trigger | `entrypoints/options/main.tsx` + `App.tsx` | On options load, `hasSeenOnboarding()` reads the `seenOnboarding` local-storage key; if unset, the modal is shown over Settings. |
-| Persistence | `App.tsx` `markOnboardingSeen` | Any action (Open YouTube, Tune settings) writes `seenOnboarding = true`. Shows once. |
-| Copy | `Onboarding` | Title "You're all set." Body "Audio-only, ad blocking, and background play are already on. Nothing else is required." Primary "Open YouTube" (opens `youtube.com` + marks seen). Secondary "Tune settings" (dismiss). |
+| Element      | Location                                     | Behavior                                                                                                                                                                                                              |
+| ------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Welcome card | `entrypoints/ui/components.tsx` `Onboarding` | Modal: `.onboarding-backdrop` (translucent `--scrim`) over a centered `role="dialog" aria-modal="true"` card.                                                                                                         |
+| Trigger      | `entrypoints/options/main.tsx` + `App.tsx`   | On options load, `hasSeenOnboarding()` reads the `seenOnboarding` local-storage key; if unset, the modal is shown over Settings.                                                                                      |
+| Persistence  | `App.tsx` `markOnboardingSeen`               | Any action (Open YouTube, Tune settings) writes `seenOnboarding = true`. Shows once.                                                                                                                                  |
+| Copy         | `Onboarding`                                 | Title "You're all set." Body "Audio-only, ad blocking, and background play are already on. Nothing else is required." Primary "Open YouTube" (opens `youtube.com` + marks seen). Secondary "Tune settings" (dismiss). |
 
 ### 2.2 What is missing versus the design intent (research §8)
 
@@ -93,6 +93,7 @@ Exact copy (desktop):
 ```
 
 Rationale for each line:
+
 - **"You're all set."** Reassurance first. The user did the work by installing; there is nothing left to do.
 - **One line of what is on.** Three outcomes the user cares about (audio-only, background, ad blocking), not the full six-item default list, and not a single mechanism word. Ghost, segment-skip, and loudness are quietly also on and are discoverable in Settings / About; naming all six here would trade calm for completeness.
 - **One teaching line.** This is the load-bearing sentence. It names the exact glyph (`♪`) and the exact action so the first no-video moment is already explained before it happens.
@@ -166,16 +167,16 @@ Firefox for Android has no toolbar popup (`wxt.config.ts` ships `browser_action`
 
 ## 9. Consolidated copy deck
 
-| Surface | String |
-|---|---|
-| Welcome, title | You're all set. |
-| Welcome, what's on | Audio-only, background play, and ad blocking are on. Nothing to set up. |
-| Welcome, teach | While a video plays, tap ♪ in the player to switch between audio and video. |
-| Welcome, primary CTA | Open YouTube |
-| Welcome, secondary | Explore settings |
-| Welcome, privacy line | Runs without your account, and sends nothing about you anywhere. |
-| Welcome, pin tip (desktop only) | Pin it: click the puzzle-piece Extensions icon in your toolbar, then pin YouTube Audio. |
-| In-player coach tooltip | Audio-only is on. Tap here for video. |
+| Surface                                        | String                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Welcome, title                                 | You're all set.                                                                                  |
+| Welcome, what's on                             | Audio-only, background play, and ad blocking are on. Nothing to set up.                          |
+| Welcome, teach                                 | While a video plays, tap ♪ in the player to switch between audio and video.                      |
+| Welcome, primary CTA                           | Open YouTube                                                                                     |
+| Welcome, secondary                             | Explore settings                                                                                 |
+| Welcome, privacy line                          | Runs without your account, and sends nothing about you anywhere.                                 |
+| Welcome, pin tip (desktop only)                | Pin it: click the puzzle-piece Extensions icon in your toolbar, then pin YouTube Audio.          |
+| In-player coach tooltip                        | Audio-only is on. Tap here for video.                                                            |
 | Settings ad-block description (not onboarding) | Ad blocking adapts to YouTube's changes. If an ad slips through, it usually clears within a day. |
 
 ---

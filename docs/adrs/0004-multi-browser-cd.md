@@ -52,12 +52,12 @@ Manifest V3 parity rewrite of the extension's core network-interception paths.
 ### Evidence: the core mechanisms are Firefox/MV2-bound
 
 - Blocking `webRequest`: `browser.webRequest.onBeforeRequest.addListener(blockTelemetry,
-  ..., ['blocking'])` (`entrypoints/background.ts:357-359`).
+..., ['blocking'])` (`entrypoints/background.ts:357-359`).
 - `filterResponseData` (the ad/telemetry player-response prune): only
   `entrypoints/background.ts` uses it, at `background.ts:82` inside `filterPlayerResponse`.
   This API is **Firefox-only** and has no Chromium equivalent.
 - The platform adapter already encodes the split: `blockingWebRequest: manifestVersion
-  === 2` (`src/shared/platform.ts:12`). Blocking webRequest is treated as an MV2-only
+=== 2` (`src/shared/platform.ts:12`). Blocking webRequest is treated as an MV2-only
   capability, which in practice means Firefox-only (Chrome MV2 is dead).
 - Credentialless ANDROID_VR media fetch: `credentials: 'omit'` throughout the fetch
   paths (`background.ts:132,237`, `main-world.ts:200,308`, `download.ts:98,107`) with the
@@ -162,13 +162,13 @@ Chrome and Edge are Chromium MV3 only now:
 
 **What breaks or needs a DNR/MV3 re-implementation on Chromium:**
 
-| Feature | Fate on Chromium MV3 |
-| --- | --- |
-| Telemetry blocking (blocking `onBeforeRequest`) | Re-implement as `declarativeNetRequest`; loses runtime conditional logic |
-| Player-response ad prune (`filterResponseData`) | **No API exists.** Not portable; needs a new response-rewrite design or is dropped |
-| Audio-only via ANDROID_VR credentialless fetch | Portable in principle; needs MV3 service-worker + host-permission revalidation |
-| Persistent background state | Rewrite for a non-persistent service worker |
-| Audio download | Portable (`downloads` exists on Chromium), but inherits the store-policy risk of ADR-0003 |
+| Feature                                         | Fate on Chromium MV3                                                                      |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Telemetry blocking (blocking `onBeforeRequest`) | Re-implement as `declarativeNetRequest`; loses runtime conditional logic                  |
+| Player-response ad prune (`filterResponseData`) | **No API exists.** Not portable; needs a new response-rewrite design or is dropped        |
+| Audio-only via ANDROID_VR credentialless fetch  | Portable in principle; needs MV3 service-worker + host-permission revalidation            |
+| Persistent background state                     | Rewrite for a non-persistent service worker                                               |
+| Audio download                                  | Portable (`downloads` exists on Chromium), but inherits the store-policy risk of ADR-0003 |
 
 **Is Chrome/Edge even in scope?** No. The product's stated north star is **Firefox
 desktop + Firefox for Android** (product direction; research 03 executive summary; the
@@ -178,12 +178,12 @@ the tool targets it. Chrome/Edge are not a listed goal.
 
 ## Per-browser CD decision table
 
-| Browser | Artifact today | Store vs self-host | Signing required | Versioning | Feasibility / effort | Features that break on MV3 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Firefox (MV2)** | Signed XPI + `updates.json`, both to GitHub Releases (`release.yml:70-78`) | Self-hosted (unlisted) desktop; AMO-listed for Android auto-update (ADR-0002) | **Yes, implemented** (`web-ext sign --channel=unlisted`, `release.sh:28-33`) | Tag == `package.json` gate (`release.yml:53-57`); manifest version duplicated in `wxt.config.ts:58` | Shipping now (owner gates: real Gecko IDs, Pages endpoint, AMO listing) | N/A (stays MV2) |
-| **Firefox (MV3)** | Compile-only CI artifact, uploaded nowhere (`ci.yml:53-70`) | Not distributed | Would need signing if ever shipped | Same source as MV2 build | Builds, but not a shipping target | Blocking webRequest + `filterResponseData` degrade even on Gecko MV3 |
-| **Chrome** | **None** | Chrome Web Store (CRX store-signed); unpacked is dev/enterprise only | **Yes** (store publish signature); no self-sign | No artifact | **Not a CD step; MV3 parity rewrite.** MV2 is dead | `filterResponseData` impossible; blocking webRequest to DNR; ANDROID_VR revalidation |
-| **Edge** | **None** | Edge Add-ons (Partner Center, store-signed) | **Yes** (store publish signature) | No artifact | Consumes the same Chromium MV3 build as Chrome, once that exists | Same as Chrome |
+| Browser           | Artifact today                                                             | Store vs self-host                                                            | Signing required                                                             | Versioning                                                                                          | Feasibility / effort                                                    | Features that break on MV3                                                           |
+| ----------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Firefox (MV2)** | Signed XPI + `updates.json`, both to GitHub Releases (`release.yml:70-78`) | Self-hosted (unlisted) desktop; AMO-listed for Android auto-update (ADR-0002) | **Yes, implemented** (`web-ext sign --channel=unlisted`, `release.sh:28-33`) | Tag == `package.json` gate (`release.yml:53-57`); manifest version duplicated in `wxt.config.ts:58` | Shipping now (owner gates: real Gecko IDs, Pages endpoint, AMO listing) | N/A (stays MV2)                                                                      |
+| **Firefox (MV3)** | Compile-only CI artifact, uploaded nowhere (`ci.yml:53-70`)                | Not distributed                                                               | Would need signing if ever shipped                                           | Same source as MV2 build                                                                            | Builds, but not a shipping target                                       | Blocking webRequest + `filterResponseData` degrade even on Gecko MV3                 |
+| **Chrome**        | **None**                                                                   | Chrome Web Store (CRX store-signed); unpacked is dev/enterprise only          | **Yes** (store publish signature); no self-sign                              | No artifact                                                                                         | **Not a CD step; MV3 parity rewrite.** MV2 is dead                      | `filterResponseData` impossible; blocking webRequest to DNR; ANDROID_VR revalidation |
+| **Edge**          | **None**                                                                   | Edge Add-ons (Partner Center, store-signed)                                   | **Yes** (store publish signature)                                            | No artifact                                                                                         | Consumes the same Chromium MV3 build as Chrome, once that exists        | Same as Chrome                                                                       |
 
 ## Decision
 
@@ -212,7 +212,7 @@ Audit of the current pipeline against the confirmed goal, item by item:
   `youtube-audio@local`, which RELEASE.md:11 and ADR-0002 say must be replaced with a
   permanent, distinct ID before real distribution.
 - **Signed so it installs on release/beta Firefox + Android? YES.** `web-ext sign
-  --channel=unlisted` (`release.sh:28-33`), gated on `AMO_JWT_ISSUER` / `AMO_JWT_SECRET`
+--channel=unlisted` (`release.sh:28-33`), gated on `AMO_JWT_ISSUER` / `AMO_JWT_SECRET`
   (`release.sh:11-19`) which are wired as repo secrets under those exact names
   (`release.yml:22-23`). A Mozilla signature is mandatory on release/beta Firefox for both
   desktop and Android.

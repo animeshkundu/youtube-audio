@@ -113,12 +113,15 @@ nav:
       - SPEC-008 M5 Audio Download: specs/SPEC-008-m5-audio-download.md
       - SPEC-009 M6 Design Polish: specs/SPEC-009-m6-design-polish.md
       - SPEC-010 M7 Release Infrastructure: specs/SPEC-010-m7-release-infrastructure.md
+      - SPEC-011 Diagnostics and Issue Reporter: specs/SPEC-011-diagnostics-and-issue-reporter.md
   - Decisions (ADRs):
       - Overview: adrs/README.md
       - ADR-0001 WXT + TypeScript + Preact: adrs/0001-wxt-typescript-preact-foundation.md
       - ADR-0002 Firefox Distribution Identities: adrs/0002-separate-firefox-distribution-identities.md
       - ADR-0003 AMO Distribution Preflight: adrs/0003-amo-distribution-preflight.md
       - ADR-0004 Multi-browser CD Scope: adrs/0004-multi-browser-cd.md
+      - ADR-0005 PII-free Diagnostics: adrs/0005-pii-free-diagnostics-and-issue-reporter.md
+      - ADR-0006 AMO + Beta Distribution: adrs/0006-firefox-amo-distribution-and-beta-channel.md
       - ADR Template: adrs/0000-template.md
   - Design:
       - Popup UX Review: design/ux-popup.md
@@ -143,6 +146,7 @@ nav:
       - 14 Design Language & UX: research/14-design-language-and-ux.md
       - 17 Phase 0 Spike Results: research/17-phase0-spike-results.md
       - 18 Firefox Android Testing: research/18-firefox-android-testing-constrained-mac.md
+      - 19 AMO Channels & On-demand Publish: research/19-amo-channels-and-ondemand-publish.md
   - Project History:
       - Overview: history/README.md
       - M0 Foundation: history/2026-07-11-m0-foundation.md
@@ -158,6 +162,10 @@ nav:
       - Desktop Breadth & Live Fix: history/2026-07-11-desktop-breadth-and-live-fix.md
       - Live E2E Results: history/2026-07-11-live-e2e-results.md
       - Mobile Firefox Verification: history/2026-07-11-mobile-firefox-verification.md
+      - Diagnostics & Issue Reporter: history/2026-07-11-diagnostics-and-issue-reporter.md
+      - Settings-Permutation Matrix: history/2026-07-12-settings-permutation-matrix.md
+      - Firefox-only CD Fixes: history/2026-07-12-firefox-cd-fixes.md
+      - AMO Distribution Setup: history/2026-07-12-amo-distribution-setup.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

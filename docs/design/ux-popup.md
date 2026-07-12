@@ -42,7 +42,7 @@ This is the headline problem and it undermines the whole surface.
 - **No tab awareness at all.** `browser.tabs.query` / `activeTab` appears nowhere in `entrypoints/popup/`. The only `browser.tabs` call in the codebase is `browser.tabs.create` in the options page. The popup renders byte-for-byte identically on `youtube.com/watch`, `music.youtube.com`, and `example.com`.
 - **"Current page" is a false label.** The `CURRENT PAGE` section shows global settings, not the current page. `Audio-only: Active` is computed from `audioOnlyEnabledSignal.value`, the stored preference, not from what the active video is actually doing (`App.tsx:74`).
 - **The real per-video state already exists and is thrown away.** `entrypoints/main-world.ts:33` defines `type PlaybackStatus = 'idle' | 'fetching' | 'active' | 'fallback' | 'disabled'` and `emitStatus()` (`:97`) fires it with honest reasons: `live`, `no-direct-audio`, `unplayable`, `http-<code>`, `not-a-watch-page`, `media-attach-failed`. This is exactly "is audio-only active on THIS video, or did it fall back?" The content script even mirrors it to `document.documentElement.dataset.ytaStatus` / `ytaReason` (`content.ts:425-428`). The popup consumes none of it.
-- **This makes the popup actively dishonest, not just thin.** Per the `credentialless-first` direction, auth-required, live, and undownloadable videos are *expected* to fall back to normal playback. On those videos the popup will still say `Audio-only: Active` in green while the user is watching full video. A status surface that lies on its most important line fails the Jobs/Ive bar before any pixel polish matters.
+- **This makes the popup actively dishonest, not just thin.** Per the `credentialless-first` direction, auth-required, live, and undownloadable videos are _expected_ to fall back to normal playback. On those videos the popup will still say `Audio-only: Active` in green while the user is watching full video. A status surface that lies on its most important line fails the Jobs/Ive bar before any pixel polish matters.
 
 The design system anticipated all of this and it was not built: SPEC-009 and `14-design-language-and-ux.md` §3.2 both call for a contextual "This video" section that only renders on a watch/music page, and §6.7 specifies a non-YouTube empty state ("Open YouTube to start"). Neither exists.
 
@@ -73,12 +73,14 @@ The design system anticipated all of this and it was not built: SPEC-009 and `14
 ### 1.7 Accessibility and theming (the genuinely good parts, and the gaps)
 
 Good, keep it:
+
 - `Switch` is a real `role="switch"` with `aria-checked`, an accessible name, and a visible `On`/`Off` text label, so state is conveyed by position and text, not color alone (`components.tsx:10-32`). This satisfies R10's "never rely on color alone."
 - Touch targets are honored: switch `min 52x44`, rows `64px`, icon button `44x44`.
 - Global `:focus-visible` is a real 2px `--accent-hover` outline (`tokens.css:117`); `prefers-reduced-motion` and `prefers-contrast: more` are handled globally, and the now-playing animation is disabled under reduced motion.
 - Dark and light themes are fully tokenized (`tokens.css`).
 
 Gaps:
+
 - **Row focus ring is too weak.** `.setting-row:focus-within` uses `box-shadow: inset 0 0 0 2px var(--accent-wash)` (`components.css:129-132`), a 14%-opacity aqua that falls well under the 3:1 non-text contrast floor. The inner switch's real focus ring rescues keyboard users, so this decorative row ring should either be strengthened to `--accent-hover` or removed to avoid a misleadingly faint indicator.
 - **Small-caption secondary text is at the contrast margin.** StatusRow values render at `--type-caption` (11px) in `--text-secondary` (`#AAAAAA`) on `--surface-2`, which sits right around the 4.5:1 line for small text and dips further on `:hover` (surface-3). Any status text that carries meaning should be `--text-primary` or a larger size.
 - **Theme follows OS, not the page.** R9 wants the popup color-matched to the active YouTube page (dark watch page vs light), falling back to `prefers-color-scheme`. The popup only ever reads `prefers-color-scheme`. Minor, because most of YouTube is dark, but noted.
@@ -116,14 +118,14 @@ Before: `Audio-only: Active` whenever the toggle is on.
 
 After: the hero reflects `PlaybackStatus` for this video, with copy that never claims audio-only when the video fell back:
 
-| State (from `main-world`) | Hero sub-copy | Accent |
-| --- | --- | --- |
-| `active` | "Audio-only on. Video muted, battery saved." | aqua, pulse |
-| `fetching` | "Switching to audio-only…" | aqua, no pulse |
-| `fallback` + `live` | "Live stream, playing normally." | none |
-| `fallback` + `no-direct-audio` / `unplayable` / `http-*` | "Audio-only isn't available on this video. Playing normally." | none |
-| `disabled` (toggle off) | "Audio-only off. Video plays normally." | none |
-| not a watch page (on YouTube) | "Play a video to use audio-only." | none |
+| State (from `main-world`)                                | Hero sub-copy                                                 | Accent         |
+| -------------------------------------------------------- | ------------------------------------------------------------- | -------------- |
+| `active`                                                 | "Audio-only on. Video muted, battery saved."                  | aqua, pulse    |
+| `fetching`                                               | "Switching to audio-only…"                                    | aqua, no pulse |
+| `fallback` + `live`                                      | "Live stream, playing normally."                              | none           |
+| `fallback` + `no-direct-audio` / `unplayable` / `http-*` | "Audio-only isn't available on this video. Playing normally." | none           |
+| `disabled` (toggle off)                                  | "Audio-only off. Video plays normally."                       | none           |
+| not a watch page (on YouTube)                            | "Play a video to use audio-only."                             | none           |
 
 The pulse and the aqua wash appear only in the `active` row. Everywhere else the hero is graphite. This restores R6 and turns the accent back into a signal.
 
@@ -138,6 +140,7 @@ After: remove the section entirely. Audio-only's true current-page state now liv
 Before: master `enabled` is the large hero; audio-only and background are equal-weight rows.
 
 After, matching §3.2 verbatim ("audio-only stays hero and master becomes the header context"):
+
 - **Hero = Audio-only for the current tab**, big switch plus the live P0-2 status line.
 - **Master on/off becomes a quiet control**, a slim "Pause YouTube Audio" affordance in the header or footer, not a full-width hero. It is a rarely-touched kill switch, so it should not occupy the most valuable pixels or invite an accidental full-disable on a large tap target.
 - **Background play stays as the single secondary toggle.**
@@ -196,6 +199,7 @@ A single well-made card that answers, in one glance, "what is this tab doing, an
 ```
 
 Behavioral spine:
+
 - **The hero is the tab, not the setting.** Its status line is fed by the `active | fetching | fallback | disabled` signal the extension already emits, so it is correct on live streams, auth-required videos, and non-watch pages, and it never claims audio-only during a fallback.
 - **Accent means active, only.** The aqua dot and any wash appear in the `active` state and nowhere else.
 - **Master is a quiet pause, not a hero.** A small power control in the header dims the whole card to a single "Paused. YouTube works normally." line when off.
@@ -210,17 +214,17 @@ Two-audience contract, honored: the 90% open the popup, read one true status lin
 
 Replace mechanism and filler language with outcomes.
 
-| Location | Before | After |
-| --- | --- | --- |
-| Hero sub-copy | "Active · your preferences apply instantly" | state-driven, per the P0-2 table |
-| Audio-only, on | "On · saving video data and battery" | "On. Video muted on this tab." |
-| Audio-only, fallback | (not shown) | "Audio-only isn't available on this video. Playing normally." |
-| Background play, on | "On · keeps playing when hidden" | "On. Keeps playing in the background." |
-| Segment skipping | "Ready" | omit; show "2 skipped on this video" only when measured, else Settings-only |
-| Protection | "Ads and tracking: 1 of 2" | "Ads blocked. Ghost off." (plain, no fraction) |
-| Master off | "Paused · YouTube works normally" | keep, and dim the card to match |
-| Empty (off-YouTube) | (not shown) | "Open YouTube to start." + [Open YouTube] |
-| Settings button | "⌘" glyph | gear icon or the word "Settings" |
+| Location             | Before                                      | After                                                                       |
+| -------------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| Hero sub-copy        | "Active · your preferences apply instantly" | state-driven, per the P0-2 table                                            |
+| Audio-only, on       | "On · saving video data and battery"        | "On. Video muted on this tab."                                              |
+| Audio-only, fallback | (not shown)                                 | "Audio-only isn't available on this video. Playing normally."               |
+| Background play, on  | "On · keeps playing when hidden"            | "On. Keeps playing in the background."                                      |
+| Segment skipping     | "Ready"                                     | omit; show "2 skipped on this video" only when measured, else Settings-only |
+| Protection           | "Ads and tracking: 1 of 2"                  | "Ads blocked. Ghost off." (plain, no fraction)                              |
+| Master off           | "Paused · YouTube works normally"           | keep, and dim the card to match                                             |
+| Empty (off-YouTube)  | (not shown)                                 | "Open YouTube to start." + [Open YouTube]                                   |
+| Settings button      | "⌘" glyph                                   | gear icon or the word "Settings"                                            |
 
 ---
 
