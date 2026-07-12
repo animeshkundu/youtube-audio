@@ -16,6 +16,10 @@ interface PlaybackSnapshot {
   paused: boolean;
 }
 
+interface RestoreOptions {
+  skipSrc?: boolean;
+}
+
 export class PlayerHandle {
   private currentGeneration = 0;
   private mediaElement: HTMLMediaElement | null = null;
@@ -98,7 +102,7 @@ export class PlayerHandle {
       this.reassertions += 1;
       return this.reassertions > this.maxReassertions;
     };
-    const openCircuit = () => this.openCircuit();
+    const openCircuit = (options?: RestoreOptions) => this.openCircuit(options);
     Object.defineProperty(this.mediaPrototype, 'src', {
       configurable: true,
       enumerable: descriptor.enumerable ?? false,
@@ -109,7 +113,7 @@ export class PlayerHandle {
         const activeAudioUrl = getActiveAudioUrl(this);
         if (activeAudioUrl && typeof value === 'string' && value !== activeAudioUrl) {
           if (recordReassertion()) {
-            openCircuit();
+            openCircuit({ skipSrc: true });
             descriptor.set!.call(this, value);
             return;
           }
@@ -148,11 +152,11 @@ export class PlayerHandle {
     else mediaElement.src = source;
   }
 
-  private openCircuit(): void {
-    this.restore();
+  private openCircuit(options?: RestoreOptions): void {
+    this.restore(options);
   }
 
-  private restore(): void {
+  private restore({ skipSrc = false }: RestoreOptions = {}): void {
     const mediaElement = this.mediaElement;
     const snapshot = this.snapshot;
     this.mediaElement = null;
@@ -165,7 +169,7 @@ export class PlayerHandle {
         Object.defineProperty(this.mediaPrototype, 'src', this.originalDescriptor);
         this.originalDescriptor = undefined;
       }
-      if (mediaElement && snapshot) {
+      if (!skipSrc && mediaElement && snapshot) {
         mediaElement.src = snapshot.src;
         mediaElement.currentTime = snapshot.currentTime;
         mediaElement.playbackRate = snapshot.playbackRate;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PlayerHandle } from '../../src/shared/player';
 
@@ -23,8 +23,16 @@ class FakeMedia {
   }
 }
 
+const fakeMediaSrcDescriptor = Object.getOwnPropertyDescriptor(FakeMedia.prototype, 'src')!;
+
 beforeEach(() => {
+  Object.defineProperty(FakeMedia.prototype, 'src', fakeMediaSrcDescriptor);
   vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=video1'));
+});
+
+afterEach(() => {
+  Object.defineProperty(FakeMedia.prototype, 'src', fakeMediaSrcDescriptor);
+  vi.restoreAllMocks();
 });
 
 describe('PlayerHandle', () => {
@@ -55,7 +63,8 @@ describe('PlayerHandle', () => {
     expect(media.play).toHaveBeenCalledOnce();
   });
 
-  it('opens its circuit after repeated page reassertions and restores native playback', () => {
+  it('does not restore the snapshot src before applying the page src when the circuit opens', () => {
+    const srcSetter = vi.spyOn(FakeMedia.prototype, 'src', 'set');
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype, maxReassertions: 2 });
     const generation = handle.navigate();
     const media = new FakeMedia();
@@ -64,8 +73,11 @@ describe('PlayerHandle', () => {
     media.src = 'blob:first';
     media.src = 'blob:second';
     expect(media.src).toBe('https://media.example/audio');
+    srcSetter.mockClear();
     media.src = 'blob:third';
 
+    expect(srcSetter).toHaveBeenCalledOnce();
+    expect(srcSetter).toHaveBeenCalledWith('blob:third');
     expect(handle.getMediaElement()).toBeNull();
     expect(media.src).toBe('blob:third');
   });
