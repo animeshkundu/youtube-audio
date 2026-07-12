@@ -166,26 +166,6 @@ export function Options({
             <section id="playback" class="settings-section">
               <SectionHeader>Playback</SectionHeader>
               <div class="settings-card">
-                {settingVisible('audio only playback data battery') && (
-                  <SettingRow
-                    id="option-audio-only"
-                    label="Audio-only"
-                    description="Play the direct audio track and stop video bytes."
-                    checked={audioOnlyEnabledSignal.value}
-                    onChange={(checked) => void actions.setAudioOnlyEnabled(checked)}
-                    recommended
-                  />
-                )}
-                {settingVisible('background play lock screen hidden tab') && (
-                  <SettingRow
-                    id="option-background"
-                    label="Background & lock-screen play"
-                    description="Keep playing when YouTube is hidden."
-                    checked={backgroundPlayEnabledSignal.value}
-                    onChange={(checked) => void actions.setBackgroundPlayEnabled(checked)}
-                    recommended
-                  />
-                )}
                 {settingVisible('disable autoplay next video') && (
                   <SettingRow
                     id="option-autoplay"
@@ -264,19 +244,22 @@ export function Options({
                     onChange={(checked) => void actions.setSegmentSkipEnabled(checked)}
                   />
                 )}
-                {sponsorRows
-                  .filter(([, label, description]) => settingVisible('skip', label, description))
-                  .map(([category, label, description]) => (
-                    <SettingRow
-                      key={category}
-                      id={`option-${category}`}
-                      label={label}
-                      description={description}
-                      checked={segmentSkipCategoriesSignal.value.includes(category)}
-                      onChange={(checked) => void actions.setSegmentSkipCategory(category, checked)}
-                      className="nested-row"
-                    />
-                  ))}
+                {segmentSkipEnabledSignal.value &&
+                  sponsorRows
+                    .filter(([, label, description]) => settingVisible('skip', label, description))
+                    .map(([category, label, description]) => (
+                      <SettingRow
+                        key={category}
+                        id={`option-${category}`}
+                        label={label}
+                        description={description}
+                        checked={segmentSkipCategoriesSignal.value.includes(category)}
+                        onChange={(checked) =>
+                          void actions.setSegmentSkipCategory(category, checked)
+                        }
+                        className="nested-row"
+                      />
+                    ))}
                 {settingVisible('hide shorts distraction') && (
                   <SettingRow
                     id="option-shorts"
@@ -350,7 +333,7 @@ export function Options({
                   />
                 )}
               </div>
-              {settingVisible('equalizer music sound bands') && (
+              {equalizerEnabledSignal.value && settingVisible('equalizer music sound bands') && (
                 <details class="advanced-disclosure" open={normalizedQuery.length > 0}>
                   <summary>Equalizer bands</summary>
                   <div class="range-grid">

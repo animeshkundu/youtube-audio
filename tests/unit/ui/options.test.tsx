@@ -5,7 +5,11 @@ import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Options, type OptionsActions } from '../../../entrypoints/options/App';
-import { audioOnlyEnabledSignal } from '../../../src/shared/settings-signals';
+import {
+  audioOnlyEnabledSignal,
+  equalizerEnabledSignal,
+  segmentSkipEnabledSignal,
+} from '../../../src/shared/settings-signals';
 
 function actions(): OptionsActions {
   return {
@@ -43,10 +47,14 @@ afterEach(() => {
   render(null, document.body);
   document.body.replaceChildren();
   audioOnlyEnabledSignal.value = true;
+  segmentSkipEnabledSignal.value = true;
+  equalizerEnabledSignal.value = false;
 });
 
 describe('Options', () => {
   it('renders every settings group with accessible switches', () => {
+    segmentSkipEnabledSignal.value = true;
+    equalizerEnabledSignal.value = false;
     const container = mount(<Options actions={actions()} />);
     const headings = Array.from(container.querySelectorAll('h2')).map(
       (heading) => heading.textContent
@@ -62,9 +70,85 @@ describe('Options', () => {
       'Advanced',
       'Help & feedback',
     ]);
-    expect(switches.length).toBeGreaterThan(12);
+    expect(switches).toHaveLength(17);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
+  });
+
+  it('keeps Audio-only and Background play only in Quick Controls', () => {
+    const container = mount(<Options actions={actions()} />);
+    const quickControls = container.querySelector('#quick-controls');
+    const playback = container.querySelector('#playback');
+
+    expect(quickControls).not.toBeNull();
+    expect(playback).not.toBeNull();
+    expect(quickControls?.querySelector('#audio-only-page [role="switch"]')).not.toBeNull();
+    expect(quickControls?.querySelector('#background-play-page [role="switch"]')).not.toBeNull();
+    expect(playback?.querySelector('#option-audio-only')).toBeNull();
+    expect(playback?.querySelector('#option-background')).toBeNull();
+    expect(playback?.querySelector('[role="switch"][aria-label="Audio-only"]')).toBeNull();
+    expect(
+      playback?.querySelector('[role="switch"][aria-label="Background & lock-screen play"]')
+    ).toBeNull();
+    expect(container.querySelectorAll('[role="switch"][aria-label="Audio-only"]')).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[role="switch"][aria-label="Background play"]')
+    ).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[role="switch"][aria-label="Background & lock-screen play"]')
+    ).toHaveLength(0);
+  });
+
+  it('hides SponsorBlock category rows when segment skipping is disabled', () => {
+    segmentSkipEnabledSignal.value = false;
+    const container = mount(<Options actions={actions()} />);
+
+    expect(container.querySelector('#option-skip [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('#option-sponsor')).toBeNull();
+    expect(container.querySelector('#option-music_offtopic')).toBeNull();
+    expect(container.textContent).not.toContain('Sponsored segments');
+    expect(container.textContent).not.toContain('Non-music segments');
+  });
+
+  it('shows SponsorBlock category rows when segment skipping is enabled', () => {
+    segmentSkipEnabledSignal.value = true;
+    const container = mount(<Options actions={actions()} />);
+
+    const categoryRows = container.querySelectorAll(
+      '#option-sponsor.nested-row, #option-music_offtopic.nested-row'
+    );
+    expect(categoryRows).toHaveLength(2);
+    expect(container.querySelector('#option-sponsor [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('#option-music_offtopic [role="switch"]')).not.toBeNull();
+    expect(container.textContent).toContain('Sponsored segments');
+    expect(container.textContent).toContain('Non-music segments');
+  });
+
+  it('hides equalizer band controls when the equalizer is disabled', () => {
+    equalizerEnabledSignal.value = false;
+    const container = mount(<Options actions={actions()} />);
+
+    expect(container.querySelector('#option-equalizer [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('.range-grid')).toBeNull();
+    expect(container.querySelector('[aria-label="60 Hz gain"]')).toBeNull();
+    expect(container.querySelectorAll('input[type="range"]')).toHaveLength(0);
+  });
+
+  it('shows equalizer band controls when the equalizer is enabled', () => {
+    equalizerEnabledSignal.value = true;
+    const container = mount(<Options actions={actions()} />);
+
+    const bandControls = Array.from(container.querySelectorAll('input[type="range"]'));
+    expect(container.querySelector('#option-equalizer [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('.range-grid')).not.toBeNull();
+    expect(bandControls).toHaveLength(5);
+    expect(bandControls.map((control) => control.getAttribute('aria-label'))).toEqual([
+      '60 Hz gain',
+      '250 Hz gain',
+      '1000 Hz gain',
+      '4000 Hz gain',
+      '12000 Hz gain',
+    ]);
   });
 
   it('filters settings across sections from the persistent search field', () => {
@@ -86,7 +170,7 @@ describe('Options', () => {
     const optionsActions = actions();
     const container = mount(<Options actions={optionsActions} />);
 
-    click(container.querySelector('#option-audio-only [role="switch"]'));
+    click(container.querySelector('#audio-only-page [role="switch"]'));
     click(container.querySelector('#option-ads [role="switch"]'));
     click(container.querySelector('#option-download [role="switch"]'));
 
