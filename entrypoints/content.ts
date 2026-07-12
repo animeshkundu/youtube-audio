@@ -642,9 +642,11 @@ function createPlayerButton(
   button.setAttribute('aria-label', label);
   const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('yta-player-icon', 'yta-player-icon--default');
-  // Padded viewBox centered on (12,12): the 0-24 glyph occupies the middle ~50%, so a full-size SVG
-  // renders it at native weight (~24px in a 48px button) and scales cleanly in theater/fullscreen.
-  svg.setAttribute('viewBox', '-12 -12 48 48');
+  // Match YouTube's own icon viewBox (0 0 36 36): our 0-24 glyph then occupies ~2/3 of the box, so a
+  // full-size SVG renders it at native weight (~20px, verified vs the native gear on real YouTube) and
+  // scales in theater/fullscreen. YouTube's ytp-button CSS sizes + centers the SVG (hence inline-block,
+  // not flex, on the button).
+  svg.setAttribute('viewBox', '0 0 36 36');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -805,7 +807,7 @@ function createFeedbackIcon(
 ): SVGSVGElement {
   const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('yta-player-icon', 'yta-download-feedback', className);
-  svg.setAttribute('viewBox', '-12 -12 48 48');
+  svg.setAttribute('viewBox', '0 0 36 36');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -832,7 +834,7 @@ export function createDownloadFeedbackController(
     if (!target.querySelector('.yta-download-progress')) {
       const progress = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
       progress.classList.add('yta-player-icon', 'yta-download-feedback', 'yta-download-progress');
-      progress.setAttribute('viewBox', '-12 -12 48 48');
+      progress.setAttribute('viewBox', '0 0 36 36');
       progress.setAttribute('aria-hidden', 'true');
       progress.setAttribute('focusable', 'false');
       const track = documentRef.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1041,18 +1043,16 @@ function installPlayerControlStyles(): void {
   style.textContent = `
     .yta-player-button {
       position: relative;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      display: inline-block;
       color: #fff;
       background: transparent;
       border: 0;
       cursor: pointer;
     }
     .yta-player-button--mobile { width: 44px; height: 44px; }
-    /* Full-size SVG so the glyph scales with the button in theater/fullscreen (YouTube enlarges its
-       controls in those modes); the padded viewBox in createPlayerButton keeps it native-proportioned
-       (~24px in the default 48px button) rather than filling the whole button. */
+    /* inline-block (not flex) so we do not fight YouTube's ytp-button layout, which sizes + centers
+       the SVG itself; the 0 0 36 36 viewBox in createPlayerButton matches YouTube's own icon viewBox
+       so a full-size SVG renders our 0-24 glyph at native weight and scales in theater/fullscreen. */
     .yta-player-icon { display: block; width: 100%; height: 100%; pointer-events: none; }
     .yta-player-icon path { fill: currentColor; }
     .yta-audio-only-slash {

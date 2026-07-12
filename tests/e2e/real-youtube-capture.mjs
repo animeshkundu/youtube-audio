@@ -22,7 +22,9 @@ const ADDON_ID = 'youtube-audio@animesh.kundus.in';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const HEADLESS = process.env.HEADLESS === '1';
-const VIDEO_ID = process.env.VIDEO_ID || 'jNQXAC9IVRw';
+// Default to a stable HD Vevo music video: music is what users primarily watch, and it renders the
+// full HD player + HD badge (and is monetized, so it doubles as an ad-block repro target).
+const VIDEO_ID = process.env.VIDEO_ID || 'dQw4w9WgXcQ';
 
 const log = (...a) => console.error('[real]', ...a);
 
@@ -100,6 +102,17 @@ async function main() {
     for (const handle of await driver.getAllWindowHandles()) {
       if (handlesBefore.has(handle)) continue;
       await driver.switchTo().window(handle);
+      // Keep both extension-owned controls measurable in this visual probe. This changes only the
+      // temporary Firefox profile used by the capture; production still defaults downloads off.
+      await driver.executeAsyncScript(function () {
+        const done = arguments[arguments.length - 1];
+        browser.storage.local
+          .get('settings')
+          .then(({ settings = {} }) =>
+            browser.storage.local.set({ settings: { ...settings, downloadEnabled: true } })
+          )
+          .then(() => done(true), (error) => done(String(error)));
+      });
       await driver.close();
     }
     await driver.switchTo().window(workHandle);
@@ -174,6 +187,95 @@ async function main() {
           document.querySelectorAll('.ytp-right-controls > *')
         ).map((el) => el.id || el.className || el.tagName),
       };
+    });
+
+    // Measure the control and SVG boxes plus the visible painted glyph bounds. The latter samples the
+    // rendered SVG path geometry via getBBox() transformed into viewport pixels, rather than treating
+    // the full (padded) SVG viewport as if it were visible artwork.
+    report.steps.iconMetrics = await driver.executeScript(function () {
+      const download = document.getElementById('yta-download-audio');
+      if (download) download.hidden = false;
+      const selectors = [
+        '#yta-audio-only-toggle',
+        '#yta-download-audio',
+        '.ytp-settings-button',
+        '.ytp-subtitles-button',
+        '.ytp-fullscreen-button',
+        '.ytp-play-button',
+      ];
+      const rectJson = (rect) => ({
+        x: rect.x,
+        y: rect.y,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
+      const paintedBounds = (svg) => {
+        const graphics = Array.from(svg.querySelectorAll('path, circle, rect, polygon, polyline, line'))
+          .filter((node) => getComputedStyle(node).display !== 'none');
+        const points = [];
+        for (const node of graphics) {
+          try {
+            const box = node.getBBox();
+            const matrix = node.getScreenCTM();
+            if (!matrix || box.width < 0 || box.height < 0) continue;
+            for (const [x, y] of [
+              [box.x, box.y],
+              [box.x + box.width, box.y],
+              [box.x, box.y + box.height],
+              [box.x + box.width, box.y + box.height],
+            ]) {
+              const point = new DOMPoint(x, y).matrixTransform(matrix);
+              points.push(point);
+            }
+          } catch {
+            // Ignore non-renderable SVG children.
+          }
+        }
+        if (!points.length) return null;
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
+        return {
+          left,
+          right,
+          top,
+          bottom,
+          width: right - left,
+          height: bottom - top,
+          centerX: (left + right) / 2,
+          centerY: (top + bottom) / 2,
+        };
+      };
+      return Object.fromEntries(
+        selectors.map((selector) => {
+          const button = document.querySelector(selector);
+          const svg = button && button.querySelector('svg');
+          const buttonRect = button && button.getBoundingClientRect();
+          const svgRect = svg && svg.getBoundingClientRect();
+          const svgStyle = svg && getComputedStyle(svg);
+          return [
+            selector,
+            {
+              present: !!button,
+              buttonRect: buttonRect ? rectJson(buttonRect) : null,
+              buttonCenterY: buttonRect ? buttonRect.top + buttonRect.height / 2 : null,
+              svgRect: svgRect ? rectJson(svgRect) : null,
+              svgComputedWidth: svgStyle ? svgStyle.width : null,
+              svgComputedHeight: svgStyle ? svgStyle.height : null,
+              svgCenterY: svgRect ? svgRect.top + svgRect.height / 2 : null,
+              viewBox: svg ? svg.getAttribute('viewBox') : null,
+              painted: svg ? paintedBounds(svg) : null,
+            },
+          ];
+        })
+      );
     });
 
     // Empirically answer "does ANDROID_VR return video, and is it ad-free / hijackable?" by running

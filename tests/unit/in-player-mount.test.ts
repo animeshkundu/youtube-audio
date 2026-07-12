@@ -220,7 +220,7 @@ describe('reconcileInPlayerControls', () => {
     expect(result?.audioOnlyButton.getAttribute('aria-pressed')).toBe('true');
     expect(result?.audioOnlyButton.getAttribute('aria-label')).toBe('Toggle audio-only playback');
     expect(result?.audioOnlyButton.disabled).toBe(false);
-    expect(result?.audioOnlyButton.querySelector('svg[viewBox="-12 -12 48 48"]')).not.toBeNull();
+    expect(result?.audioOnlyButton.querySelector('svg[viewBox="0 0 36 36"]')).not.toBeNull();
     expect(document.querySelector('.ytp-left-controls #yta-audio-only-toggle')).toBeNull();
   });
 
