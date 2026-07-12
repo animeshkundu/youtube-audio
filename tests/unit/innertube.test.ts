@@ -5,6 +5,7 @@ import {
   buildAndroidVrPlayerRequest,
   getPlayability,
   isLiveStream,
+  pickBestAudioFormat,
   pickBestAudioUrl,
 } from '../../src/shared/innertube';
 
@@ -75,6 +76,9 @@ describe('player response helpers', () => {
       },
     };
     expect(pickBestAudioUrl(response)).toBe('https://media/251');
+    // preferCompatible (used for downloads) flips the top preference to AAC/.m4a (itag 140).
+    expect(pickBestAudioFormat(response, true)?.itag).toBe(140);
+    expect(pickBestAudioFormat(response)?.itag).toBe(251);
     expect(
       pickBestAudioUrl({
         streamingData: { adaptiveFormats: response.streamingData.adaptiveFormats.slice(0, 1) },

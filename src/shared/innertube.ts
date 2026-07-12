@@ -112,7 +112,15 @@ export type AudioFormat = NonNullable<
   NonNullable<PlayerResponse['streamingData']>['adaptiveFormats']
 >[number];
 
-export function pickBestAudioFormat(playerResponse: unknown): AudioFormat | null {
+/**
+ * Pick the best audio adaptive format. `preferCompatible` (used for downloads) prefers AAC (itag 140,
+ * a `.m4a` playable almost everywhere with no transcoding); otherwise it prefers Opus (itag 251,
+ * higher quality) for in-page playback.
+ */
+export function pickBestAudioFormat(
+  playerResponse: unknown,
+  preferCompatible = false
+): AudioFormat | null {
   if (typeof playerResponse !== 'object' || playerResponse === null) return null;
   const formats = (playerResponse as PlayerResponse).streamingData?.adaptiveFormats;
   if (!Array.isArray(formats)) return null;
@@ -124,12 +132,13 @@ export function pickBestAudioFormat(playerResponse: unknown): AudioFormat | null
       typeof format.mimeType === 'string' &&
       format.mimeType.startsWith('audio/')
   );
-  audio.sort((left, right) => {
-    const preference = (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
-    return (
+  const preference = preferCompatible
+    ? (itag: number | undefined) => (itag === 140 ? 2 : itag === 251 ? 1 : 0)
+    : (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
+  audio.sort(
+    (left, right) =>
       preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
-    );
-  });
+  );
   return audio[0] ?? null;
 }
 

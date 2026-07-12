@@ -250,7 +250,7 @@ export default defineUnlistedScript(() => {
         respond({ ok: false, reason: 'live' });
         return;
       }
-      const format = pickBestAudioFormat(playerResponse);
+      const format = pickBestAudioFormat(playerResponse, true);
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
       const benchOrigin = __BENCH__ ? location.origin : undefined;
