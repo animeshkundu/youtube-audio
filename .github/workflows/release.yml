@@ -21,9 +21,9 @@ jobs:
     env:
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-      # Placeholder ID; finalize a permanent owner-controlled Gecko ID before the first tag (ADR-0002,
-      # ADR-0004). Must stay in lockstep with tests/e2e/bench/run-bench.mjs ADDON_ID and wxt.config.ts.
-      FIREFOX_EXTENSION_ID: youtube-audio@local
+      # Permanent single add-on ID (ADR-0006). Must stay in lockstep with wxt.config.ts and the
+      # bench ADDON_ID (tests/e2e/bench/run-bench.mjs).
+      FIREFOX_EXTENSION_ID: youtube-audio@animesh.kundus.in
       # Firefox polls this URL for the update manifest. GitHub serves releases/latest/download/<asset>
       # as a stable redirect to the newest release's asset, so the publish step only has to upload
       # updates.json under that name - no GitHub Pages coupling, and desktop auto-update works the

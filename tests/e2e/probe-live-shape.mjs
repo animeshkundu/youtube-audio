@@ -7,7 +7,7 @@
 import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 
-const ADDON_ID = 'youtube-audio@local';
+const ADDON_ID = 'youtube-audio@animesh.kundus.in';
 const UUID = '11111111-2222-4333-8444-555555555555';
 const LIVE_IDS = ['X4VbdwhkE10', '7NOSDKb0HlU', 'FWjZ0x2M8og', 'ssf1J2tD-Ak'];
 const CLIENT = {

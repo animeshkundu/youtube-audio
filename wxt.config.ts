@@ -22,12 +22,12 @@ const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 const LRCLIB_ORIGIN = 'https://lrclib.net/*';
-// Gecko add-on ID. `@local` is a placeholder that signs fine for the self-hosted/unlisted channel
-// but is NOT owner-controlled: choose a permanent, distinct ID (recommended: an owner-controlled
-// domain form such as youtube-audio@animeshkundu.github.io) BEFORE the first release, since changing
-// it after installs exist orphans them (ADR-0002). The bench pins its moz-extension UUID by this
-// exact ID (tests/e2e/bench/run-bench.mjs ADDON_ID), so keep the two in lockstep when finalizing.
-const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@local';
+// Permanent Gecko add-on ID: a single identity for AMO-listed production and the unlisted beta
+// channel (ADR-0006, which supersedes ADR-0002's two-identity model). AMO is the sole update
+// authority, so production builds omit `update_url`. The bench pins its moz-extension UUID by this
+// exact ID (tests/e2e/bench/run-bench.mjs ADDON_ID), so keep the two in lockstep. The env override
+// exists only for local experiments.
+const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@animesh.kundus.in';
 const SELF_HOSTED_UPDATE_URL = process.env.SELF_HOSTED_UPDATE_URL;
 
 if (SELF_HOSTED_UPDATE_URL && !SELF_HOSTED_UPDATE_URL.startsWith('https://')) {

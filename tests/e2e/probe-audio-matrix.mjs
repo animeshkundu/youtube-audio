@@ -24,7 +24,7 @@ import firefox from 'selenium-webdriver/firefox.js';
 import { writeFileSync } from 'node:fs';
 
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
-const ADDON_ID = 'youtube-audio@local';
+const ADDON_ID = 'youtube-audio@animesh.kundus.in';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const DEEP_N = Number(process.env.DEEP || 8);

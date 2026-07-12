@@ -58,7 +58,7 @@ const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
 // The extension's gecko id (wxt.config.ts) and a pinned internal UUID. Pinning the
 // moz-extension UUID lets the bench open the extension's own options page deterministically
 // and seed browser.storage — the real settings path the content script reads at startup.
-const ADDON_ID = 'youtube-audio@local';
+const ADDON_ID = 'youtube-audio@animesh.kundus.in';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 
