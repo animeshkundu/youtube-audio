@@ -24,13 +24,13 @@ export SELF_HOSTED_UPDATE_URL='https://example.github.io/youtube-audio/updates.j
 npm run release:sign
 ```
 
-The script builds `.output/firefox-mv2`, runs `web-ext lint`, submits it with `web-ext sign --channel=unlisted`, and copies the Mozilla-signed artifact to `dist/youtube-audio-<version>-signed.xpi`. Missing credentials fail before contacting AMO. AMO rejects an already-submitted version, so bump `package.json` and `wxt.config.ts` together before signing.
+The script builds `.output/firefox-mv2`, runs `web-ext lint`, submits it with `web-ext sign --channel=unlisted`, and copies the Mozilla-signed artifact to `dist/youtube-audio-<version>-signed.xpi`. Missing credentials fail before contacting AMO. AMO rejects an already-submitted version, so bump the version in `package.json` before signing; the packaged manifest version derives from it automatically, so there is no second file to keep in sync.
 
 ## Tagged GitHub release
 
-`.github/workflows/release.yml` runs on `v*` tags with Node 20. It installs locked dependencies, runs typecheck, lint, unit coverage, the MV2 build, and `web-ext lint`, then signs unlisted through the repository secrets. The workflow verifies that `vX.Y.Z` matches the package version, computes the exact signed XPI's SHA-256 digest, generates `dist/updates.json`, and publishes the signed XPI before the update manifest as GitHub Release assets.
+`.github/workflows/release.yml` runs on `v*` tags with Node 20. It installs locked dependencies, runs typecheck, lint, unit coverage, the MV2 build, and `web-ext lint`, then signs unlisted through the repository secrets. The workflow verifies that `vX.Y.Z` matches the package version, computes the exact signed XPI's SHA-256 digest, generates `dist/updates.json`, and publishes the signed XPI before the update manifest as GitHub Release assets. The manifest is built with `update_url` set to `https://github.com/animeshkundu/youtube-audio/releases/latest/download/updates.json`, a stable GitHub redirect to the newest release's asset, so desktop auto-update works with no separate hosting (no GitHub Pages step). The same signed XPI installs on Firefox for Android, but Android does not auto-update self-hosted XPIs (see below).
 
-Before enabling the workflow for production, replace its template self-hosted ID and Pages URL with the selected permanent values. Create the tag only after all local gates pass:
+Before enabling the workflow for production, replace its template self-hosted ID (`youtube-audio@local`) with the selected permanent value; the update URL is already the stable `releases/latest/download/updates.json` redirect and needs no change. Create the tag only after all local gates pass:
 
 ```bash
 npm run typecheck

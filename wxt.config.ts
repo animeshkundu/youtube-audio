@@ -1,5 +1,12 @@
 import preact from '@preact/preset-vite';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'wxt';
+
+// Single source of truth for the version: read it from package.json so the packaged manifest,
+// the signed XPI filename, and the self-hosted updates.json can never drift apart.
+const { version } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8')
+) as { version: string };
 
 const YOUTUBE_MATCHES = [
   '*://*.youtube.com/*',
@@ -15,6 +22,11 @@ const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 const LRCLIB_ORIGIN = 'https://lrclib.net/*';
+// Gecko add-on ID. `@local` is a placeholder that signs fine for the self-hosted/unlisted channel
+// but is NOT owner-controlled: choose a permanent, distinct ID (recommended: an owner-controlled
+// domain form such as youtube-audio@animeshkundu.github.io) BEFORE the first release, since changing
+// it after installs exist orphans them (ADR-0002). The bench pins its moz-extension UUID by this
+// exact ID (tests/e2e/bench/run-bench.mjs ADDON_ID), so keep the two in lockstep when finalizing.
 const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@local';
 const SELF_HOSTED_UPDATE_URL = process.env.SELF_HOSTED_UPDATE_URL;
 
@@ -55,7 +67,7 @@ export default defineConfig({
   manifest: ({ manifestVersion }) => ({
     name: 'YouTube Audio',
     description: 'Listen to YouTube and YouTube Music without downloading video.',
-    version: '0.0.2.5',
+    version,
     icons: ICONS,
     // The popup entrypoint contributes default_title (from its <title>) and
     // default_popup; declaring default_icon here adds the toolbar button icon
