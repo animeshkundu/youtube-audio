@@ -119,4 +119,36 @@ describe('showArtworkOverlay', () => {
     expect(typeof cleanup).toBe('function');
     expect(() => cleanup()).not.toThrow();
   });
+
+  it('mounts into the player root and after the video container on the real YouTube layout', () => {
+    // Real YouTube nests the <video> inside a zero-height `.html5-video-container` within the
+    // `.html5-video-player` root. The overlay must land in the PLAYER ROOT (which has the real box),
+    // inserted right AFTER the video container so it paints above the video but below the control
+    // chrome that follows it in DOM order — never inside the zero-height wrapper (the black-rect bug).
+    const player = document.createElement('div');
+    player.className = 'html5-video-player';
+    const videoContainer = document.createElement('div');
+    videoContainer.className = 'html5-video-container';
+    const video = document.createElement('video');
+    videoContainer.append(video);
+    const chrome = document.createElement('div');
+    chrome.className = 'ytp-chrome-bottom';
+    player.append(videoContainer, chrome);
+    document.body.append(player);
+
+    const cleanup = showArtworkOverlay(video, {
+      artworkUrl: 'https://i.ytimg.com/vi/x/maxresdefault.jpg',
+      generation: 1,
+      isCurrent: () => true,
+    });
+
+    const overlay = player.querySelector(`.${AUDIO_ARTWORK_CLASS}`);
+    expect(overlay).toBeTruthy();
+    expect(overlay?.parentElement).toBe(player); // mounted in the player root, not the 0-height wrapper
+    expect(videoContainer.querySelector(`.${AUDIO_ARTWORK_CLASS}`)).toBeNull();
+    expect(videoContainer.nextElementSibling).toBe(overlay); // above the video
+    expect(chrome.previousElementSibling).toBe(overlay); // below the control chrome
+    cleanup();
+    expect(player.querySelector(`.${AUDIO_ARTWORK_CLASS}`)).toBeNull();
+  });
 });

@@ -49,15 +49,29 @@ export function pickArtworkUrl(playerResponse: unknown): string | null {
 }
 
 /**
- * Mounts a decorative overlay as the media container's last child. Image work is cancelled by the
- * returned cleanup and guarded again by the owning PlayerHandle generation in MAIN world.
+ * Mounts a decorative overlay covering the player. On the real YouTube layout it mounts into the
+ * player root and is inserted directly after the (often zero-height) video container so it paints
+ * above the video but below the control chrome; elsewhere it appends to the media element's parent.
+ * Image work is cancelled by the returned cleanup and guarded again by the owning PlayerHandle
+ * generation in MAIN world.
  */
 export function showArtworkOverlay(
   mediaElement: HTMLMediaElement,
   options: ArtworkOverlayOptions
 ): () => void {
-  const container = mediaElement.parentElement;
-  if (!container) return () => undefined;
+  const videoParent = mediaElement.parentElement;
+  if (!videoParent) return () => undefined;
+  // On real YouTube the <video>'s immediate parent (.html5-video-container) is a zero-height
+  // positioning wrapper, so an `inset: 0` overlay mounted there collapses to nothing — the audio-mode
+  // black rectangle. Mount into the player root (which carries the real player box) and insert the
+  // overlay directly AFTER the video container, so it paints above the video but below the control
+  // chrome that follows it in DOM order. Fall back to the direct parent (fixture / other layouts).
+  const playerRoot = mediaElement.closest<HTMLElement>('.html5-video-player, #movie_player');
+  // Mount into the player root whenever the video's wrapper is its direct child — do NOT gate on a
+  // non-zero clientHeight: the wrapper is often zero-height at attach time (that is the whole bug),
+  // and inset:0 on the player root resolves to the real box once layout settles.
+  const mountAfterVideo = playerRoot !== null && videoParent.parentElement === playerRoot;
+  const container = mountAfterVideo ? playerRoot : videoParent;
 
   let cancelled = false;
   let overlay: HTMLDivElement | null = null;
@@ -110,7 +124,8 @@ export function showArtworkOverlay(
     backdrop = createArtworkImage(container.ownerDocument, 'yta-audio-artwork__backdrop', 'cover');
     foreground = createArtworkImage(container.ownerDocument, 'yta-audio-artwork__art', 'contain');
     overlay.append(backdrop, foreground);
-    container.append(overlay);
+    if (mountAfterVideo) videoParent.after(overlay);
+    else container.append(overlay);
 
     const primaryUrl = options.artworkUrl ?? AUDIO_ARTWORK_PLACEHOLDER;
     let usingPlaceholder = primaryUrl === AUDIO_ARTWORK_PLACEHOLDER;
@@ -158,13 +173,21 @@ function finiteDimension(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+// Compile-time bench flag (`false` in production, so the localhost artwork allowance below is
+// dead-code-eliminated from real builds). The hermetic bench serves fixture thumbnails over
+// http://127.0.0.1 / http://localhost; a shipped build only ever loads https artwork. Mirrors the
+// same guard in `player.ts:isSafeMediaUrl`.
+declare const __BENCH__: boolean;
+
 function isSafeArtworkUrl(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false;
   try {
     const url = new URL(value);
     return (
       url.protocol === 'https:' ||
-      (url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost'))
+      (__BENCH__ &&
+        url.protocol === 'http:' &&
+        (url.hostname === '127.0.0.1' || url.hostname === 'localhost'))
     );
   } catch {
     return false;
