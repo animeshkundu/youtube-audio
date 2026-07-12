@@ -232,6 +232,9 @@ function snapshotScript() {
     segmentStatusExists: !!document.getElementById('yta-segment-status'),
     ytaArtwork: document.documentElement.dataset.ytaArtwork || null,
     ytaCoach: document.documentElement.dataset.ytaCoach || null,
+    ytaReconcileRuns: Number(document.documentElement.dataset.ytaReconcileRuns || 0),
+    ytaReconcileSchedules: Number(document.documentElement.dataset.ytaReconcileSchedules || 0),
+    ytaNodeCount: document.querySelectorAll('[id^="yta-"]').length,
     skipArmed: document.documentElement.getAttribute('data-yta-skip-armed'),
     autonavChecked:
       document.querySelector('.ytp-autonav-toggle-button')?.getAttribute('aria-checked') || null,
@@ -274,6 +277,8 @@ export async function runSession({
   probeDownload,
   probeSpaRearm,
   probeCircuitBreaker,
+  probeReconcileChurn,
+  probeSpaLeak,
   probeReadDiagnostics,
   probeStatusMap,
   probeBrowserActionPopup,
@@ -421,6 +426,79 @@ export async function runSession({
         }
         return { assignments, finalSrc: video.src };
       });
+    }
+
+    let reconcileChurn = null;
+    if (probeReconcileChurn) {
+      const before = await driver.executeScript(snapshotScript);
+      const churn = await driver.executeAsyncScript(function () {
+        const done = arguments[arguments.length - 1];
+        const playerRoot = document.querySelector('#movie_player, .html5-video-player');
+        const targetFrames = 30;
+        if (!playerRoot) {
+          done({ frames: 0, error: 'no-player-root' });
+          return;
+        }
+        let frames = 0;
+        const pump = async function () {
+          frames += 1;
+          for (let mutation = 0; mutation < 50; mutation += 1) {
+            const throwaway = document.createElement('div');
+            playerRoot.append(throwaway);
+            throwaway.remove();
+            await Promise.resolve();
+          }
+          if (frames < targetFrames) {
+            requestAnimationFrame(pump);
+            return;
+          }
+          requestAnimationFrame(() => done({ frames }));
+        };
+        requestAnimationFrame(pump);
+      });
+      const after = await driver.executeScript(snapshotScript);
+      reconcileChurn = {
+        before,
+        after,
+        frames: churn.frames,
+        error: churn.error || null,
+        runsDelta: after.ytaReconcileRuns - before.ytaReconcileRuns,
+        schedulesDelta: after.ytaReconcileSchedules - before.ytaReconcileSchedules,
+      };
+    }
+
+    let spaLeak = null;
+    if (probeSpaLeak) {
+      const census = function () {
+        return {
+          audioOnlyToggle: document.querySelectorAll('#yta-audio-only-toggle').length,
+          audioArtwork: document.querySelectorAll('.yta-audio-artwork').length,
+          playerControlStyle: document.querySelectorAll('#yta-player-control-style').length,
+          distractionStyle: document.querySelectorAll('#yta-distraction-style').length,
+          total: document.querySelectorAll('[id^="yta-"]').length,
+        };
+      };
+      const before = await driver.executeScript(census);
+      const navigations = 8;
+      const snapshots = [];
+      for (let navigation = 1; navigation <= navigations; navigation += 1) {
+        const nextVideoId = `FIXTURE${String(navigation + 1).padStart(4, '0')}`;
+        await driver.executeScript(function (videoId) {
+          history.pushState({}, '', `/watch?v=${videoId}`);
+          document.dispatchEvent(new Event('yt-navigate-finish'));
+        }, nextVideoId);
+        const settled = await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.audioOnlyTogglePresent &&
+            state.status === 'active' &&
+            state.videoSrc?.includes(`videoId=${nextVideoId}`)
+            ? state
+            : null;
+        }, 8000);
+        snapshots.push(settled);
+      }
+      const after = await driver.executeScript(census);
+      spaLeak = { before, after, navigations, snapshots };
     }
 
     const snap = await driver.executeScript(snapshotScript);
@@ -615,6 +693,8 @@ export async function runSession({
       autonavChecked: snap.autonavChecked,
       spaRearm,
       circuitBreaker,
+      reconcileChurn,
+      spaLeak,
       diagnostics,
       browserActionPopup,
       statusMap,
@@ -935,6 +1015,60 @@ async function main() {
         spaRun.spaRearm?.second?.status === 'active' &&
         spaRun.spaRearm.second.videoSrc?.includes('videoId=FIXTURE0002'),
       spaRun.spaRearm
+    );
+
+    const reconcileChurnRun = await runSession({
+      withAddon: true,
+      probeReconcileChurn: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const reconcileChurn = reconcileChurnRun.reconcileChurn;
+    record(
+      'ux:reconcile-churn-is-coalesced-per-animation-frame',
+      reconcileChurn?.schedulesDelta >= 100 &&
+        reconcileChurn?.runsDelta <= reconcileChurn?.frames * 2,
+      {
+        runsDelta: reconcileChurn?.runsDelta,
+        schedulesDelta: reconcileChurn?.schedulesDelta,
+        frames: reconcileChurn?.frames,
+        error: reconcileChurn?.error,
+      }
+    );
+    record(
+      'ux:reconcile-churn-still-runs',
+      reconcileChurn?.runsDelta >= 1,
+      {
+        runsDelta: reconcileChurn?.runsDelta,
+        schedulesDelta: reconcileChurn?.schedulesDelta,
+        frames: reconcileChurn?.frames,
+        error: reconcileChurn?.error,
+      }
+    );
+
+    const spaLeakRun = await runSession({
+      withAddon: true,
+      probeSpaLeak: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const spaLeak = spaLeakRun.spaLeak;
+    record(
+      'ux:spa-navigation-does-not-accumulate-injected-dom',
+      // Leak semantics: the audio-only control must re-mount exactly once (never duplicate); the
+      // injected style singletons are 0-or-1 depending on which features the seed enables; and the
+      // total injected-node census must not grow across N navigations. A real leak shows growth or a
+      // duplicated singleton, not the identical before/after census of a clean teardown+remount.
+      spaLeak?.after?.audioOnlyToggle === 1 &&
+        spaLeak?.after?.audioArtwork <= 1 &&
+        spaLeak?.after?.playerControlStyle <= 1 &&
+        spaLeak?.after?.distractionStyle <= 1 &&
+        spaLeak?.after?.total <= spaLeak?.before?.total,
+      {
+        before: spaLeak?.before,
+        after: spaLeak?.after,
+        navigations: spaLeak?.navigations,
+      }
     );
 
     const circuitRun = await runSession({

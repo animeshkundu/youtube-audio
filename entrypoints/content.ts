@@ -18,7 +18,7 @@ import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/downloa
 import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
-import { parseVideoId, STATUS_UPDATE_MESSAGE } from '../src/shared/status';
+import { isPlaybackStatus, STATUS_UPDATE_MESSAGE, type StatusUpdate } from '../src/shared/status';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
 // builds, so the marker below is dead-code-eliminated and never runs on real YouTube.
@@ -56,13 +56,33 @@ let lyricsCleanup: () => void = () => undefined;
 let coachRequest: Promise<void> | null = null;
 let coachSeenThisPage = false;
 let coachCleanup: () => void = () => undefined;
-// This content script's lifetime start. A full page load starts a fresh content script with a
-// strictly-later `runStart`, so the background prefers the newer document's report even though the
-// per-lifetime `statusGeneration` below resets to 0. Together they order every status the popup sees.
-const statusRunStart = Date.now();
-// Monotonic per-lifetime navigation epoch, bumped when a YouTube SPA navigation starts, so a status
-// still in flight from the previous video (same lifetime) cannot clobber the next one.
-let statusGeneration = 0;
+// This content script's lifetime start — a per-tab epoch used to order popup status reports across
+// document lifetimes. A full page load must produce a STRICTLY-later value than the previous
+// document in the same tab so the background prefers the newer document's report even though the
+// page world's operation generation resets per document. Wall-clock time alone is unsafe here: two
+// loads can collide within one millisecond, and a system-clock rollback can move it backward —
+// either would freeze the popup on the prior document's status. We persist the last epoch in per-tab
+// sessionStorage (survives a reload, resets with the tab) and take `max(now, previous + 1)`, which is
+// collision- and rollback-proof. sessionStorage is origin-shared with the (hostile) page, so the
+// stored epoch is validated as a sane non-negative safe integer no more than a day past `now`: a
+// poisoned value (e.g. `1e308`, where `previous + 1 === previous` and would otherwise freeze
+// ordering) is discarded and we recover to wall clock. Falls back to `now` when storage is
+// unavailable (a rare private-browsing config; only a clock rollback in that same window degrades it,
+// and the effect is display-only + fail-open).
+export function nextStatusRunStart(): number {
+  const now = Date.now();
+  try {
+    const key = '__yta_run_epoch__';
+    const raw = Number(window.sessionStorage.getItem(key));
+    const previous = Number.isSafeInteger(raw) && raw >= 0 && raw <= now + 86_400_000 ? raw : 0;
+    const next = Math.max(now, previous + 1);
+    window.sessionStorage.setItem(key, String(next));
+    return next;
+  } catch {
+    return now;
+  }
+}
+const statusRunStart = nextStatusRunStart();
 
 export default defineContentScript({
   matches: MATCHES,
@@ -90,10 +110,6 @@ export default defineContentScript({
         if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
-      // A YouTube SPA navigation opens a new epoch: a status still in flight from the previous video
-      // must not clobber the next one. Bumping here (before the page world re-arms) tags the next
-      // report with a fresh generation the background uses to order updates.
-      document.addEventListener('yt-navigate-start', bumpStatusGeneration);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
         void handleSponsorRequest(event, bridgeNonce);
       });
@@ -365,10 +381,16 @@ export function reconcileInPlayerControls(
   }
 
   const orderedButtons = [downloadButton, audioOnlyButton];
+  // The insertion anchor must be a node we are NOT about to move into the fragment: the native gear,
+  // else the first native control, else null (append at the end). Never statusRegion or one of our
+  // own buttons — anchoring on a to-be-moved node makes `insertBefore` throw once that node is
+  // detached into the fragment, and under the observer that throw turns into a
+  // reconcile -> throw -> mutation hot loop whenever the settings gear is absent.
+  const managed = new Set<Node>([downloadButton, audioOnlyButton, statusRegion]);
   const anchor =
     gear?.parentElement === controls
       ? gear
-      : (Array.from(controls.children).find((child) => child !== statusRegion) ?? statusRegion);
+      : (Array.from(controls.children).find((child) => !managed.has(child)) ?? null);
   const correctlyPlaced = orderedButtons.every((button, index) => {
     if (button.parentElement !== controls) return false;
     const expectedNext = orderedButtons[index + 1] ?? anchor;
@@ -388,15 +410,50 @@ export function reconcileInPlayerControls(
   return { audioOnlyButton, downloadButton, statusRegion };
 }
 
-function installPlayerControls(bridgeNonce: string): () => void {
+export interface CoalescedFrameScheduler {
+  schedule(): void;
+  cancel(): void;
+}
+
+/** Coalesce repeated requests onto one callback in the next animation frame. */
+export function createCoalescedFrameScheduler(
+  run: () => void,
+  requestFrame: (callback: FrameRequestCallback) => number = requestAnimationFrame,
+  cancelFrame: (handle: number) => void = cancelAnimationFrame,
+  onSchedule: () => void = () => undefined
+): CoalescedFrameScheduler {
+  let frame: number | null = null;
+  return {
+    schedule(): void {
+      onSchedule();
+      if (frame !== null) return;
+      frame = requestFrame(() => {
+        frame = null;
+        run();
+      });
+    },
+    cancel(): void {
+      if (frame !== null) cancelFrame(frame);
+      frame = null;
+    },
+  };
+}
+
+export function installPlayerControls(bridgeNonce: string): () => void {
   installPlayerControlStyles();
   let observedPlayer: HTMLElement | null = null;
   let playerObserver: MutationObserver | null = null;
   let documentObserver: MutationObserver | null = null;
   let segmentToast: SegmentToastController | null = null;
   let lastPlaybackSample: { media: HTMLMediaElement; time: number } | null = null;
+  let observersActive = false;
 
   const reconcile = () => {
+    if (!observersActive) return;
+    if (__BENCH__) {
+      const runs = Number(document.documentElement.dataset.ytaReconcileRuns ?? '0') + 1;
+      document.documentElement.dataset.ytaReconcileRuns = String(runs);
+    }
     if (!observedPlayer?.isConnected) return;
     const settings = getSettings();
     const result = reconcileInPlayerControls({
@@ -423,21 +480,35 @@ function installPlayerControls(bridgeNonce: string): () => void {
     }
   };
 
-  const findPlayerRoot = () => {
-    if (location.hostname === 'm.youtube.com') {
-      return document.querySelector<HTMLElement>(
-        '.html5-video-player, #player-container-id, #player'
-      );
+  const reconcileScheduler = createCoalescedFrameScheduler(
+    reconcile,
+    requestAnimationFrame,
+    cancelAnimationFrame,
+    () => {
+      if (__BENCH__) {
+        const schedules = Number(document.documentElement.dataset.ytaReconcileSchedules ?? '0') + 1;
+        document.documentElement.dataset.ytaReconcileSchedules = String(schedules);
+      }
     }
-    return document.querySelector<HTMLElement>('#movie_player, .html5-video-player');
+  );
+  const scheduleReconcile = () => {
+    if (observersActive) reconcileScheduler.schedule();
   };
+  const playerSelector =
+    location.hostname === 'm.youtube.com'
+      ? '.html5-video-player, #player-container-id, #player'
+      : '#movie_player, .html5-video-player';
+
+  const findPlayerRoot = () => document.querySelector<HTMLElement>(playerSelector);
 
   const reconnectPlayerObserver = () => {
+    if (!observersActive) return;
     const nextPlayer = findPlayerRoot();
     if (nextPlayer === observedPlayer) {
-      reconcile();
+      scheduleReconcile();
       return;
     }
+    reconcileScheduler.cancel();
     playerObserver?.disconnect();
     playerObserver = null;
     segmentToast?.dispose();
@@ -445,12 +516,34 @@ function installPlayerControls(bridgeNonce: string): () => void {
     coachCleanup();
     observedPlayer = nextPlayer;
     if (!observedPlayer) return;
-    reconcile();
-    playerObserver = new MutationObserver(reconcile);
+    scheduleReconcile();
+    playerObserver = new MutationObserver(scheduleReconcile);
     playerObserver.observe(observedPlayer, { childList: true, subtree: true });
   };
 
+  const reconnectScheduler = createCoalescedFrameScheduler(() => {
+    if (observersActive) reconnectPlayerObserver();
+  });
+  const mutationMayReplacePlayer = (records: readonly MutationRecord[]): boolean => {
+    if (observedPlayer && !observedPlayer.isConnected) return true;
+    const containsPlayer = (node: Node) =>
+      node instanceof Element &&
+      (node.matches(playerSelector) || node.querySelector(playerSelector) !== null);
+    return records.some(
+      (record) =>
+        Array.from(record.addedNodes).some(containsPlayer) ||
+        Array.from(record.removedNodes).some(
+          (node) =>
+            containsPlayer(node) ||
+            (observedPlayer !== null && node instanceof Element && node.contains(observedPlayer))
+        )
+    );
+  };
+
   const stopObservers = () => {
+    observersActive = false;
+    reconcileScheduler.cancel();
+    reconnectScheduler.cancel();
     playerObserver?.disconnect();
     documentObserver?.disconnect();
     playerObserver = null;
@@ -462,9 +555,14 @@ function installPlayerControls(bridgeNonce: string): () => void {
     coachCleanup();
   };
   const startObservers = () => {
-    if (documentObserver) return;
+    if (observersActive || document.visibilityState === 'hidden') return;
+    observersActive = true;
     reconnectPlayerObserver();
-    documentObserver = new MutationObserver(reconnectPlayerObserver);
+    documentObserver = new MutationObserver((records) => {
+      if (observersActive && mutationMayReplacePlayer(records)) reconnectScheduler.schedule();
+    });
+    // The document root is stable across YouTube SPA navigation. Filtering the records above keeps
+    // routine player churn from scheduling a document-wide player lookup.
     documentObserver.observe(document.documentElement, { childList: true, subtree: true });
   };
 
@@ -488,25 +586,31 @@ function installPlayerControls(bridgeNonce: string): () => void {
       // Feedback failures must never affect playback after the page world has skipped a segment.
     }
   };
+  const syncObserverVisibility = () => {
+    if (document.visibilityState === 'hidden') stopObservers();
+    else startObservers();
+  };
   const onPageHide = () => stopObservers();
-  const onPageShow = () => startObservers();
+  const onPageShow = () => syncObserverVisibility();
   document.addEventListener('timeupdate', rememberPlaybackPosition, true);
   document.addEventListener(SEGMENT_SKIPPED_EVENT, handleSegmentSkipped);
+  document.addEventListener('visibilitychange', syncObserverVisibility);
   window.addEventListener('pagehide', onPageHide);
   window.addEventListener('pageshow', onPageShow);
-  startObservers();
+  syncObserverVisibility();
 
   return () => {
     stopObservers();
     document.removeEventListener('timeupdate', rememberPlaybackPosition, true);
     document.removeEventListener(SEGMENT_SKIPPED_EVENT, handleSegmentSkipped);
+    document.removeEventListener('visibilitychange', syncObserverVisibility);
     window.removeEventListener('pagehide', onPageHide);
     window.removeEventListener('pageshow', onPageShow);
   };
 }
 
 const AUDIO_ONLY_ICON_PATH =
-  'M4 5h10v2H6v10h8v2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm13 4v6.17a3 3 0 1 0 2 2.83V11h3V9h-5Zm-2 8.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z';
+  'M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z';
 const DOWNLOAD_ICON_PATH =
   'M11 4h2v9.17l3.59-3.58L18 11l-6 6-6-6 1.41-1.41L11 13.17V4ZM5 19h14v2H5v-2Z';
 
@@ -538,7 +642,9 @@ function createPlayerButton(
   button.setAttribute('aria-label', label);
   const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('yta-player-icon', 'yta-player-icon--default');
-  svg.setAttribute('viewBox', '0 0 24 24');
+  // Padded viewBox centered on (12,12): the 0-24 glyph occupies the middle ~50%, so a full-size SVG
+  // renders it at native weight (~24px in a 48px button) and scales cleanly in theater/fullscreen.
+  svg.setAttribute('viewBox', '-12 -12 48 48');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -699,7 +805,7 @@ function createFeedbackIcon(
 ): SVGSVGElement {
   const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('yta-player-icon', 'yta-download-feedback', className);
-  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('viewBox', '-12 -12 48 48');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
   const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -726,7 +832,7 @@ export function createDownloadFeedbackController(
     if (!target.querySelector('.yta-download-progress')) {
       const progress = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
       progress.classList.add('yta-player-icon', 'yta-download-feedback', 'yta-download-progress');
-      progress.setAttribute('viewBox', '0 0 24 24');
+      progress.setAttribute('viewBox', '-12 -12 48 48');
       progress.setAttribute('aria-hidden', 'true');
       progress.setAttribute('focusable', 'false');
       const track = documentRef.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -935,12 +1041,18 @@ function installPlayerControlStyles(): void {
   style.textContent = `
     .yta-player-button {
       position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       color: #fff;
       background: transparent;
       border: 0;
       cursor: pointer;
     }
     .yta-player-button--mobile { width: 44px; height: 44px; }
+    /* Full-size SVG so the glyph scales with the button in theater/fullscreen (YouTube enlarges its
+       controls in those modes); the padded viewBox in createPlayerButton keeps it native-proportioned
+       (~24px in the default 48px button) rather than filling the whole button. */
     .yta-player-icon { display: block; width: 100%; height: 100%; pointer-events: none; }
     .yta-player-icon path { fill: currentColor; }
     .yta-audio-only-slash {
@@ -951,7 +1063,6 @@ function installPlayerControlStyles(): void {
     }
     .yta-audio-only-slash[hidden] { display: none; }
     .yta-player-button:focus-visible { outline: 2px solid #3fe0c4; outline-offset: -4px; }
-    .yta-player-button[aria-pressed="true"] .yta-player-icon path { fill: #22d3b4; }
     .yta-player-tooltip {
       position: fixed;
       z-index: 2147483646;
@@ -1276,28 +1387,79 @@ function updateToggle(active: boolean): void {
   updateAudioOnlyButtonShape(button as HTMLButtonElement, active);
 }
 
+type StatusUpdateMessage = StatusUpdate & { type: typeof STATUS_UPDATE_MESSAGE };
+
+/**
+ * Build the background status message from a `yta:status` event. The ORDERING provenance is generated
+ * in this isolated content context and never trusted from the page: the `yta:status` DOM event is
+ * observable and forgeable by arbitrary page JS, so `generation` is the content-owned counter passed
+ * in (a forged event cannot poison the popup's ordering with a huge generation), and `runStart` is the
+ * isolated per-tab epoch. Only the display fields (`status`, `reason`, `videoId`) come from the event;
+ * a forged `videoId` is harmless because the background's `resolveUiState` cross-checks it against the
+ * real tab URL, and a momentary forged `status` is superseded by the next genuine report.
+ */
+export function buildStatusUpdateMessage(
+  detail: unknown,
+  runStart: number,
+  generation: number
+): StatusUpdateMessage | null {
+  if (typeof detail !== 'object' || detail === null) return null;
+  const candidate = detail as { status?: unknown; reason?: unknown; videoId?: unknown };
+  if (!isPlaybackStatus(candidate.status)) return null;
+  const reason =
+    typeof candidate.reason === 'string' && candidate.reason.length <= 120
+      ? candidate.reason
+      : undefined;
+  const videoId =
+    typeof candidate.videoId === 'string' && /^[A-Za-z0-9_-]{6,20}$/.test(candidate.videoId)
+      ? candidate.videoId
+      : undefined;
+  return {
+    type: STATUS_UPDATE_MESSAGE,
+    status: candidate.status,
+    ...(reason !== undefined ? { reason } : {}),
+    ...(videoId !== undefined ? { videoId } : {}),
+    runStart,
+    generation,
+  };
+}
+
+// Content-owned status ordering. Each distinct video begins a new generation, so a superseded SPA
+// navigation's late status is dropped while a same-operation `fetching`→`active` (same video) keeps
+// its generation. Because the counter lives here (isolated world) and is never read from the
+// page-observable event, a hostile page cannot forge a huge generation to freeze the popup.
+let statusGeneration = 0;
+let lastStatusVideoId: string | null = null;
+
+function nextStatusGeneration(detail: unknown): number {
+  const videoId =
+    typeof detail === 'object' &&
+    detail !== null &&
+    typeof (detail as { videoId?: unknown }).videoId === 'string'
+      ? (detail as { videoId: string }).videoId
+      : null;
+  if (videoId !== null && videoId !== lastStatusVideoId) {
+    lastStatusVideoId = videoId;
+    statusGeneration += 1;
+  }
+  return statusGeneration;
+}
+
 function updateStatusMarker(event: Event): void {
   const detail = (event as CustomEvent<unknown>).detail;
-  if (typeof detail !== 'object' || detail === null) return;
-  const rawStatus = (detail as { status?: unknown }).status;
-  const status = typeof rawStatus === 'string' && rawStatus.length <= 24 ? rawStatus : null;
-  const rawReason = (detail as { reason?: unknown }).reason;
-  const reason = typeof rawReason === 'string' && rawReason.length <= 120 ? rawReason : undefined;
+  const message = buildStatusUpdateMessage(detail, statusRunStart, nextStatusGeneration(detail));
+  if (!message) return;
 
   // Bench-only observable DOM marker (unchanged): the hermetic integration bench reads these.
   if (__BENCH__) {
-    if (status) document.documentElement.dataset.ytaStatus = status;
-    if (reason) document.documentElement.dataset.ytaReason = reason;
+    document.documentElement.dataset.ytaStatus = message.status;
+    if (message.reason) document.documentElement.dataset.ytaReason = message.reason;
     else delete document.documentElement.dataset.ytaReason;
   }
 
   // Production: relay the real per-video status to the background per-tab map so the popup can read
   // the honest state of THIS tab. Additive to the bench marker; both run under the bench build.
-  if (status) pushStatusToBackground(status, reason);
-}
-
-function bumpStatusGeneration(): void {
-  statusGeneration += 1;
+  pushStatusToBackground(message);
 }
 
 /**
@@ -1305,19 +1467,9 @@ function bumpStatusGeneration(): void {
  * unavailable background context (or any messaging rejection) must never surface into the page or
  * disturb playback, so every failure is swallowed.
  */
-function pushStatusToBackground(status: string, reason: string | undefined): void {
+function pushStatusToBackground(message: StatusUpdateMessage): void {
   try {
-    const videoId = parseVideoId(location.href) ?? undefined;
-    void browser.runtime
-      .sendMessage({
-        type: STATUS_UPDATE_MESSAGE,
-        status,
-        ...(reason ? { reason } : {}),
-        ...(videoId ? { videoId } : {}),
-        runStart: statusRunStart,
-        generation: statusGeneration,
-      })
-      .catch(() => undefined);
+    void browser.runtime.sendMessage(message).catch(() => undefined);
   } catch {
     // Never let a status relay failure break the page.
   }

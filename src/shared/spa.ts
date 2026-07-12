@@ -11,24 +11,25 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
   let lastUrl = location.href;
   let lastVideo = document.querySelector('video');
   let scheduled = false;
+  let mutationFrame: number | null = null;
+  let stopped = false;
 
   const emit = (reason: SpaNavigation['reason']) => {
-    if (scheduled) return;
+    if (stopped || scheduled) return;
     scheduled = true;
     queueMicrotask(() => {
       scheduled = false;
-      onNavigate({ url: location.href, reason });
+      if (!stopped) onNavigate({ url: location.href, reason });
     });
   };
 
-  const navigationListener = () => {
-    lastUrl = location.href;
-    lastVideo = document.querySelector('video');
-    emit('navigation');
+  const cancelMutationCheck = () => {
+    if (mutationFrame !== null) cancelAnimationFrame(mutationFrame);
+    mutationFrame = null;
   };
-  document.addEventListener('yt-navigate-finish', navigationListener);
-
-  const observer = new MutationObserver(() => {
+  const checkForMutationNavigation = () => {
+    mutationFrame = null;
+    if (stopped) return;
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       emit('url-change');
@@ -38,13 +39,32 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
       lastVideo = video;
       emit('player-change');
     }
-  });
+  };
+  const scheduleMutationCheck = () => {
+    if (stopped || mutationFrame !== null) return;
+    mutationFrame = requestAnimationFrame(checkForMutationNavigation);
+  };
+
+  // This path stays independent of rAF so navigation is detected even while a hidden tab's frames
+  // are suspended. It also absorbs any queued mutation check with the same latest DOM state.
+  const navigationListener = () => {
+    if (stopped) return;
+    cancelMutationCheck();
+    lastUrl = location.href;
+    lastVideo = document.querySelector('video');
+    emit('navigation');
+  };
+  document.addEventListener('yt-navigate-finish', navigationListener);
+
+  const observer = new MutationObserver(scheduleMutationCheck);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   emit('initial');
 
   return {
     stop(): void {
+      stopped = true;
       document.removeEventListener('yt-navigate-finish', navigationListener);
+      cancelMutationCheck();
       observer.disconnect();
     },
   };
