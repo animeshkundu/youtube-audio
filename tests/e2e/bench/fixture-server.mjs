@@ -13,6 +13,7 @@
  *                                      and playerConfig.audioConfig.loudnessDb.
  *   GET  /api/skipSegments/:hash    -> FIXTURE SponsorBlock segments.
  *   GET  /videoplayback             -> a media stub (googlevideo stand-in).
+ *   GET  /vi/:id/:thumbnail         -> a small SVG thumbnail with realistic dimensions.
  *   POST /youtubei/v1/log_event     -> telemetry stub (204).
  *   /api/stats/qoe                  -> telemetry stub (204).
  *
@@ -98,6 +99,20 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
       title: 'Fixture Watch Page',
       author: 'Fixture Artist',
       lengthSeconds: '215',
+      thumbnail: {
+        thumbnails: [
+          {
+            url: `${origin}/vi/${encodeURIComponent(videoId || 'FIXTURE0001')}/hqdefault.jpg`,
+            width: 480,
+            height: 360,
+          },
+          {
+            url: `${origin}/vi/${encodeURIComponent(videoId || 'FIXTURE0001')}/maxresdefault.jpg`,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      },
       // isLive is deliberately omitted for the live case: the bench exercises the extension's
       // contentLength-based live detection (a live-edge audio format has no contentLength). The
       // explicit isLive===true primary-signal path is covered by unit tests.
@@ -205,13 +220,18 @@ function watchPageHtml() {
         <div class="ytp-progress-bar-container">
           <div class="ytp-progress-bar" role="slider"></div>
         </div>
-        <div class="ytp-chrome-controls ytp-left-controls">
-          <button class="ytp-play-button ytp-button" aria-label="Play"></button>
-          <button class="ytp-autonav-toggle-button" aria-checked="true">Autoplay</button>
-          <div class="ytp-time-display">
-            <span class="ytp-time-current">0:00</span>
-            <span class="ytp-time-separator"> / </span>
-            <span class="ytp-time-duration">3:35</span>
+        <div class="ytp-chrome-controls">
+          <div class="ytp-left-controls">
+            <button class="ytp-play-button ytp-button" aria-label="Play"></button>
+            <button class="ytp-autonav-toggle-button" aria-checked="true">Autoplay</button>
+            <div class="ytp-time-display">
+              <span class="ytp-time-current">0:00</span>
+              <span class="ytp-time-separator"> / </span>
+              <span class="ytp-time-duration">3:35</span>
+            </div>
+          </div>
+          <div class="ytp-right-controls">
+            <button class="ytp-settings-button ytp-button" aria-label="Settings"></button>
           </div>
         </div>
       </div>
@@ -297,6 +317,14 @@ function sendText(res, status, body, contentType) {
     'cache-control': 'no-store',
   });
   res.end(body);
+}
+
+function fixtureThumbnailSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#152b2a"/>
+  <circle cx="640" cy="360" r="150" fill="#22d3b4" fill-opacity=".18"/>
+  <path fill="#22d3b4" d="M680 220v248a82 82 0 1 1-40-70V260l190-42v196a82 82 0 1 1-40-70V268l-110 24Z"/>
+</svg>`;
 }
 
 /** Read a request body (best effort) so POSTs complete cleanly and /player can see the videoId. */
@@ -465,6 +493,9 @@ export function createFixtureServer() {
         syncedLyrics: '[00:00.00]Fixture opening\n[00:04.00]Fixture chorus',
         plainLyrics: 'Fixture opening\nFixture chorus',
       });
+    }
+    if (/^\/vi\/[^/]+\/(?:hqdefault|maxresdefault)\.jpg$/.test(path)) {
+      return sendText(res, 200, fixtureThumbnailSvg(), 'image/svg+xml; charset=utf-8');
     }
     if (path === '/videoplayback' || path === '/native-video') {
       // A tiny valid silent WAV gives the <video> a real, seekable timeline so the

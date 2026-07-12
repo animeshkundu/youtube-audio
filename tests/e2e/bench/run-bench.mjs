@@ -202,6 +202,17 @@ export async function openBrowserActionPopup(driver) {
 /** Snapshot the observable DOM signals the bench keys on. */
 function snapshotScript() {
   const v = document.querySelector('video');
+  const audioOnlyToggle = document.getElementById('yta-audio-only-toggle');
+  const rightControls = document.querySelector('.ytp-right-controls');
+  const settingsButton = rightControls?.querySelector('.ytp-settings-button') || null;
+  const toggleInRightControlsBeforeGear = !!(
+    audioOnlyToggle &&
+    rightControls?.contains(audioOnlyToggle) &&
+    settingsButton &&
+    (audioOnlyToggle.compareDocumentPosition(settingsButton) &
+      Node.DOCUMENT_POSITION_FOLLOWING) !==
+      0
+  );
   return {
     marker: document.documentElement.dataset.ytaBench || null,
     status: document.documentElement.dataset.ytaStatus || null,
@@ -213,6 +224,14 @@ function snapshotScript() {
     lyrics: document.documentElement.dataset.ytaLyrics || null,
     download: document.documentElement.dataset.ytaDownload || null,
     downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
+    audioOnlyTogglePresent: !!audioOnlyToggle,
+    audioOnlyToggleAriaPressed: audioOnlyToggle?.getAttribute('aria-pressed') || null,
+    audioOnlyToggleDisabled:
+      audioOnlyToggle instanceof HTMLButtonElement ? audioOnlyToggle.disabled : null,
+    toggleInRightControlsBeforeGear,
+    segmentStatusExists: !!document.getElementById('yta-segment-status'),
+    ytaArtwork: document.documentElement.dataset.ytaArtwork || null,
+    ytaCoach: document.documentElement.dataset.ytaCoach || null,
     skipArmed: document.documentElement.getAttribute('data-yta-skip-armed'),
     autonavChecked:
       document.querySelector('.ytp-autonav-toggle-button')?.getAttribute('aria-checked') || null,
@@ -243,12 +262,13 @@ function visibilityProbeScript() {
 /**
  * One fresh-profile browser session against the fixture watch page.
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
- *           origin: string, resetLog: () => void }} opts
+ *           probeCoach?: boolean, origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
   withAddon,
   seedSettings,
   probePlayerFromPage,
+  probeCoach,
   probeSegmentSkip,
   probeQol,
   probeDownload,
@@ -265,8 +285,24 @@ export async function runSession({
   try {
     let addonId = null;
     if (withAddon) {
+      const workHandle = await driver.getWindowHandle();
+      const handlesBeforeInstall = new Set(await driver.getAllWindowHandles());
       addonId = await driver.installAddon(BENCH_XPI, true);
       log('installed temporary add-on:', addonId);
+
+      // First install opens the real onboarding options page in a new tab. Close only that
+      // install-created tab and restore the harness work tab so it cannot steal the subsequent
+      // fixture navigation. This does not mark onboarding or the coach as seen.
+      const handlesAfterInstall = await waitFor(async () => {
+        const handles = await driver.getAllWindowHandles();
+        return handles.some((handle) => !handlesBeforeInstall.has(handle)) ? handles : null;
+      }, 5000, 50);
+      for (const handle of handlesAfterInstall || []) {
+        if (handlesBeforeInstall.has(handle)) continue;
+        await driver.switchTo().window(handle);
+        await driver.close();
+      }
+      await driver.switchTo().window(workHandle);
 
       if (seedSettings) {
         // Faithful settings path: write browser.storage from the extension's own options page,
@@ -305,12 +341,38 @@ export async function runSession({
       8000,
     );
 
-    // With the add-on, wait for the extension to reach a terminal playback status.
+    // With the add-on, wait for the in-player reconciler to mount and for playback to reach a
+    // terminal status. The optional coach probe latches its transient first-run marker before the
+    // tooltip's eight-second dismissal removes it.
+    let coachObserved = false;
+    let terminalSnap = null;
     if (withAddon) {
       await waitFor(async () => {
         const snap = await driver.executeScript(snapshotScript);
+        return snap.audioOnlyTogglePresent ? snap : null;
+      }, 4000);
+      if (probeCoach) {
+        coachObserved = !!(await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.ytaCoach === '1' ? snap : null;
+        }, 4000));
+      }
+      terminalSnap = await waitFor(async () => {
+        const snap = await driver.executeScript(snapshotScript);
         return snap.status && TERMINAL_STATUSES.includes(snap.status) ? snap : null;
       }, 8000);
+
+      const artworkExpected =
+        terminalSnap?.status === 'active' &&
+        (seedSettings?.enabled ?? true) &&
+        (seedSettings?.audioOnlyEnabled ?? true) &&
+        (seedSettings?.audioArtworkEnabled ?? true);
+      if (artworkExpected) {
+        await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.ytaArtwork ? snap : null;
+        }, 4000);
+      }
     }
 
     if (seedSettings?.lyricsEnabled) {
@@ -541,6 +603,14 @@ export async function runSession({
       lyrics: snap.lyrics,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
+      audioOnlyTogglePresent: snap.audioOnlyTogglePresent,
+      audioOnlyToggleAriaPressed: snap.audioOnlyToggleAriaPressed,
+      audioOnlyToggleDisabled: snap.audioOnlyToggleDisabled,
+      toggleInRightControlsBeforeGear: snap.toggleInRightControlsBeforeGear,
+      segmentStatusExists: snap.segmentStatusExists,
+      ytaArtwork: snap.ytaArtwork,
+      ytaCoach: snap.ytaCoach,
+      coachObserved,
       skipArmed: snap.skipArmed,
       autonavChecked: snap.autonavChecked,
       spaRearm,
@@ -618,6 +688,7 @@ async function main() {
     const enabled = await runSession({
       withAddon: true,
       probePlayerFromPage: true,
+      probeCoach: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -645,6 +716,71 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
+    record(
+      'ux:toggle-mounts-in-right-controls-before-gear',
+      enabled.audioOnlyTogglePresent === true &&
+        enabled.toggleInRightControlsBeforeGear === true,
+      {
+        present: enabled.audioOnlyTogglePresent,
+        inRightControlsBeforeGear: enabled.toggleInRightControlsBeforeGear,
+      }
+    );
+    record(
+      'ux:toggle-is-not-disabled',
+      enabled.audioOnlyTogglePresent === true && enabled.audioOnlyToggleDisabled === false,
+      {
+        present: enabled.audioOnlyTogglePresent,
+        disabled: enabled.audioOnlyToggleDisabled,
+      }
+    );
+    record('ux:dead-segment-status-pill-absent', enabled.segmentStatusExists === false, {
+      segmentStatusExists: enabled.segmentStatusExists,
+    });
+
+    let artworkData = null;
+    try {
+      artworkData = enabled.ytaArtwork ? JSON.parse(enabled.ytaArtwork) : null;
+    } catch {
+      /* leave null */
+    }
+    const intendedArtworkPath = '/vi/FIXTURE0001/maxresdefault.jpg';
+    const artworkRequests = enabledLog.filter((r) => r.path.startsWith('/vi/'));
+    const expectedEnabledRequest = (request) =>
+      (request.method === 'GET' &&
+        [
+          '/watch',
+          '/favicon.ico',
+          '/native-video',
+          '/videoplayback',
+          '/api/stats/watchtime',
+          '/api/stats/playback',
+          intendedArtworkPath,
+        ].includes(request.path)) ||
+      (request.method === 'GET' && /^\/api\/skipSegments\/[0-9a-f]{4}$/.test(request.path)) ||
+      (request.method === 'POST' &&
+        ['/youtubei/v1/player', '/youtubei/v1/log_event'].includes(request.path));
+    const unexpectedArtworkSessionRequests = enabledLog.filter(
+      (request) => !expectedEnabledRequest(request)
+    );
+    record(
+      'ux:active-audio-only-artwork-marker-present',
+      enabled.status === 'active' &&
+        artworkData?.src === `${origin}${intendedArtworkPath}`,
+      { status: enabled.status, artwork: artworkData }
+    );
+    record(
+      'ux:artwork-requests-only-intended-thumbnail-no-extra-egress',
+      artworkRequests.length === 1 &&
+        artworkRequests[0]?.method === 'GET' &&
+        artworkRequests[0]?.path === intendedArtworkPath &&
+        unexpectedArtworkSessionRequests.length === 0,
+      { artworkRequests, unexpectedRequests: unexpectedArtworkSessionRequests }
+    );
+    record('ux:first-run-coach-marker-present', enabled.coachObserved === true, {
+      observed: enabled.coachObserved,
+      finalMarker: enabled.ytaCoach,
+    });
+
     // --- diagnostics + issue reporter (PII-free local logging) ----------------
     const diagRun = await runSession({
       withAddon: true,
@@ -902,6 +1038,15 @@ async function main() {
       origin,
       resetLog: () => fixture.reset(),
     });
+    record(
+      'ux:toggle-aria-pressed-tracks-audio-only-state',
+      enabled.audioOnlyToggleAriaPressed === 'true' &&
+        loudnessDisabled.audioOnlyToggleAriaPressed === 'false',
+      {
+        audioOnlyOn: enabled.audioOnlyToggleAriaPressed,
+        audioOnlyOff: loudnessDisabled.audioOnlyToggleAriaPressed,
+      }
+    );
     const graphData = enabled.audioGraph ? JSON.parse(enabled.audioGraph) : null;
     record(
       'm4:loudness-normalization-arms-bounded-gain',

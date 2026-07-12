@@ -45,6 +45,7 @@ const EXPECTED_LOUDNESS_GAIN = Math.min(2, Math.max(0.5, 10 ** (-FIXTURE_LOUDNES
 // are exercised explicitly). Order is stable for the covering array.
 const TOGGLES = [
   'audioOnlyEnabled',
+  'audioArtworkEnabled',
   'backgroundPlayEnabled',
   'ghostEnabled',
   'aggressiveTelemetry',
@@ -64,6 +65,7 @@ const TOGGLES = [
 const BASE = Object.freeze({
   enabled: true,
   audioOnlyEnabled: false,
+  audioArtworkEnabled: false,
   backgroundPlayEnabled: false,
   ghostEnabled: false,
   aggressiveTelemetry: false,
@@ -97,6 +99,15 @@ function checkFeature(feature, s, r, log) {
     case 'audioOnlyEnabled':
       if (want) return r.status === 'active' && hijacked(r) ? null : `audioOnly on: status=${r.status} src=${r.videoSrc}`;
       return hijacked(r) ? `audioOnly off but hijacked: ${r.videoSrc}` : null;
+    case 'audioArtworkEnabled':
+      if (!s.audioOnlyEnabled) return r.ytaArtwork === null ? null : 'artwork rendered without active audio-only';
+      return want
+        ? r.ytaArtwork !== null
+          ? null
+          : 'audioArtwork on: artwork marker absent'
+        : r.ytaArtwork === null
+          ? null
+          : 'audioArtwork off: artwork marker present';
     case 'backgroundPlayEnabled':
       if (want) return r.vis?.swallowed === true ? null : 'background on: visibilitychange not swallowed';
       return r.vis?.received === true ? null : 'background off: visibilitychange should pass through';
@@ -309,6 +320,7 @@ async function main() {
       const failures = [];
       if (hijacked(r)) failures.push('master-gate: hijacked despite enabled=false');
       if (r.downloadButtonVisible === true) failures.push('master-gate: download button shown');
+      if (r.ytaArtwork !== null) failures.push('master-gate: artwork rendered');
       if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true) failures.push('master-gate: distractions hidden');
       if (r.audioGraph !== null) failures.push('master-gate: audio graph armed');
       if (r.lyrics !== null) failures.push('master-gate: lyrics rendered');
