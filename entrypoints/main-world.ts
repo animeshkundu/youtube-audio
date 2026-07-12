@@ -1,6 +1,7 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
@@ -30,11 +31,13 @@ const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const TRACK_EVENT = 'yta:track';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
+const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
 
 interface PageSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
+  audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
   adBlockEnabled: boolean;
   segmentSkipEnabled: boolean;
@@ -68,11 +71,20 @@ declare const __BENCH__: boolean;
 
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
+  let artworkCleanup: () => void = () => undefined;
+  let artworkEpoch = 0;
+  player.onRestore(() => {
+    artworkEpoch += 1;
+    const cleanup = artworkCleanup;
+    artworkCleanup = () => undefined;
+    cleanup();
+  });
   const bridgeNonce = readAndClearBridgeNonce();
   const log = createPageLogger(bridgeNonce);
   let settings: PageSettings = {
     enabled: false,
     audioOnlyEnabled: false,
+    audioArtworkEnabled: true,
     backgroundPlayEnabled: false,
     adBlockEnabled: false,
     segmentSkipEnabled: false,
@@ -355,8 +367,23 @@ export default defineUnlistedScript(() => {
         emitStatus('fallback', 'no-direct-audio');
         return;
       }
-      if (player.attach(mediaElement, audioUrl, operationGeneration)) emitStatus('active');
-      else emitStatus('fallback', 'media-attach-failed');
+      if (player.attach(mediaElement, audioUrl, operationGeneration)) {
+        if (settings.audioArtworkEnabled) {
+          const overlayEpoch = artworkEpoch;
+          artworkCleanup = showArtworkOverlay(mediaElement, {
+            artworkUrl: pickArtworkUrl(responseData),
+            generation: operationGeneration,
+            isCurrent: () =>
+              operationGeneration === player.generation &&
+              overlayEpoch === artworkEpoch &&
+              player.getMediaElement() === mediaElement,
+            bench: __BENCH__,
+          });
+        }
+        emitStatus('active');
+      } else {
+        emitStatus('fallback', 'media-attach-failed');
+      }
     } catch (error) {
       log('error', { where: 'page.activate', ...errorFields(error) });
       if (operationGeneration === player.generation) emitStatus('fallback', 'request-failed');
@@ -562,7 +589,12 @@ function installSegmentSkipping(
           Number.isFinite(video.duration) && video.duration > 0
             ? Math.min(end, video.duration)
             : end;
-        if (target > currentTime) video.currentTime = target;
+        if (target > currentTime) {
+          video.currentTime = target;
+          document.dispatchEvent(
+            new CustomEvent(SEGMENT_SKIPPED_EVENT, { detail: segment.category })
+          );
+        }
         return;
       }
     } catch {
@@ -682,6 +714,7 @@ function parseSettings(value: unknown): PageSettings | null {
   if (
     typeof candidate.enabled !== 'boolean' ||
     typeof candidate.audioOnlyEnabled !== 'boolean' ||
+    typeof candidate.audioArtworkEnabled !== 'boolean' ||
     typeof candidate.backgroundPlayEnabled !== 'boolean' ||
     typeof candidate.adBlockEnabled !== 'boolean' ||
     typeof candidate.segmentSkipEnabled !== 'boolean' ||
@@ -704,6 +737,7 @@ function parseSettings(value: unknown): PageSettings | null {
   return {
     enabled: candidate.enabled,
     audioOnlyEnabled: candidate.audioOnlyEnabled,
+    audioArtworkEnabled: candidate.audioArtworkEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
     adBlockEnabled: candidate.adBlockEnabled,
     segmentSkipEnabled: candidate.segmentSkipEnabled,

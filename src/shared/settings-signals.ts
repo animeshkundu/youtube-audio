@@ -19,6 +19,7 @@ import type { SponsorCategory } from './sponsorblock';
 
 export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
 export const audioOnlyEnabledSignal = signal(DEFAULT_SETTINGS.audioOnlyEnabled);
+export const audioArtworkEnabledSignal = signal(DEFAULT_SETTINGS.audioArtworkEnabled);
 export const backgroundPlayEnabledSignal = signal(DEFAULT_SETTINGS.backgroundPlayEnabled);
 export const ghostEnabledSignal = signal(DEFAULT_SETTINGS.ghostEnabled);
 export const aggressiveTelemetrySignal = signal(DEFAULT_SETTINGS.aggressiveTelemetry);
@@ -43,6 +44,7 @@ export const downloadEnabledSignal = signal(DEFAULT_SETTINGS.downloadEnabled);
 subscribeSettings((settings) => {
   enabledSignal.value = settings.enabled;
   audioOnlyEnabledSignal.value = settings.audioOnlyEnabled;
+  audioArtworkEnabledSignal.value = settings.audioArtworkEnabled;
   backgroundPlayEnabledSignal.value = settings.backgroundPlayEnabled;
   ghostEnabledSignal.value = settings.ghostEnabled;
   aggressiveTelemetrySignal.value = settings.aggressiveTelemetry;

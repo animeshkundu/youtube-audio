@@ -25,6 +25,7 @@ export class PlayerHandle {
   private readonly maxReassertions: number;
   private readonly mediaPrototype: object;
   private originalDescriptor: PropertyDescriptor | undefined;
+  private readonly restoreListeners = new Set<() => void>();
 
   constructor(options: PlayerHandleOptions = {}) {
     this.maxReassertions = options.maxReassertions ?? 3;
@@ -33,6 +34,16 @@ export class PlayerHandle {
 
   get generation(): number {
     return this.currentGeneration;
+  }
+
+  /**
+   * Register a listener invoked on every teardown (attach start, disable, navigate, and the
+   * circuit breaker). The audio-mode artwork overlay uses this as its single teardown choke point,
+   * which is why it must live in the page world: the circuit-breaker path calls restore() without
+   * emitting a status event, so a status-based listener would miss it. Listeners are fail-open.
+   */
+  onRestore(listener: () => void): void {
+    this.restoreListeners.add(listener);
   }
 
   navigate(): number {
@@ -165,6 +176,16 @@ export class PlayerHandle {
     } catch {
       // Fail open: page playback remains in control.
     }
+
+    // Notify restore listeners after the media is released. Each is isolated + fail-open so an
+    // artwork/overlay teardown can never break native playback restoration.
+    this.restoreListeners.forEach((listener) => {
+      try {
+        listener();
+      } catch {
+        // ignore
+      }
+    });
   }
 }
 

@@ -45,6 +45,13 @@ export interface PlayerResponse {
     author?: string;
     lengthSeconds?: string;
     isLive?: boolean;
+    thumbnail?: {
+      thumbnails?: Array<{
+        url?: string;
+        width?: number;
+        height?: number;
+      }>;
+    };
   };
   streamingData?: {
     adaptiveFormats?: Array<{

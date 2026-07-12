@@ -5,6 +5,7 @@ import { isSponsorCategory, SPONSOR_CATEGORIES, type SponsorCategory } from './s
 export interface ExtensionSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
+  audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
@@ -23,7 +24,7 @@ export interface ExtensionSettings {
   downloadEnabled: boolean;
 }
 
-export type PlaybackSetting = 'audioOnlyEnabled' | 'backgroundPlayEnabled';
+export type PlaybackSetting = 'audioOnlyEnabled' | 'audioArtworkEnabled' | 'backgroundPlayEnabled';
 export type TelemetrySetting = 'ghostEnabled' | 'aggressiveTelemetry';
 export type QualityOfLifeSetting =
   | 'disableAutoplayNext'
@@ -37,6 +38,7 @@ const STORAGE_KEY = 'settings';
 export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   audioOnlyEnabled: true,
+  audioArtworkEnabled: true,
   backgroundPlayEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
@@ -82,6 +84,10 @@ export async function setPlaybackSetting(
 
 export async function setAudioOnlyEnabled(enabled: boolean): Promise<void> {
   await setPlaybackSetting('audioOnlyEnabled', enabled);
+}
+
+export async function setAudioArtworkEnabled(enabled: boolean): Promise<void> {
+  await setPlaybackSetting('audioArtworkEnabled', enabled);
 }
 
 export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> {
@@ -191,6 +197,10 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.audioOnlyEnabled === 'boolean'
         ? candidate.audioOnlyEnabled
         : DEFAULT_SETTINGS.audioOnlyEnabled,
+    audioArtworkEnabled:
+      typeof candidate.audioArtworkEnabled === 'boolean'
+        ? candidate.audioArtworkEnabled
+        : DEFAULT_SETTINGS.audioArtworkEnabled,
     backgroundPlayEnabled:
       typeof candidate.backgroundPlayEnabled === 'boolean'
         ? candidate.backgroundPlayEnabled

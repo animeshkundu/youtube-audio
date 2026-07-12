@@ -40,13 +40,20 @@ const LYRICS_MESSAGE = 'yta:lyrics';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const DOWNLOAD_MESSAGE = 'yta:download-audio';
+const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const BUTTON_ID = 'yta-audio-only-toggle';
-const SEGMENT_BUTTON_ID = 'yta-segment-status';
+const LEGACY_SEGMENT_BUTTON_ID = 'yta-segment-status';
 const DOWNLOAD_BUTTON_ID = 'yta-download-audio';
+const PLAYER_STATUS_ID = 'yta-player-status';
+const COACH_ID = 'yta-audio-only-coach';
+const COACH_STORAGE_KEY = 'seenAudioOnlyCoach';
 const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 const PLAYER_CONTROL_STYLE_ID = 'yta-player-control-style';
 let lyricsCleanup: () => void = () => undefined;
+let coachRequest: Promise<void> | null = null;
+let coachSeenThisPage = false;
+let coachCleanup: () => void = () => undefined;
 // This content script's lifetime start. A full page load starts a fresh content script with a
 // strictly-later `runStart`, so the background prefers the newer document's report even though the
 // per-lifetime `statusGeneration` below resets to 0. Together they order every status the popup sees.
@@ -76,7 +83,6 @@ export default defineContentScript({
           location.origin
         );
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
-        updateSegmentStatus(settings.enabled && settings.segmentSkipEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
         if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
@@ -264,64 +270,242 @@ function updateDistractionStyle(settings: ReturnType<typeof getSettings>): void 
   }
 }
 
-function installPlayerControls(bridgeNonce: string): void {
+interface InPlayerMountOptions {
+  playerRoot: ParentNode;
+  audioOnlyActive: boolean;
+  downloadVisible: boolean;
+  mobile?: boolean;
+  onAudioOnlyToggle?: (button: HTMLButtonElement) => void;
+  onDownload?: (button: HTMLButtonElement) => void;
+}
+
+export interface InPlayerMountResult {
+  audioOnlyButton: HTMLButtonElement;
+  downloadButton: HTMLButtonElement;
+  statusRegion: HTMLElement;
+}
+
+/**
+ * Reconciles extension-owned controls into one physical player root. The helper is deliberately
+ * synchronous and storage-free so repeated YouTube mutation batches can call it safely.
+ */
+export function reconcileInPlayerControls(
+  options: InPlayerMountOptions
+): InPlayerMountResult | null {
+  const { playerRoot } = options;
+  const documentRef =
+    playerRoot instanceof Document ? playerRoot : ((playerRoot as Node).ownerDocument ?? document);
+  const isMobile = options.mobile ?? documentRef.location.hostname === 'm.youtube.com';
+
+  let controls: HTMLElement | null;
+  let gear: Element | null = null;
+  if (isMobile) {
+    // Real-Fenix confirmation is still required for this selector set. The owner-gated device lane
+    // must snapshot current portrait, landscape, and fullscreen mobile control DOM before it is
+    // treated as stable.
+    const mobileBar = playerRoot.querySelector<HTMLElement>(
+      '.player-controls-bottom, .player-controls-bottom-container'
+    );
+    controls =
+      mobileBar?.querySelector<HTMLElement>(
+        '.player-controls-right, .player-controls-bottom-right, .player-controls-content'
+      ) ?? mobileBar;
+  } else {
+    controls = playerRoot.querySelector<HTMLElement>('.ytp-right-controls');
+    gear = controls?.querySelector('.ytp-settings-button') ?? null;
+  }
+  if (!controls) return null;
+
+  for (const legacy of documentRef.querySelectorAll(`#${LEGACY_SEGMENT_BUTTON_ID}`))
+    legacy.remove();
+
+  const audioOnlyButton = getOrCreatePlayerButton(
+    documentRef,
+    BUTTON_ID,
+    'Toggle audio-only playback',
+    AUDIO_ONLY_ICON_PATH
+  );
+  if (isMobile) audioOnlyButton.classList.add('yta-player-button--mobile');
+  else audioOnlyButton.classList.remove('yta-player-button--mobile');
+  if (audioOnlyButton.dataset.ytaBound !== 'true' && options.onAudioOnlyToggle) {
+    audioOnlyButton.dataset.ytaBound = 'true';
+    audioOnlyButton.addEventListener('click', () => options.onAudioOnlyToggle?.(audioOnlyButton));
+  }
+  audioOnlyButton.setAttribute('aria-label', 'Toggle audio-only playback');
+  audioOnlyButton.setAttribute('aria-pressed', String(options.audioOnlyActive));
+  audioOnlyButton.disabled = false;
+
+  const downloadButton = getOrCreatePlayerButton(
+    documentRef,
+    DOWNLOAD_BUTTON_ID,
+    'Download audio',
+    DOWNLOAD_ICON_PATH
+  );
+  if (isMobile) downloadButton.classList.add('yta-player-button--mobile');
+  else downloadButton.classList.remove('yta-player-button--mobile');
+  if (downloadButton.dataset.ytaBound !== 'true' && options.onDownload) {
+    downloadButton.dataset.ytaBound = 'true';
+    downloadButton.addEventListener('click', () => options.onDownload?.(downloadButton));
+  }
+  downloadButton.hidden = !options.downloadVisible;
+
+  let statusRegion = controls.querySelector<HTMLElement>(`#${PLAYER_STATUS_ID}`);
+  if (!statusRegion) {
+    statusRegion = documentRef.createElement('div');
+    statusRegion.id = PLAYER_STATUS_ID;
+    statusRegion.className = 'yta-player-status';
+    statusRegion.setAttribute('role', 'status');
+    statusRegion.setAttribute('aria-live', 'polite');
+    statusRegion.setAttribute('aria-atomic', 'true');
+    controls.append(statusRegion);
+  }
+
+  const orderedButtons = [downloadButton, audioOnlyButton];
+  const anchor =
+    gear?.parentElement === controls
+      ? gear
+      : (Array.from(controls.children).find((child) => child !== statusRegion) ?? statusRegion);
+  const correctlyPlaced = orderedButtons.every((button, index) => {
+    if (button.parentElement !== controls) return false;
+    const expectedNext = orderedButtons[index + 1] ?? anchor;
+    if (expectedNext) return button.nextElementSibling === expectedNext;
+    return button === controls?.lastElementChild;
+  });
+  if (!correctlyPlaced) {
+    const focusedButton = orderedButtons.find((button) =>
+      button.contains(documentRef.activeElement)
+    );
+    const fragment = documentRef.createDocumentFragment();
+    for (const button of orderedButtons) fragment.append(button);
+    controls.insertBefore(fragment, anchor);
+    focusedButton?.focus({ preventScroll: true });
+  }
+
+  return { audioOnlyButton, downloadButton, statusRegion };
+}
+
+function installPlayerControls(bridgeNonce: string): () => void {
   installPlayerControlStyles();
-  const attach = () => {
-    // Steady state on a watch page: the three controls are already installed. Skip the
-    // class-based querySelector on every mutation batch while they are present. A SPA teardown
-    // removes them (getElementById then returns null), so this falls through and reinstalls.
-    if (
-      document.getElementById(BUTTON_ID) &&
-      document.getElementById(SEGMENT_BUTTON_ID) &&
-      document.getElementById(DOWNLOAD_BUTTON_ID)
-    ) {
-      return;
-    }
-    const controls = document.querySelector('.ytp-right-controls, .ytp-left-controls');
-    if (!controls) return;
+  let observedPlayer: HTMLElement | null = null;
+  let playerObserver: MutationObserver | null = null;
+  let documentObserver: MutationObserver | null = null;
 
-    if (!document.getElementById(BUTTON_ID)) {
-      const button = createPlayerButton(BUTTON_ID, 'Toggle audio-only playback', '♪');
-      button.addEventListener('click', () => {
-        const settings = getSettings();
-        void setAudioOnlyEnabled(!settings.audioOnlyEnabled).catch(() => undefined);
-      });
-      controls.prepend(button);
-      updateToggle(getSettings().enabled && getSettings().audioOnlyEnabled);
-    }
-
-    if (!document.getElementById(SEGMENT_BUTTON_ID)) {
-      const button = createPlayerButton(SEGMENT_BUTTON_ID, 'Segment skipping status', '↗');
-      button.disabled = true;
-      controls.prepend(button);
-      updateSegmentStatus(getSettings().enabled && getSettings().segmentSkipEnabled);
-    }
-
-    if (!document.getElementById(DOWNLOAD_BUTTON_ID)) {
-      const button = createPlayerButton(DOWNLOAD_BUTTON_ID, 'Download audio', '↓');
-      button.addEventListener('click', () => {
+  const reconcile = () => {
+    if (!observedPlayer?.isConnected) return;
+    const settings = getSettings();
+    const result = reconcileInPlayerControls({
+      playerRoot: observedPlayer,
+      audioOnlyActive: settings.enabled && settings.audioOnlyEnabled,
+      downloadVisible: settings.enabled && settings.downloadEnabled,
+      mobile: location.hostname === 'm.youtube.com',
+      onAudioOnlyToggle: () => {
+        const current = getSettings();
+        void setAudioOnlyEnabled(!current.audioOnlyEnabled).catch(() => undefined);
+      },
+      onDownload: (button) => {
         void requestAudioDownload(bridgeNonce, button);
-      });
-      controls.prepend(button);
-      updateDownloadButton(getSettings().enabled && getSettings().downloadEnabled);
+      },
+    });
+    if (result && settings.enabled && settings.audioOnlyEnabled) {
+      void showAudioOnlyCoachOnce(result.audioOnlyButton);
     }
   };
 
-  attach();
-  new MutationObserver(attach).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
+  const findPlayerRoot = () => {
+    if (location.hostname === 'm.youtube.com') {
+      return document.querySelector<HTMLElement>(
+        '.html5-video-player, #player-container-id, #player'
+      );
+    }
+    return document.querySelector<HTMLElement>('#movie_player, .html5-video-player');
+  };
+
+  const reconnectPlayerObserver = () => {
+    const nextPlayer = findPlayerRoot();
+    if (nextPlayer === observedPlayer) {
+      reconcile();
+      return;
+    }
+    playerObserver?.disconnect();
+    playerObserver = null;
+    coachCleanup();
+    observedPlayer = nextPlayer;
+    if (!observedPlayer) return;
+    reconcile();
+    playerObserver = new MutationObserver(reconcile);
+    playerObserver.observe(observedPlayer, { childList: true, subtree: true });
+  };
+
+  const stopObservers = () => {
+    playerObserver?.disconnect();
+    documentObserver?.disconnect();
+    playerObserver = null;
+    documentObserver = null;
+    observedPlayer = null;
+    coachCleanup();
+  };
+  const startObservers = () => {
+    if (documentObserver) return;
+    reconnectPlayerObserver();
+    documentObserver = new MutationObserver(reconnectPlayerObserver);
+    documentObserver.observe(document.documentElement, { childList: true, subtree: true });
+  };
+
+  const onPageHide = () => stopObservers();
+  const onPageShow = () => startObservers();
+  document.addEventListener(SEGMENT_SKIPPED_EVENT, announceSkippedSegment);
+  window.addEventListener('pagehide', onPageHide);
+  window.addEventListener('pageshow', onPageShow);
+  startObservers();
+
+  return () => {
+    stopObservers();
+    document.removeEventListener(SEGMENT_SKIPPED_EVENT, announceSkippedSegment);
+    window.removeEventListener('pagehide', onPageHide);
+    window.removeEventListener('pageshow', onPageShow);
+  };
 }
 
-function createPlayerButton(id: string, label: string, glyph: string): HTMLButtonElement {
-  const button = document.createElement('button');
+const AUDIO_ONLY_ICON_PATH =
+  'M4 5h10v2H6v10h8v2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm13 4v6.17a3 3 0 1 0 2 2.83V11h3V9h-5Zm-2 8.5a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z';
+const DOWNLOAD_ICON_PATH =
+  'M11 4h2v9.17l3.59-3.58L18 11l-6 6-6-6 1.41-1.41L11 13.17V4ZM5 19h14v2H5v-2Z';
+
+function getOrCreatePlayerButton(
+  documentRef: Document,
+  id: string,
+  label: string,
+  pathData: string
+): HTMLButtonElement {
+  const matches = Array.from(documentRef.querySelectorAll<HTMLButtonElement>(`button#${id}`));
+  const focused = matches.find((button) => button.contains(documentRef.activeElement));
+  const button = focused ?? matches[0] ?? createPlayerButton(documentRef, id, label, pathData);
+  for (const duplicate of matches) {
+    if (duplicate !== button) duplicate.remove();
+  }
+  return button;
+}
+
+function createPlayerButton(
+  documentRef: Document,
+  id: string,
+  label: string,
+  pathData: string
+): HTMLButtonElement {
+  const button = documentRef.createElement('button');
   button.id = id;
   button.type = 'button';
   button.className = 'ytp-button yta-player-button';
-  button.title = label;
   button.setAttribute('aria-label', label);
-  button.textContent = glyph;
+  const svg = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('yta-player-icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const path = documentRef.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', pathData);
+  svg.append(path);
+  button.append(svg);
   return button;
 }
 
@@ -331,33 +515,118 @@ function installPlayerControlStyles(): void {
   style.id = PLAYER_CONTROL_STYLE_ID;
   style.textContent = `
     .yta-player-button {
-      min-width: 44px;
-      min-height: 44px;
       color: #fff;
       background: transparent;
       border: 0;
-      font: 500 20px/44px Roboto, Arial, Helvetica, sans-serif;
-      text-align: center;
       cursor: pointer;
-      transition: color 120ms cubic-bezier(.2,0,0,1), transform 90ms cubic-bezier(.2,0,0,1);
     }
-    .yta-player-button:hover { transform: scale(1.06); }
+    .yta-player-button--mobile { width: 44px; height: 44px; }
+    .yta-player-icon { display: block; width: 100%; height: 100%; pointer-events: none; }
+    .yta-player-icon path { fill: currentColor; }
     .yta-player-button:focus-visible { outline: 2px solid #3fe0c4; outline-offset: -4px; }
-    .yta-player-button[aria-pressed="true"],
-    .yta-player-button[data-active="true"] { color: #22d3b4; }
-    .yta-player-button:disabled { cursor: default; opacity: 1; }
+    .yta-player-button[aria-pressed="true"] .yta-player-icon path { fill: #22d3b4; }
+    .yta-player-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .yta-audio-only-coach {
+      position: fixed;
+      z-index: 2147483646;
+      max-width: min(260px, calc(100vw - 24px));
+      padding: 8px 12px;
+      border-radius: 4px;
+      color: #fff;
+      background: rgba(28, 28, 28, .96);
+      box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
+      font: 500 13px/1.4 Roboto, Arial, Helvetica, sans-serif;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 120ms cubic-bezier(.2, 0, 0, 1);
+    }
     @media (prefers-reduced-motion: reduce) {
-      .yta-player-button { transition-duration: .001ms; }
-      .yta-player-button:hover { transform: none; }
+      .yta-audio-only-coach { transition-duration: .001ms; }
+    }
+    @media (forced-colors: active) {
+      .yta-player-button:focus-visible { outline-color: Highlight; }
+      .yta-player-button[aria-pressed="true"] .yta-player-icon path { fill: Highlight; }
     }
   `;
   (document.head ?? document.documentElement).append(style);
 }
 
+async function showAudioOnlyCoachOnce(button: HTMLButtonElement): Promise<void> {
+  if (coachSeenThisPage || coachRequest || !button.isConnected) return coachRequest ?? undefined;
+  coachRequest = (async () => {
+    try {
+      const stored = await browser.storage.local.get(COACH_STORAGE_KEY);
+      if (coachSeenThisPage || stored[COACH_STORAGE_KEY] === true || !button.isConnected) return;
+
+      const coach = document.createElement('div');
+      coach.id = COACH_ID;
+      coach.className = 'yta-audio-only-coach';
+      coach.setAttribute('role', 'tooltip');
+      coach.textContent = 'Audio-only is on. Tap here for video.';
+      document.body.append(coach);
+      coachSeenThisPage = true;
+      void browser.storage.local.set({ [COACH_STORAGE_KEY]: true }).catch(() => undefined);
+      if (__BENCH__) document.documentElement.dataset.ytaCoach = '1';
+
+      const position = () => {
+        if (!button.isConnected || !coach.isConnected) return;
+        const anchor = button.getBoundingClientRect();
+        const tooltip = coach.getBoundingClientRect();
+        const left = Math.min(
+          window.innerWidth - tooltip.width - 12,
+          Math.max(12, anchor.left + anchor.width / 2 - tooltip.width / 2)
+        );
+        coach.style.left = `${left}px`;
+        coach.style.top = `${Math.max(8, anchor.top - tooltip.height - 8)}px`;
+      };
+      const dismiss = () => coachCleanup();
+      const timeout = window.setTimeout(dismiss, 8_000);
+      coachCleanup = () => {
+        window.clearTimeout(timeout);
+        button.removeEventListener('click', dismiss);
+        window.removeEventListener('resize', position);
+        coach.remove();
+        if (__BENCH__) delete document.documentElement.dataset.ytaCoach;
+        coachCleanup = () => undefined;
+      };
+      button.addEventListener('click', dismiss, { once: true });
+      window.addEventListener('resize', position);
+      position();
+    } catch {
+      // Storage or DOM failures leave playback and the control unaffected.
+    }
+  })().finally(() => {
+    coachRequest = null;
+  });
+  return coachRequest;
+}
+
+function announceSkippedSegment(event: Event): void {
+  const category = (event as CustomEvent<unknown>).detail;
+  if (typeof category !== 'string' || !isSponsorCategory(category)) return;
+  const label = category === 'music_offtopic' ? 'music off-topic' : category;
+  announcePlayerStatus(`Skipped ${label}`);
+}
+
+function announcePlayerStatus(message: string): void {
+  const region = document.getElementById(PLAYER_STATUS_ID);
+  if (region) region.textContent = message;
+}
+
 async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonElement): Promise<void> {
   if (!getSettings().enabled || !getSettings().downloadEnabled || button.disabled) return;
   button.disabled = true;
-  button.title = 'Preparing audio download';
+  announcePlayerStatus('Preparing audio download');
   const requestId = crypto.randomUUID();
   try {
     const payload = await new Promise<{ url: string; filename: string }>((resolve, reject) => {
@@ -417,10 +686,10 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     ) {
       throw new Error('download-failed');
     }
-    button.title = 'Audio download started';
+    announcePlayerStatus('Audio download started');
     if (__BENCH__) document.documentElement.dataset.ytaDownload = JSON.stringify(payload);
   } catch {
-    button.title = 'Audio download failed';
+    announcePlayerStatus('Audio download failed');
   } finally {
     button.disabled = false;
   }
@@ -431,20 +700,11 @@ function updateDownloadButton(visible: boolean): void {
   if (button) button.hidden = !visible;
 }
 
-function updateSegmentStatus(active: boolean): void {
-  const button = document.getElementById(SEGMENT_BUTTON_ID);
-  if (!button) return;
-  button.dataset.active = String(active);
-  button.setAttribute('aria-label', active ? 'Segment skipping is on' : 'Segment skipping is off');
-  button.title = active ? 'Segment skipping is on' : 'Segment skipping is off';
-}
-
 function updateToggle(active: boolean): void {
   const button = document.getElementById(BUTTON_ID);
   if (!button) return;
   button.setAttribute('aria-pressed', String(active));
-  button.setAttribute('aria-label', active ? 'Audio-only is on' : 'Audio-only is off');
-  button.title = active ? 'Audio-only is on' : 'Audio-only is off';
+  button.setAttribute('aria-label', 'Toggle audio-only playback');
 }
 
 function updateStatusMarker(event: Event): void {
