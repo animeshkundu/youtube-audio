@@ -1,6 +1,21 @@
 import { useMemo, useState } from 'preact/hooks';
 
 import {
+  setAdBlockEnabled,
+  setAggressiveTelemetry,
+  setAudioOnlyEnabled,
+  setBackgroundPlayEnabled,
+  setDownloadEnabled,
+  setEnabled,
+  setEqualizerBand,
+  setForceQualityMax,
+  setGhostEnabled,
+  setMusicSetting,
+  setQualityOfLifeSetting,
+  setSegmentSkipCategory,
+  setSegmentSkipEnabled,
+} from '../../src/shared/config';
+import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
@@ -19,20 +34,7 @@ import {
   lyricsEnabledSignal,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
-  setAdBlockEnabled,
-  setAggressiveTelemetry,
-  setAudioOnlyEnabled,
-  setBackgroundPlayEnabled,
-  setDownloadEnabled,
-  setEnabled,
-  setEqualizerBand,
-  setForceQualityMax,
-  setGhostEnabled,
-  setMusicSetting,
-  setQualityOfLifeSetting,
-  setSegmentSkipCategory,
-  setSegmentSkipEnabled,
-} from '../../src/shared/config';
+} from '../../src/shared/settings-signals';
 import type { QualityCap } from '../../src/shared/quality-of-life';
 import type { SponsorCategory } from '../../src/shared/sponsorblock';
 import { Brand, Onboarding, QuickControls, SectionHeader, SettingRow } from '../ui/components';

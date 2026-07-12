@@ -166,6 +166,7 @@ nav:
       - Settings-Permutation Matrix: history/2026-07-12-settings-permutation-matrix.md
       - Firefox-only CD Fixes: history/2026-07-12-firefox-cd-fixes.md
       - AMO Distribution Setup: history/2026-07-12-amo-distribution-setup.md
+      - Bundle Size & Perf Optimization: history/2026-07-12-bundle-size-perf-optimization.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

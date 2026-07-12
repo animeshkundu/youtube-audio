@@ -255,6 +255,16 @@ function updateDistractionStyle(settings: ReturnType<typeof getSettings>): void 
 function installPlayerControls(bridgeNonce: string): void {
   installPlayerControlStyles();
   const attach = () => {
+    // Steady state on a watch page: the three controls are already installed. Skip the
+    // class-based querySelector on every mutation batch while they are present. A SPA teardown
+    // removes them (getElementById then returns null), so this falls through and reinstalls.
+    if (
+      document.getElementById(BUTTON_ID) &&
+      document.getElementById(SEGMENT_BUTTON_ID) &&
+      document.getElementById(DOWNLOAD_BUTTON_ID)
+    ) {
+      return;
+    }
     const controls = document.querySelector('.ytp-right-controls, .ytp-left-controls');
     if (!controls) return;
 

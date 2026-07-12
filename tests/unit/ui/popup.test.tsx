@@ -9,7 +9,7 @@ import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
-} from '../../../src/shared/config';
+} from '../../../src/shared/settings-signals';
 
 function actions(): PopupActions {
   return {

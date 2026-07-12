@@ -43,7 +43,7 @@ Future optional origins are documented but not granted: `https://sponsor.ajay.ap
 
 ### State and storage
 
-`src/shared/config.ts` owns the global enabled signal and storage adapter. UI changes update the signal immediately and persist to `browser.storage.local`; storage changes synchronize other extension contexts. Persistence failures restore the prior state and surface an error to the caller.
+`src/shared/config.ts` owns the framework-neutral, storage-backed settings store (getters, `subscribeSettings`, mutators) that every context imports. The Preact reactive layer lives separately in `src/shared/settings-signals.ts`, which the popup and options UI import; it mirrors the store into `@preact/signals` via a single `subscribeSettings` listener, keeping `@preact/signals` (and the Preact runtime) out of the background, content, and page-world bundles. UI changes update the signals immediately and persist to `browser.storage.local`; storage changes synchronize other extension contexts. Persistence failures restore the prior state and surface an error to the caller.
 
 ### ANDROID_VR request builder
 

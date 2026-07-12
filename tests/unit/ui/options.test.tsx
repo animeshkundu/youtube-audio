@@ -5,7 +5,7 @@ import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Options, type OptionsActions } from '../../../entrypoints/options/App';
-import { audioOnlyEnabledSignal } from '../../../src/shared/config';
+import { audioOnlyEnabledSignal } from '../../../src/shared/settings-signals';
 
 function actions(): OptionsActions {
   return {

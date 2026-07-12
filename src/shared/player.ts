@@ -1,3 +1,7 @@
+// Compile-time bench flag injected by the build (`vite` define). `false` in production, so the
+// bench-only localhost media allowance in `isSafeMediaUrl` is dead-code-eliminated from real builds.
+declare const __BENCH__: boolean;
+
 export interface PlayerHandleOptions {
   maxReassertions?: number;
   mediaPrototype?: object;
@@ -171,11 +175,11 @@ function finiteOr(value: number, fallback: number): number {
 function isSafeMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url, location.href);
-    return (
-      parsed.protocol === 'https:' ||
-      parsed.hostname === '127.0.0.1' ||
-      parsed.hostname === 'localhost'
-    );
+    if (parsed.protocol === 'https:') return true;
+    // The hermetic bench serves fixture media over http://127.0.0.1 / http://localhost. This
+    // branch is compiled out of production (`__BENCH__` is `false`), so a real build only ever
+    // hijacks an https media url.
+    return __BENCH__ && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
   } catch {
     return false;
   }

@@ -1,6 +1,11 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // Mirror the build's compile-time bench flag. Production and the unit suite both run with
+  // `__BENCH__` false, so any bench-only branch behaves in tests exactly as it does when shipped.
+  define: {
+    __BENCH__: 'false',
+  },
   oxc: {
     jsx: {
       runtime: 'automatic',

@@ -1,5 +1,3 @@
-import { signal } from '@preact/signals';
-
 import { FLAT_EQUALIZER, type EqualizerBands } from './audiograph';
 import { isQualityCap, type QualityCap } from './quality-of-life';
 import { isSponsorCategory, SPONSOR_CATEGORIES, type SponsorCategory } from './sponsorblock';
@@ -56,27 +54,6 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   lyricsEnabled: false,
   downloadEnabled: false,
 };
-
-export const enabledSignal = signal(DEFAULT_SETTINGS.enabled);
-export const audioOnlyEnabledSignal = signal(DEFAULT_SETTINGS.audioOnlyEnabled);
-export const backgroundPlayEnabledSignal = signal(DEFAULT_SETTINGS.backgroundPlayEnabled);
-export const ghostEnabledSignal = signal(DEFAULT_SETTINGS.ghostEnabled);
-export const aggressiveTelemetrySignal = signal(DEFAULT_SETTINGS.aggressiveTelemetry);
-export const adBlockEnabledSignal = signal(DEFAULT_SETTINGS.adBlockEnabled);
-export const segmentSkipEnabledSignal = signal(DEFAULT_SETTINGS.segmentSkipEnabled);
-export const segmentSkipCategoriesSignal = signal<readonly SponsorCategory[]>(
-  DEFAULT_SETTINGS.segmentSkipCategories
-);
-export const forceQualityMaxSignal = signal<QualityCap>(DEFAULT_SETTINGS.forceQualityMax);
-export const disableAutoplayNextSignal = signal(DEFAULT_SETTINGS.disableAutoplayNext);
-export const hideShortsSignal = signal(DEFAULT_SETTINGS.hideShorts);
-export const hideRecommendationsSignal = signal(DEFAULT_SETTINGS.hideRecommendations);
-export const hideCommentsSignal = signal(DEFAULT_SETTINGS.hideComments);
-export const loudnessNormalizationSignal = signal(DEFAULT_SETTINGS.loudnessNormalization);
-export const equalizerEnabledSignal = signal(DEFAULT_SETTINGS.equalizerEnabled);
-export const equalizerBandsSignal = signal<EqualizerBands>(DEFAULT_SETTINGS.equalizerBands);
-export const lyricsEnabledSignal = signal(DEFAULT_SETTINGS.lyricsEnabled);
-export const downloadEnabledSignal = signal(DEFAULT_SETTINGS.downloadEnabled);
 
 let currentSettings = DEFAULT_SETTINGS;
 const subscribers = new Set<(settings: ExtensionSettings) => void>();
@@ -202,24 +179,6 @@ async function persistSettings(settings: ExtensionSettings): Promise<void> {
 
 function applySettings(settings: ExtensionSettings): void {
   currentSettings = { ...settings };
-  enabledSignal.value = settings.enabled;
-  audioOnlyEnabledSignal.value = settings.audioOnlyEnabled;
-  backgroundPlayEnabledSignal.value = settings.backgroundPlayEnabled;
-  ghostEnabledSignal.value = settings.ghostEnabled;
-  aggressiveTelemetrySignal.value = settings.aggressiveTelemetry;
-  adBlockEnabledSignal.value = settings.adBlockEnabled;
-  segmentSkipEnabledSignal.value = settings.segmentSkipEnabled;
-  segmentSkipCategoriesSignal.value = settings.segmentSkipCategories;
-  forceQualityMaxSignal.value = settings.forceQualityMax;
-  disableAutoplayNextSignal.value = settings.disableAutoplayNext;
-  hideShortsSignal.value = settings.hideShorts;
-  hideRecommendationsSignal.value = settings.hideRecommendations;
-  hideCommentsSignal.value = settings.hideComments;
-  loudnessNormalizationSignal.value = settings.loudnessNormalization;
-  equalizerEnabledSignal.value = settings.equalizerEnabled;
-  equalizerBandsSignal.value = settings.equalizerBands;
-  lyricsEnabledSignal.value = settings.lyricsEnabled;
-  downloadEnabledSignal.value = settings.downloadEnabled;
   subscribers.forEach((listener) => listener(getSettings()));
 }
 

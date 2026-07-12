@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 
+import { setAudioOnlyEnabled, setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
 import {
   adBlockEnabledSignal,
   audioOnlyEnabledSignal,
@@ -7,10 +8,7 @@ import {
   enabledSignal,
   ghostEnabledSignal,
   segmentSkipEnabledSignal,
-  setAudioOnlyEnabled,
-  setBackgroundPlayEnabled,
-  setEnabled,
-} from '../../src/shared/config';
+} from '../../src/shared/settings-signals';
 import { Brand, QuickControls, SectionHeader, StatusRow } from '../ui/components';
 
 export type PopupActions = {
