@@ -23,6 +23,7 @@ export default defineConfig({
         'src/shared/redact.ts',
         'src/shared/report.ts',
         'src/shared/sponsorblock.ts',
+        'src/shared/status.ts',
         'src/shared/telemetry.ts',
       ],
       provider: 'v8',

@@ -114,6 +114,7 @@ nav:
       - SPEC-009 M6 Design Polish: specs/SPEC-009-m6-design-polish.md
       - SPEC-010 M7 Release Infrastructure: specs/SPEC-010-m7-release-infrastructure.md
       - SPEC-011 Diagnostics and Issue Reporter: specs/SPEC-011-diagnostics-and-issue-reporter.md
+      - SPEC-012 Holistic UX Foundations: specs/SPEC-012-holistic-ux-foundations.md
   - Decisions (ADRs):
       - Overview: adrs/README.md
       - ADR-0001 WXT + TypeScript + Preact: adrs/0001-wxt-typescript-preact-foundation.md
@@ -122,6 +123,7 @@ nav:
       - ADR-0004 Multi-browser CD Scope: adrs/0004-multi-browser-cd.md
       - ADR-0005 PII-free Diagnostics: adrs/0005-pii-free-diagnostics-and-issue-reporter.md
       - ADR-0006 AMO + Beta Distribution: adrs/0006-firefox-amo-distribution-and-beta-channel.md
+      - ADR-0007 Popup Playback-Status Delivery: adrs/0007-popup-playback-status-delivery.md
       - ADR Template: adrs/0000-template.md
   - Design:
       - Popup UX Review: design/ux-popup.md

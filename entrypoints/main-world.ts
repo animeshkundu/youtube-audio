@@ -16,6 +16,7 @@ import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/qu
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
+import type { PlaybackStatus } from '../src/shared/status';
 import {
   isSponsorCategory,
   type SponsorCategory,
@@ -30,8 +31,6 @@ const TRACK_EVENT = 'yta:track';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const VIDEO_WAIT_MS = 8_000;
-
-type PlaybackStatus = 'idle' | 'fetching' | 'active' | 'fallback' | 'disabled';
 
 interface PageSettings {
   enabled: boolean;

@@ -61,6 +61,11 @@ const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
 const ADDON_ID = 'youtube-audio@animesh.kundus.in';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
+// Firefox derives the toolbar widget id from the add-on id: lowercase, then any char outside
+// [a-z0-9_-] becomes "_" (so "@" and "." collapse, hyphens are kept).
+const BROWSER_ACTION_WIDGET = `${ADDON_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}-browser-action`;
+// BENCH-ONLY background message that returns the real per-tab status map (see background.ts).
+const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
 
 const TERMINAL_STATUSES = ['active', 'disabled', 'fallback'];
 
@@ -96,6 +101,9 @@ export function buildBenchExtension() {
 function makeOptions() {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
+  // Permit Marionette's chrome context (openBrowserActionPopup drives the toolbar via it). This is
+  // a WebDriver capability flag only; it does not change content-page or extension behavior.
+  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   // Pin the extension's internal UUID so the options page has a stable moz-extension origin.
   options.setPreference(
@@ -120,6 +128,73 @@ async function waitFor(fn, timeoutMs, stepMs = 200) {
     if (Date.now() >= deadline) return null;
     await new Promise((r) => setTimeout(r, stepMs));
   }
+}
+
+/**
+ * Best-effort open of the REAL toolbar browser-action popup via Marionette's chrome context.
+ *
+ * DOCUMENTED HEADLESS LIMITATION (not faked): the toolbar's unified-extensions button and our
+ * action widget are reachable and clickable in the chrome context, but in headless Firefox the
+ * popup's moz-extension <browser> does not attach, so geckodriver cannot switch into it to read the
+ * rendered popup document. This helper therefore opens the panel + clicks our action and returns a
+ * structured probe (whether the popup <browser> attached and its URL); a later headful stack can
+ * extend it to switch into that <browser> and assert the popup DOM across active / fallback /
+ * non-YouTube / two-tab / SPA / mid-nav / no-content-script states. It never injects a fake status,
+ * and always restores the content context before returning.
+ *
+ * @returns {Promise<{opened: boolean, actionClicked: boolean, popupBrowserAttached: boolean,
+ *   popupUrl: (string|null), note: string}>}
+ */
+export async function openBrowserActionPopup(driver) {
+  const result = {
+    opened: false,
+    actionClicked: false,
+    popupBrowserAttached: false,
+    popupUrl: null,
+    note: '',
+  };
+  try {
+    await driver.setContext('chrome');
+    // Browser actions live in the unified-extensions ("puzzle piece") panel by default.
+    try {
+      await driver.findElement(By.id('unified-extensions-button')).click();
+      result.opened = true;
+      await new Promise((r) => setTimeout(r, 500));
+    } catch {
+      // Older layouts place the action directly on the toolbar; fall through to the direct click.
+    }
+    result.actionClicked = await driver.executeScript((widget) => {
+      const button =
+        document.querySelector(
+          `#unified-extensions-item-${widget} .unified-extensions-item-action-button`
+        ) ||
+        document.getElementById(widget) ||
+        document.getElementById(`${widget}-BAP`);
+      if (!button) return false;
+      button.click();
+      return true;
+    }, BROWSER_ACTION_WIDGET);
+    await new Promise((r) => setTimeout(r, 800));
+    result.popupUrl = await driver.executeScript(() => {
+      const src = [...document.querySelectorAll('browser')]
+        .map((el) => el.getAttribute('src'))
+        .find((value) => value && value.includes('moz-extension') && value.includes('popup'));
+      return src || null;
+    });
+    result.popupBrowserAttached = !!result.popupUrl;
+    result.note = result.popupBrowserAttached
+      ? 'popup <browser> attached; content DOM readable by a headful stack'
+      : 'popup <browser> did not attach (expected headless); popup DOM not readable here';
+  } catch (e) {
+    result.note = `chrome context unavailable: ${String(e).slice(0, 160)}`;
+  } finally {
+    try {
+      await driver.setContext('content');
+    } catch {
+      /* ignore */
+    }
+  }
+  return result;
 }
 
 // --- Page-context probes (serialized to the browser) -----------------------
@@ -180,6 +255,8 @@ export async function runSession({
   probeSpaRearm,
   probeCircuitBreaker,
   probeReadDiagnostics,
+  probeStatusMap,
+  probeBrowserActionPopup,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -419,6 +496,36 @@ export async function runSession({
       });
     }
 
+    // --- Playback-status channel (content -> background per-tab map) ----------
+    // Faithfully verifies the honest per-video status reached the background map. The task's
+    // sanctioned "read the map" path: we exercise the real popup lane (best-effort, headless-
+    // limited) while the fixture tab is active, then read the REAL map from the extension's own
+    // page. Asserting the raw entry (status + reason) is robust to the navigation to options.html
+    // marking that tab's entry stale (markEntryStale preserves the payload).
+    let browserActionPopup = null;
+    let statusMap = null;
+    if ((probeStatusMap || probeBrowserActionPopup) && withAddon) {
+      try {
+        // Let the async content->background status push land in the map.
+        await new Promise((r) => setTimeout(r, 300));
+        if (probeBrowserActionPopup) {
+          browserActionPopup = await openBrowserActionPopup(driver);
+        }
+        if (probeStatusMap) {
+          await driver.get(OPTIONS_URL);
+          statusMap = await driver.executeAsyncScript(function (messageType) {
+            const done = arguments[arguments.length - 1];
+            browser.runtime
+              .sendMessage({ type: messageType })
+              .then((r) => done({ ok: true, entries: (r && r.entries) || [] }))
+              .catch((e) => done({ ok: false, error: String(e) }));
+          }, BENCH_STATUS_MAP_MESSAGE);
+        }
+      } catch (e) {
+        statusMap = statusMap || { ok: false, error: String(e).slice(0, 200) };
+      }
+    }
+
     return {
       addonId,
       marker: snap.marker,
@@ -439,6 +546,8 @@ export async function runSession({
       spaRearm,
       circuitBreaker,
       diagnostics,
+      browserActionPopup,
+      statusMap,
     };
   } finally {
     try {
@@ -452,6 +561,13 @@ export async function runSession({
 const hasPlayerPost = (requests) =>
   requests.some((r) => r.method === 'POST' && r.path === '/youtubei/v1/player');
 const requestCount = (requests, path) => requests.filter((r) => r.path === path).length;
+
+// Pick the watch-tab entry from a bench status-map snapshot (one content tab per session): prefer
+// an entry carrying a videoId, else the only entry. Returns null when the snapshot is empty/failed.
+function statusMapEntry(statusMap) {
+  const entries = statusMap && statusMap.ok && Array.isArray(statusMap.entries) ? statusMap.entries : [];
+  return entries.find((e) => e && e.entry && e.entry.videoId) || entries[0] || null;
+}
 
 async function main() {
   if (!SKIP_BUILD) {
@@ -605,6 +721,7 @@ async function main() {
         segmentSkipCategories: [],
       },
       videoId: 'LIVESTREAM01',
+      probeStatusMap: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -615,10 +732,17 @@ async function main() {
         !(typeof liveRun.videoSrc === 'string' && liveRun.videoSrc.includes('/videoplayback')),
       { status: liveRun.status, reason: liveRun.reason, videoSrc: liveRun.videoSrc }
     );
+    const liveEntry = statusMapEntry(liveRun.statusMap);
+    record(
+      'status-channel:fallback-live-reaches-background-map',
+      liveEntry?.entry?.status === 'fallback' && liveEntry?.entry?.reason === 'live',
+      { entry: liveEntry?.entry, statusMap: liveRun.statusMap }
+    );
 
     const authRequiredRun = await runSession({
       withAddon: true,
       videoId: 'AUTHVIDEO01',
+      probeStatusMap: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -633,6 +757,33 @@ async function main() {
         reason: authRequiredRun.reason,
         videoSrc: authRequiredRun.videoSrc,
       }
+    );
+    const authEntry = statusMapEntry(authRequiredRun.statusMap);
+    record(
+      'status-channel:fallback-auth-reaches-background-map',
+      authEntry?.entry?.status === 'fallback' && authEntry?.entry?.reason === 'LOGIN_REQUIRED',
+      { entry: authEntry?.entry, statusMap: authRequiredRun.statusMap }
+    );
+
+    // Active case + best-effort real browser-action popup lane (documented headless limitation).
+    const statusActiveRun = await runSession({
+      withAddon: true,
+      probeStatusMap: true,
+      probeBrowserActionPopup: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const activeEntry = statusMapEntry(statusActiveRun.statusMap);
+    record(
+      'status-channel:active-reaches-background-map',
+      activeEntry?.entry?.status === 'active' && activeEntry?.entry?.videoId === 'FIXTURE0001',
+      { entry: activeEntry?.entry, statusMap: statusActiveRun.statusMap }
+    );
+    record(
+      'status-channel:browser-action-popup-lane-opens',
+      statusActiveRun.browserActionPopup?.opened === true &&
+        statusActiveRun.browserActionPopup?.actionClicked === true,
+      statusActiveRun.browserActionPopup
     );
 
     const spaRun = await runSession({

@@ -18,6 +18,7 @@ import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/downloa
 import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
+import { parseVideoId, STATUS_UPDATE_MESSAGE } from '../src/shared/status';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
 // builds, so the marker below is dead-code-eliminated and never runs on real YouTube.
@@ -46,6 +47,13 @@ const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 const PLAYER_CONTROL_STYLE_ID = 'yta-player-control-style';
 let lyricsCleanup: () => void = () => undefined;
+// This content script's lifetime start. A full page load starts a fresh content script with a
+// strictly-later `runStart`, so the background prefers the newer document's report even though the
+// per-lifetime `statusGeneration` below resets to 0. Together they order every status the popup sees.
+const statusRunStart = Date.now();
+// Monotonic per-lifetime navigation epoch, bumped when a YouTube SPA navigation starts, so a status
+// still in flight from the previous video (same lifetime) cannot clobber the next one.
+let statusGeneration = 0;
 
 export default defineContentScript({
   matches: MATCHES,
@@ -74,6 +82,10 @@ export default defineContentScript({
         if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
+      // A YouTube SPA navigation opens a new epoch: a status still in flight from the previous video
+      // must not clobber the next one. Bumping here (before the page world re-arms) tags the next
+      // report with a fresh generation the background uses to order updates.
+      document.addEventListener('yt-navigate-start', bumpStatusGeneration);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
         void handleSponsorRequest(event, bridgeNonce);
       });
@@ -436,14 +448,48 @@ function updateToggle(active: boolean): void {
 }
 
 function updateStatusMarker(event: Event): void {
-  if (!__BENCH__) return;
   const detail = (event as CustomEvent<unknown>).detail;
   if (typeof detail !== 'object' || detail === null) return;
-  const status = (detail as { status?: unknown }).status;
-  if (typeof status === 'string' && status.length <= 24)
-    document.documentElement.dataset.ytaStatus = status;
-  const reason = (detail as { reason?: unknown }).reason;
-  if (typeof reason === 'string' && reason.length <= 120)
-    document.documentElement.dataset.ytaReason = reason;
-  else delete document.documentElement.dataset.ytaReason;
+  const rawStatus = (detail as { status?: unknown }).status;
+  const status = typeof rawStatus === 'string' && rawStatus.length <= 24 ? rawStatus : null;
+  const rawReason = (detail as { reason?: unknown }).reason;
+  const reason = typeof rawReason === 'string' && rawReason.length <= 120 ? rawReason : undefined;
+
+  // Bench-only observable DOM marker (unchanged): the hermetic integration bench reads these.
+  if (__BENCH__) {
+    if (status) document.documentElement.dataset.ytaStatus = status;
+    if (reason) document.documentElement.dataset.ytaReason = reason;
+    else delete document.documentElement.dataset.ytaReason;
+  }
+
+  // Production: relay the real per-video status to the background per-tab map so the popup can read
+  // the honest state of THIS tab. Additive to the bench marker; both run under the bench build.
+  if (status) pushStatusToBackground(status, reason);
+}
+
+function bumpStatusGeneration(): void {
+  statusGeneration += 1;
+}
+
+/**
+ * Forward the page world's status to the background. Fail-open by contract: a torn-down or
+ * unavailable background context (or any messaging rejection) must never surface into the page or
+ * disturb playback, so every failure is swallowed.
+ */
+function pushStatusToBackground(status: string, reason: string | undefined): void {
+  try {
+    const videoId = parseVideoId(location.href) ?? undefined;
+    void browser.runtime
+      .sendMessage({
+        type: STATUS_UPDATE_MESSAGE,
+        status,
+        ...(reason ? { reason } : {}),
+        ...(videoId ? { videoId } : {}),
+        runStart: statusRunStart,
+        generation: statusGeneration,
+      })
+      .catch(() => undefined);
+  } catch {
+    // Never let a status relay failure break the page.
+  }
 }
