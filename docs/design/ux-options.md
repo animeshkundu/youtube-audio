@@ -13,9 +13,9 @@ Any recommendation that changes a stored default or the settings schema reopens 
 non-goal ("No feature behavior, defaults, permissions, host matches, network flows, or storage
 schema changes", SPEC-009 line 19) and so needs a fresh spec plus an ADR per the repo's "no spec, no
 code" rule. Most fixes below are presentation-only and do not touch `DEFAULT_SETTINGS`. One IA
-constraint to keep in view: the Download control is off by default **and gated out of the listed /
-AMO build** (ADR-0003), so the Downloads group must render conditionally and will be absent in that
-build.
+constraint to keep in view: the Download control is off by default and intentionally **ships in
+the listed / AMO build**. ADR-0003's proposed exclusion was retired; the accepted single-build,
+single-ID distribution is recorded in ADR-0006.
 
 Location note: the repo's documented doc categories are Architecture / Specifications / ADRs /
 Research / History / Agent Instructions / Testing (see `mkdocs.yml` nav); design/UX writing has so
@@ -185,7 +185,7 @@ setting appears twice. Defaults shown in _italics_.
 | **Skipping**                | Skip segments _(on)_                                                                            | switch                           | Category rows Sponsored / Non-music - shown only when Skip is on                                         |
 | **Cleaner YouTube**         | Hide Shorts _(off)_; Hide recommendations _(off)_; Hide comments _(off)_                        | switches                         | -                                                                                                        |
 | **Music**                   | Normalize loudness _(on)_; Equalizer _(off)_; Synced lyrics _(off)_                             | switches                         | EQ band sliders - shown only when Equalizer is on                                                        |
-| **Downloads**               | Download audio _(off; absent in the AMO/listed build per ADR-0003)_                             | switch                           | **Advanced (later):** format / filename                                                                  |
+| **Downloads**               | Download audio _(off; ships in the AMO/listed build)_                                           | switch                           | **Advanced (later):** format / filename                                                                  |
 | **Advanced / About**        | Reset to defaults; (later) import/export; version + "what's on" checklist                       | button + text                    | -                                                                                                        |
 
 Notes:
@@ -360,8 +360,8 @@ is the primary surface, and the in-player button is the real day-to-day control.
   "presentation-only" rollback story (SPEC-009).
 - **Needs a fresh spec + ADR (reopens SPEC-009 line 19 non-goal):** flipping `disableAutoplayNext`
   to on by default; adding Reset-to-defaults (writes settings); any default cap for `forceQualityMax`
-  on metered/mobile. Keep the Downloads group build-gated so it never appears in the AMO/listed build
-  (ADR-0003).
+  on metered/mobile. Keep the Downloads group available in the AMO/listed build; download
+  intentionally ships there under the owner-accepted single-build decision.
 
 The primitives are already at the bar. The work is disciplined composition: one home per setting,
 disclosure that mirrors dependency, state as the receipt everywhere, honest framing for the two

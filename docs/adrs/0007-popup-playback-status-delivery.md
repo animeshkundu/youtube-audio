@@ -102,22 +102,38 @@ concretely:
 
 - **Multi-tab:** the map is keyed by `sender.tab.id`; each tab is independent. `get-status`
   resolves `tabs.query({active, currentWindow})`; `tabs.onRemoved` deletes the entry.
-- **SPA staleness:** the content script tags each report with `(runStart, generation)` — a
-  per-lifetime start timestamp plus an epoch bumped on `yt-navigate-start`. The reducer orders
-  updates lexicographically: a report from a newer content-script lifetime (`runStart`) always
-  wins, and within one lifetime a strictly-older `generation` (a superseded SPA navigation) is
-  dropped. Because `runStart` distinguishes lifetimes, a full reload (generation resets to 0) or a
-  late message from an unloading old document can never freeze the tab's state — the pitfall a
-  bare per-lifetime generation would hit. `tabs.onUpdated` (top-level `url` change, or a `loading`
-  status for a same-URL reload) additionally marks the entry stale so the resolver returns
-  `connecting` until the freshly loaded content script reports, and the resolver cross-checks the
-  stored `videoId` against the active tab's URL and returns `connecting` on a mismatch (a
-  navigation outran its report).
+- **SPA staleness:** each report carries `(runStart, generation)`. `generation` is a **content-owned**
+  counter in the isolated content script: it begins a new value each time the forwarded `videoId`
+  changes, so a same-operation `fetching`→`active` (same video) keeps one generation while a new video
+  supersedes the old. It is deliberately **not** taken from the observable, forgeable `yta:status`
+  event, and it resets per document lifetime. `runStart` is a monotonic per-tab epoch from
+  `nextStatusRunStart()`: `max(Date.now(), previous + 1)` over the last value persisted in per-tab
+  `sessionStorage`, so a fresh load is always strictly later even across a same-millisecond collision
+  or a system-clock rollback (the stored value is validated as a safe integer no more than a day past
+  `now`, so the origin-shared page cannot poison ordering, and it falls back to `Date.now()` when
+  storage throws). The reducer orders updates lexicographically: a report from a newer lifetime
+  (`runStart`) always wins, and within one lifetime a strictly-older `generation` (a superseded SPA
+  navigation) is dropped, so a full reload (generation resets to 0) or a late message from an
+  unloading old document can never freeze the tab's state, the pitfall a bare per-lifetime generation
+  would hit. `tabs.onUpdated` additionally marks the entry stale, but only when `shouldMarkStale`
+  agrees: a `loading` reload, or a URL change to a **different** video id. A same-video URL rewrite
+  (YouTube appending `&t=`/`list` params during playback) is deliberately not stale, since marking it
+  so would reject the same operation's own `active` report and strand the popup on `connecting`. A
+  stale entry is then revived only by a **strictly** newer `generation`, and the resolver additionally
+  cross-checks the stored `videoId` against the active tab's URL, returning `connecting` on a mismatch
+  (a navigation outran its report).
 - **Injection race:** an absent/rejected/stale entry resolves to `connecting` (an honest
   "checking this tab"), never to a stored toggle or an optimistic `active`.
-- **Trust boundary:** the background accepts updates only from the **top frame**
-  (`sender.frameId === 0`) of a real tab (`sender.tab.id`), and validates the payload shape
-  (`parseStatusUpdate`) before storing. Sub-frames and extension pages are ignored.
+- **Trust boundary:** the `yta:status` event travels through the page world and is observable and
+  forgeable by arbitrary page JS, so its ordering is generated in the isolated content context and
+  never trusted from the event: `content.ts` assigns the content-owned `generation` and `runStart`,
+  ignoring any generation the event carries, so a hostile page cannot forge a huge generation to
+  poison ordering. Only display fields (`status`, `reason`, `videoId`) come from the event; a forged
+  `videoId` is caught by the resolver's URL cross-check, and a momentary forged `status` is superseded
+  by the next genuine report. At the background, updates
+  are then accepted only from the **top frame** (`sender.frameId === 0`) of a real tab
+  (`sender.tab.id`), and validated by `parseStatusUpdate` before storing. Sub-frames and extension
+  pages are ignored.
 - **Bounded:** `get-status` is answered under a timeout that falls back to `connecting`, and
   the popup's fetch is itself time-boxed, so nothing hangs.
 

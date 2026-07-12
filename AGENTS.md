@@ -135,9 +135,9 @@ youtube-audio/
 ├── tests/
 │   ├── unit/               # Vitest unit tests over real src/ modules (incl. ui/ Preact tests)
 │   └── e2e/                # Selenium probes + hermetic bench/, android/ Fenix driver
-├── docs/                   # The brain: specs/ adrs/ architecture/ history/ research/ agent-instructions/
+├── docs/                   # MkDocs site and brain: specs/ (SPEC-001..012), ADRs, architecture, history, research
 ├── scripts/                # validate.sh, build-ext.sh, release.sh, setup.sh, lint.sh
-├── website/                # GitHub Pages site
+├── .github/workflows/      # ci.yml, pages.yml, beta.yml, publish-amo.yml, mobile-e2e.yml, live-canary.yml
 ├── wxt.config.ts           # WXT config: MV2/MV3 manifests, match patterns, permissions, BENCH flag
 ├── vitest.config.ts        # Vitest config + coverage thresholds
 └── package.json            # Scripts and dependencies
@@ -169,6 +169,10 @@ Do not break these without an ADR that supersedes the decision:
   source tree via [`wxt.config.ts`](./wxt.config.ts).
 - **`PlayerHandle` is the sole `<video>.src` writer.** All audio-source swaps go through
   `PlayerHandle` in `src/shared/player.ts`. No other module writes a media element `src`.
+- **Four production content-script matches only.** Keep content scripts scoped to the four
+  YouTube match patterns and never widen them to `*://*/*`. The credentialless fetch-origin
+  permissions for `*://*.googlevideo.com/*`, `https://sponsor.ajay.app/*`, and
+  `https://lrclib.net/*` are separate, intended, and required.
 - **Fail open to native YouTube.** Live streams, YouTube Kids, age-restricted / auth-required
   videos, and any fetch/parse/DOM/media failure must leave or restore normal YouTube
   playback. A feature failure is never a broken page.

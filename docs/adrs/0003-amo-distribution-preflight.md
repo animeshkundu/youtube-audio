@@ -1,10 +1,14 @@
 # ADR-0003: AMO listing policy preflight and distribution split
 
+> **Retired and superseded by ADR-0006.** The proposed listed-clean / unlisted-full split,
+> including exclusion of audio download from the listed build, was not adopted. The owner accepted
+> one build under one permanent add-on ID; audio download intentionally ships in the AMO-listed
+> build. ADR-0006 is the current distribution decision.
+
 ## Status
 
-**Proposed** — decision required from the project owner. This ADR contradicts two previously locked
-plan decisions ("AMO-listed" and "everything in v1"), so it is surfaced for approval rather than
-adopted unilaterally.
+**Retired and superseded by ADR-0006.** This document remains as the historical policy preflight,
+but its proposed build split and download exclusion are not current architecture.
 
 ## Date
 
@@ -30,20 +34,20 @@ history of removing YouTube downloaders/stream-rippers, and a 2026 US DMCA §120
 | Broad `*.googlevideo.com` + `webRequestBlocking`                                                      | **MED** (justifiable)                                            | Legitimate under least-privilege but guarantees full manual review.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Telemetry-block, ad-block _concept_, segment-skip, QoL, loudness/EQ, lyrics (opt-in), background play | **LOW**                                                          | Content blocking is permitted (only _injecting_ ads is restricted); each surprising behavior is opt-in + disclosed. AMO has no single-purpose rule.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
-Verdict: as specified, a LISTED submission is HIGH RISK — but code verification (above) narrows the
-driver to **a single feature, the audio download**. The rescue-config/scriptlet risk is **not present
-in the shipped code** (it is in-package-only). With **download gated out of the listed build**, plus
-honest data taxonomy and source-reproducibility prep, a listed submission becomes
-**accept-with-conditions** (residual: the client-spoof playback mechanism + broad `googlevideo`
-scrutiny). This is a materially smaller lift than "remove two HIGH features."
+The preflight's historical verdict was that the proposed listed submission carried high policy
+risk, with audio download as the largest identified driver. It proposed excluding download as a
+risk-reduction measure alongside honest data taxonomy and source-reproducibility preparation. That
+exclusion was never adopted: the owner accepted the risk and audio download intentionally ships in
+the listed build under ADR-0006.
 
 Key platform fact: an **unlisted** self-hosted XPI **does not auto-update on Firefox for Android**
 (sideloaded updates are ignored on mobile). So going unlisted-only forfeits silent updates on the
 exact platform the product targets — severe for a tool that breaks whenever YouTube changes.
 
-## Decision (proposed)
+## Retired proposal (not adopted)
 
-**Hybrid, two-build distribution from one source tree** (extends ADR-0002's two-identity model):
+The preflight proposed a **hybrid, two-build distribution from one source tree** extending
+ADR-0002's two-identity model:
 
 1. **Listed "clean" build → AMO** — the Android auto-update + discoverability channel. Excludes the
    audio **download** feature; declares an **honest data taxonomy**; includes reviewer notes + source
@@ -55,24 +59,20 @@ exact platform the product targets — severe for a tool that breaks whenever Yo
    design is later built, it must be declarative-only and strictly parameterize fixed in-package code
    paths (never select which logic runs) — on any channel, since the remote-code ban covers unlisted.
 
-### Consequences
+### Projected consequences of the retired proposal
 
-- Keeps Android auto-update (via the listed-clean build) — the platform we care about.
-- Preserves download for desktop via the unlisted-full build.
-- Requires a build-time feature flag to drop download from the listed variant and honest
-  `data_collection_permissions` wiring. This is **new scope** beyond the current tree; the
-  rescue-config needs no change (already in-package-only).
+- It would have kept Android auto-update through a listed-clean build.
+- It would have limited download to an unlisted-full desktop build.
+- It would have required a build-time feature flag to drop download from the listed variant and
+  separate variant maintenance.
 
-## Owner decision required
+## Owner decision outcome
 
-This reverses "everything in one listed v1." Options:
-
-- **(A) Adopt the hybrid split** (recommended): listed-clean + unlisted-full.
-- **(B) Unlisted-only full build:** ship everything, desktop-first, accept manual Android updates.
-- **(C) Attempt a listed all-in-one anyway:** high rejection risk; not recommended.
-
-No submission, signing, or credential step will be taken without the owner's go-ahead and AMO API
-credentials.
+The owner selected the listed all-in-one direction with download included, then ADR-0006 replaced
+the two-build and two-identity assumptions with one build and one permanent add-on ID. Production
+uses the AMO listed channel, beta uses the same ID signed unlisted at a distinct pre-release version,
+and audio download ships in the listed build. This accepted outcome supersedes every exclusion and
+build-split recommendation above.
 
 ## References
 
@@ -82,4 +82,5 @@ credentials.
 - Data-collection consent (`data_collection_permissions`): https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/
 - Unlisted + Android auto-update limitation: https://extensionworkshop.com/documentation/publish/distribute-sideloaded-extensions/ · https://bugzilla.mozilla.org/show_bug.cgi?id=1849605
 - 2026 DMCA §1201 rolling-cipher ruling: https://news.slashdot.org/story/26/02/05/1924252/
-- Relates to [ADR-0002](0002-separate-firefox-distribution-identities.md).
+- Historical context: [ADR-0002](0002-separate-firefox-distribution-identities.md).
+- Superseding decision: [ADR-0006](0006-firefox-amo-distribution-and-beta-channel.md).

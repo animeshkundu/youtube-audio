@@ -62,7 +62,7 @@ Off until you ask: aggressive telemetry, force-quality cap, disable autoplay-nex
 
 ## Install
 
-> Distribution is a hybrid that is still being finalized: an AMO-listed add-on for hands-off updates on desktop and Android, plus an unlisted, Mozilla-signed XPI for self-hosting. **The AMO listing is not live yet**, so the fastest path today is a local build.
+> Production uses the single permanent add-on ID `youtube-audio@animesh.kundus.in` on the AMO listed channel, with AMO providing updates on Firefox desktop and Android. Beta builds use the same ID, are Mozilla-signed on the unlisted channel at distinct pre-release versions, and are installed by hand for testing. Audio download intentionally ships in the listed production build. See [ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md), [the beta workflow](.github/workflows/beta.yml), and [the on-demand AMO publishing workflow](.github/workflows/publish-amo.yml).
 
 ### Desktop (build from source)
 
@@ -85,7 +85,7 @@ The extension activates automatically on `youtube.com`, `music.youtube.com`, `m.
 
 ### Android
 
-Firefox for Android is a first-class target (the manifest ships `gecko_android`, and the UI collapses into a touch-friendly quick-control surface). No AMO listing is live yet, and the distribution approach is still being decided (see [ADR-0003](docs/adrs/0003-amo-distribution-preflight.md)). A custom add-on collection does not help here, since collections only install AMO-listed add-ons by ID, not an unlisted or local build. To run a self-distributed build today, install a Mozilla-signed XPI on current Firefox for Android through Settings, then "Install extension from file". See [`RELEASE.md`](RELEASE.md) for the full distribution plan.
+Firefox for Android is a first-class target (the manifest ships `gecko_android`, and the UI collapses into a touch-friendly quick-control surface). Production is distributed through the AMO listed channel under the same permanent add-on ID as desktop, so AMO remains the update authority on both platforms. Testers can install the same-ID, unlisted beta XPI through Settings, then "Install extension from file"; beta updates are manual. See [ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md) and [`RELEASE.md`](RELEASE.md) for the accepted distribution model.
 
 ## How it works
 

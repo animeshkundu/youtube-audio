@@ -94,7 +94,7 @@ If you modify code, you **MUST**:
 
 - Follow WebExtension API conventions; handle permissions gracefully.
 - Treat every page-world message as hostile: fixed schemas, origin/tab checks, endpoint allowlists.
-- Keep the four YouTube host matches only; never widen to `*://*/*`.
+- Keep exactly four production **content-script** matches for YouTube; never widen content-script matching to `*://*/*`. The credentialless fetch-origin permissions for `*://*.googlevideo.com/*`, `https://sponsor.ajay.app/*`, and `https://lrclib.net/*` are separate, intended, and required.
 
 ### Testing
 
@@ -119,10 +119,11 @@ youtube-audio/
 │   ├── architecture/       # System diagrams
 │   ├── history/            # Handoff records
 │   ├── research/           # Grounding research (01-19)
-│   └── specs/              # Technical specifications (SPEC-001..011)
+│   └── specs/              # Technical specifications (SPEC-001..012)
 ├── img/                    # Icons and images
 ├── scripts/                # build-ext.sh, validate.sh, release.sh
-├── .github/                # agents/, workflows/ (ci, pages, release, mobile-e2e, live-canary), templates
+├── .github/                # agents/, workflows/ (ci.yml, pages.yml, beta.yml, publish-amo.yml,
+│                           #   mobile-e2e.yml, live-canary.yml), templates
 ├── .claude/                # Claude agent configs
 ├── wxt.config.ts           # Manifest + build config
 ├── AGENTS.md               # Concise cross-tool agent entry point

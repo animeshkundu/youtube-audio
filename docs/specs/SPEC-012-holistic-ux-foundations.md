@@ -1,17 +1,14 @@
 # Specification: Holistic UX Foundations
 
-> **Status:** Phase 0 (status channel) implemented. Later sections (artwork, onboarding,
-> defaults) are placeholders this pass reserves for the follow-up UX stacks; they are marked
-> _Planned_ and carry no code yet.
+> **Status:** Shipped. The status channel, honest status-driven popup hero, audio-mode
+> artwork, first-run onboarding, and defaults are implemented.
 
 ## Overview
 
 The Holistic UX pass makes the extension's surfaces honest and effortless: the popup must tell
 the truth about the tab in front of the user, audio-only mode should have real artwork, and
 onboarding and defaults should get a first-time user to a good state with no configuration. This
-specification is the shared home for those foundations. **This pass owns the status-channel
-section**; the remaining sections are reserved for later stacks so their specs land here rather
-than fragmenting.
+specification is the shared home for those shipped foundations.
 
 ## Goals
 
@@ -22,17 +19,19 @@ than fragmenting.
 - Keep the whole channel **fail-open** and internal: no external egress, no new permissions, no
   change to `PlayerHandle`/`<video>.src`.
 - Extract the decision logic into a **pure, unit-tested** module and keep the entrypoints thin.
+- Render an honest popup hero and non-YouTube empty state from the resolved playback status.
+- Replace the audio-only black rectangle with lifecycle-bound artwork that never writes `.src`.
+- Give first-time users a one-screen, no-setup onboarding path while preserving useful defaults.
 
-## Non-Goals (this pass)
+## Non-Goals
 
-- No popup visual redesign. This pass only wires and _exposes_ the resolved state
-  (`playbackStatusSignal`); the honest hero, empty state, and micro-copy are a follow-up stack
-  (see `docs/design/ux-popup.md` §2–§3).
 - No logged-in path, no persistence of volatile per-tab state to disk, no polling.
+- No `video.poster` or media-session rewrite for artwork.
+- No setup wizard, account step, or permissions pre-prompt.
 
 ## Technical Design
 
-### 1. Status channel (this pass)
+### 1. Status channel and honest popup hero: _Shipped_
 
 The page world already computes the real per-video outcome
 (`entrypoints/main-world.ts:emitStatus`) as a `PlaybackStatus`
@@ -65,20 +64,43 @@ All decisions live here, dependency-light so any context can import it:
   lexicographically on `(runStart, generation)`. A report from a newer content-script lifetime
   (`runStart`) always wins (so a full reload, whose generation resets to 0, never freezes); within
   one lifetime a strictly-older `generation` (a superseded SPA navigation) is dropped by returning
-  the same reference.
-- `markEntryStale(entry)` — invalidates an entry on navigation.
+  the same reference. A stale entry (see `shouldMarkStale`) is revived only by a **strictly** newer
+  `generation`, so an equal-tuple straggler from the now-unloaded old document cannot clear the stale
+  flag; a live entry still accepts an equal epoch so a same-operation `fetching`→`active` transition
+  (which reuses the operation's generation) lands.
+- `shouldMarkStale(entry, changeInfo)` decides whether a `tabs.onUpdated` event invalidates the
+  entry. A `loading` status (a reload) always does, and a bare URL change does only when it points at
+  a **different** video id. A same-video URL rewrite (YouTube appending `&t=`/`list` params during
+  playback) is not stale, so it cannot reject the same operation's own `active` report and strand the
+  popup on `connecting`.
+- `markEntryStale(entry)` returns the entry with its `stale` flag set.
 - `resolveUiState(url, entry)` → `active | connecting | fallback(+reason) | disabled |
 not-a-watch-page | not-youtube`. A rejected/absent/stale/foreign-video entry resolves to
   `connecting`, **never** to a stored toggle, so the popup cannot lie before a report lands.
 
 #### Content relay: `entrypoints/content.ts`
 
-On each `yta:status`, in addition to the unchanged `__BENCH__` DOM marker, content pushes
-`{type: STATUS_UPDATE_MESSAGE, status, reason?, videoId?, runStart, generation}` to the
-background, computing `videoId` from `location.href`. `runStart` is the content script's lifetime
-start (`Date.now()` at init), and `statusGeneration` is bumped on `yt-navigate-start`; together
-they let the background order reports across both a full reload (new `runStart`) and an SPA
-navigation (new `generation`). The push is fail-open: any `sendMessage` rejection is swallowed and
+On each `yta:status`, in addition to the unchanged `__BENCH__` DOM marker, content relays
+`{type: STATUS_UPDATE_MESSAGE, status, reason?, videoId?, runStart, generation}` to the background
+via `buildStatusUpdateMessage`. The `yta:status` DOM event is observable and forgeable by arbitrary
+page JS, so its ordering provenance is **not trusted**: `generation` is a **content-owned** counter
+that begins a new value each time the forwarded `videoId` changes (grouping a same-operation
+`fetching`→`active` under one generation while a new video supersedes the old), and `runStart` is the
+isolated per-tab epoch below. Only the display fields (`status`, `reason`, `videoId`) come from the
+event; a forged `videoId` is harmless because `resolveUiState` cross-checks it against the tab URL,
+and a momentary forged `status` is superseded by the next genuine report. Because the ordering is
+generated here in the isolated content context, a hostile page cannot forge a huge generation to
+freeze the popup.
+
+`runStart` is a **monotonic, poison-resistant** per-tab epoch from `nextStatusRunStart()`: it takes
+`max(Date.now(), previous + 1)`, where `previous` is the last epoch persisted in per-tab
+`sessionStorage['__yta_run_epoch__']`, so a full reload always produces a strictly-later value even
+when two loads collide within a millisecond or the system clock rolls back. The stored value is
+validated (a safe non-negative integer no more than a day past `now`) so the origin-shared, hostile
+page cannot poison ordering, and it falls back to `Date.now()` when `sessionStorage` throws. Together,
+`runStart` (a newer document always wins across a full reload, whose page-world generation resets)
+and `generation` (a superseded SPA navigation within one lifetime is dropped) let the background
+order every report. The push is fail-open: any `sendMessage` rejection is swallowed and
 never affects the page or playback.
 
 #### Background map + resolution: `entrypoints/background.ts`
@@ -89,34 +111,57 @@ never affects the page or playback.
   `resolveUiState(tab.url, entry)`, under a timeout that falls back to `connecting` (bounded).
 - On an accepted change to the active tab, broadcasts `yta:status-changed` with the resolved
   state; a closed popup has no receiver, so the rejection is swallowed.
-- `tabs.onUpdated` (top-level `url` change, or a `loading` status for a same-URL reload) marks
-  the tab's entry stale (resolves to `connecting`); `tabs.onRemoved` deletes it.
+- `tabs.onUpdated` marks the tab's entry stale (which resolves to `connecting`) only when
+  `shouldMarkStale` agrees (a `loading` reload, or a URL change to a **different** video id), so a
+  same-video URL rewrite during playback does not strand the popup on `connecting`; `tabs.onRemoved`
+  deletes it.
 
 #### Popup wiring: `entrypoints/popup/playback-status.ts` + `main.tsx`
 
 `startPlaybackStatusChannel()` (called from `main.tsx`) fetches `yta:get-status` on open and
 subscribes to `yta:status-changed`, exposing the result via `playbackStatusSignal` (default
-`connecting`, never a stored toggle). Bounded (time-boxed fetch) and fail-open. **The rendered
-popup does not consume the signal yet** — that is the follow-up hero stack.
+`connecting`, never a stored toggle). Bounded (time-boxed fetch) and fail-open. `popup/App.tsx`
+consumes the signal to render the honest hero, fallback copy, active-only pulse, and non-YouTube
+empty state. The stored toggle controls preference, but never substitutes for per-tab truth.
 
-### 2. Audio-mode artwork — _Planned (later stack)_
+### 2. Audio-mode artwork: _Shipped_
 
-Reserved. See `docs/design/audio-mode-artwork.md`. Will extend this spec.
+`src/shared/artwork.ts` selects a safe YouTube thumbnail and mounts a pointer-transparent artwork
+overlay without touching the media element source. The overlay mounts into the player root
+(`.html5-video-player`/`#movie_player`) and is inserted directly **after** the video container, so it
+paints above the video but below the control chrome; this avoids collapsing to a black rectangle on
+real YouTube, whose immediate `.html5-video-container` wrapper is zero-height. It falls back to the
+`<video>`'s direct parent on other layouts (fixtures). `entrypoints/main-world.ts` mounts it after a
+successful audio-only attach when `audioArtworkEnabled` is on. The overlay cleanup is registered
+through `PlayerHandle.onRestore()`, so disable, navigation, failed playback, and circuit-breaker
+teardown all remove it. Image failures fall open to the bundled placeholder or the existing black
+screen. The bench-only `http://localhost`/`127.0.0.1` thumbnail allowance is `__BENCH__`-gated
+(dead-code-eliminated from production). See ADR-0008 and `docs/design/audio-mode-artwork.md`.
 
-### 3. Onboarding — _Planned (later stack)_
+### 3. Onboarding: _Shipped_
 
-Reserved. See `docs/design/ux-onboarding.md`.
+The background install handler opens the options surface once for a fresh install. The options
+entrypoint reads `seenOnboarding` and renders the dedicated `Onboarding` surface until dismissal.
+The one-screen experience explains that useful defaults are already on, teaches the in-player
+Audio-only button, provides an Open YouTube action, and offers direct access to settings. It has
+initial focus, focus trapping, Escape dismissal, and fail-open persistence. See
+`docs/design/ux-onboarding.md`.
 
-### 4. Defaults — _Planned (later stack)_
+### 4. Defaults: _Done_
 
-Reserved.
+The shipped defaults provide value without setup: the extension, audio-only playback, artwork,
+background play, Ghost mode, ad blocking, segment skipping, and loudness normalization start on.
+Riskier or more specialized controls remain off until selected, including aggressive telemetry,
+quality capping, autoplay-next suppression, page decluttering, equalizer, lyrics, and audio
+download.
 
 ## Hard-invariant compliance
 
 - **Credentialless / logged-out:** the channel carries only a status enum + reason + a video id
   already visible in the URL; it attaches no credentials and makes no external request. Fine
   under `data_collection_permissions.required: ['none']`.
-- **`PlayerHandle` sole `<video>.src` writer:** untouched.
+- **`PlayerHandle` sole `<video>.src` writer:** status and onboarding do not touch media; artwork
+  is a separate DOM overlay and never reads or writes `.src`.
 - **Fail-open:** content relay, background broadcast, and popup fetch each swallow failures.
 - **No new permissions:** `tabs` + the four YouTube host matches were already granted.
 - **MV2 ships / MV3 buildable:** no new background-lifetime assumption; an empty map (e.g. a
@@ -131,9 +176,11 @@ Reserved.
   `not-youtube`, `not-a-watch-page`, `connecting` for no/stale/foreign-video entry, `active`,
   `fallback`+reason, `disabled`, `fetching`/`idle`→`connecting`), `reduceStatusUpdate` (first
   report, superseded-straggler drop, newer generation within a lifetime, newer-lifetime-wins on a
-  lower generation, older-lifetime straggler dropped, stale-accept),
-  `markEntryStale` (the onUpdated url-change → `connecting` path), and `parseStatusUpdate`
-  validation. `src/shared/status.ts` is on the coverage allowlist at ≥90%.
+  lower generation, older-lifetime straggler dropped, stale entry revived only by a superseding
+  report),
+  `shouldMarkStale` (a `loading` reload and a different-video URL mark stale; a same-video rewrite
+  stays live), `markEntryStale`, and `parseStatusUpdate` validation. `src/shared/status.ts` is on
+  the coverage allowlist at ≥90%.
 - `popup-status-channel.test.ts` — the popup client with a stubbed `browser`: honest
   `connecting` default, initial `get-status` fetch, live `status-changed` push, unsubscribe on
   cleanup, and fail-open on a rejected fetch or an unavailable runtime.

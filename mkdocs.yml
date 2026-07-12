@@ -101,6 +101,8 @@ nav:
   - Home: index.md
   - Architecture: architecture/README.md
   - CI/CD: ci-cd.md
+  - Testing:
+      - Smoke Test and QA Protocol: testing/smoke-test-protocol.md
   - Specifications:
       - Overview: specs/README.md
       - SPEC-001 M0 Foundation: specs/SPEC-001-m0-foundation.md
@@ -170,6 +172,7 @@ nav:
       - Firefox-only CD Fixes: history/2026-07-12-firefox-cd-fixes.md
       - AMO Distribution Setup: history/2026-07-12-amo-distribution-setup.md
       - Bundle Size & Perf Optimization: history/2026-07-12-bundle-size-perf-optimization.md
+      - Status Hardening & Real-YouTube UI Fixes: history/2026-07-12-status-hardening-and-real-youtube-ui-fixes.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

@@ -28,10 +28,15 @@ Two constraints shaped the design:
 
 **Render artwork as a mounted DOM overlay, not `video.poster`.** A `<video poster>` is cleared on the
 first decoded frame and is unreliable when the element has no video track; it is also fought by
-YouTube's opaque player container. Instead, `showArtworkOverlay` appends an absolutely-positioned,
-`pointer-events:none`, `contain:strict` overlay (blurred backdrop + centered art) as the media
-container's last child. It never reads or writes `.src`, so the guard is untouched, and it is purely
-decorative (no interaction, `aria-hidden`).
+YouTube's opaque player container. Instead, `showArtworkOverlay` mounts an absolutely-positioned,
+`pointer-events:none`, `contain:strict` overlay (blurred backdrop + centered art) into the player
+root (`.html5-video-player`/`#movie_player`), inserted directly **after** the video container so it
+paints above the video but below the control chrome. It is deliberately **not** appended as the media
+container's last child: on real YouTube the `<video>`'s immediate `.html5-video-container` wrapper is
+a zero-height positioning box, so an `inset:0` overlay mounted there collapses to nothing, which is
+the audio-mode black rectangle. Mounting on the player root, which carries the real player box, fixes
+that; it falls back to the `<video>`'s direct parent on other layouts (fixtures). It never reads or
+writes `.src`, so the guard is untouched, and it is purely decorative (no interaction, `aria-hidden`).
 
 **Lifecycle is bound to `PlayerHandle.restore()`.** `restore()` is the single teardown choke point for
 every path, including the circuit breaker, which tears down without emitting a status event, so a
@@ -40,9 +45,11 @@ deterministically; work is also generation- and epoch-guarded and self-cleans on
 
 **The thumbnail load is accepted as a page-equivalent resource load, and hardened.** It is not data
 egress _about the user_: it is the same `i.ytimg.com` image the page itself loads, requested with
-`crossorigin="anonymous"` and `referrerpolicy="no-referrer"` so no referrer or credentials leak. It is
-user-visible artwork, not background telemetry, so it does not change the `data_collection: none`
-posture. For the fallback-edge videos whose thumbnails are blank/placeholder, we ship a bundled inline
+`crossorigin="anonymous"` and `referrerpolicy="no-referrer"` so no referrer or credentials leak. The
+thumbnail URL can carry YouTube-signed `sqp` / `rs` parameters with session-tied entropy, but this
+remains page-equivalent, no-cookie, no-collection egress: the extension collects nothing, so
+`data_collection: none` remains honest. It is user-visible artwork, not background telemetry. For the
+fallback-edge videos whose thumbnails are blank/placeholder, we ship a bundled inline
 `data:` SVG placeholder (no network at all), and detect YouTube's grey 120x90 placeholder by
 `naturalWidth` and swap to it.
 

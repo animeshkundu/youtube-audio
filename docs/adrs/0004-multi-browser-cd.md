@@ -1,5 +1,10 @@
 # ADR-0004: Multi-browser continuous delivery scope
 
+> **Superseded/refined by ADR-0006.** The Firefox-only browser scope remains current, but
+> production now uses a single permanent add-on ID with AMO-listed production and an unlisted
+> same-ID beta. [ADR-0006](0006-firefox-amo-distribution-and-beta-channel.md) replaces this
+> ADR's self-hosted GitHub Releases distribution model.
+
 ## Status
 
 **Accepted.** The owner has confirmed the scope: **publish Firefox-only today, for both
