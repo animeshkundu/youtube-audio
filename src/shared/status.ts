@@ -178,7 +178,13 @@ function nonNegativeInt(value: unknown): number {
 /** Whether `update` should replace `current`: a later lifetime wins; within one, a later epoch. */
 function supersedes(update: StatusUpdate, current: TabStatusEntry): boolean {
   if (update.runStart !== current.runStart) return update.runStart > current.runStart;
-  return update.generation >= current.generation;
+  // A stale entry (marked on a navigation/reload) may be revived only by a STRICTLY newer epoch: an
+  // equal-`(runStart, generation)` straggler from the now-unloaded old document must not clear the
+  // stale flag and restore its status. A live entry still accepts an equal epoch so a same-operation
+  // `fetching`→`active` transition (which reuses the operation's generation) lands.
+  return current.stale === true
+    ? update.generation > current.generation
+    : update.generation >= current.generation;
 }
 
 /**
@@ -189,15 +195,15 @@ function supersedes(update: StatusUpdate, current: TabStatusEntry): boolean {
  * `(runStart, generation)`: a report from a newer content-script lifetime (`runStart`) always wins
  * — even at a lower `generation`, since generation resets per lifetime — so a full reload or a
  * late message from an unloading old document can never freeze the tab's state. Within one
- * lifetime, a strictly-older `generation` (a superseded SPA navigation) is dropped. Any update onto
- * a stale/absent entry is accepted and produces a fresh, non-stale entry.
+ * lifetime, a strictly-older `generation` (a superseded SPA navigation) is dropped. An absent entry
+ * accepts the first report; a stale entry still requires a superseding report before it is revived.
  */
 export function reduceStatusUpdate(
   current: TabStatusEntry | undefined,
   update: StatusUpdate,
   now: number
 ): TabStatusEntry {
-  if (current !== undefined && current.stale !== true && !supersedes(update, current)) {
+  if (current !== undefined && !supersedes(update, current)) {
     return current;
   }
   return {
@@ -213,6 +219,25 @@ export function reduceStatusUpdate(
 /** Mark an entry stale (its document was navigated away before a fresh report arrived). */
 export function markEntryStale(entry: TabStatusEntry): TabStatusEntry {
   return { ...entry, stale: true };
+}
+
+/**
+ * Whether a `tabs.onUpdated` event should mark the tab's status entry stale. A document reload
+ * ('loading', which fires even when the url is unchanged) always does. A bare URL change only does
+ * when it navigates to a DIFFERENT video: YouTube rewrites the watch URL with `&t=`/`list` params
+ * during playback (same video), and on an SPA nav the content script may already have reported the
+ * new video before `onUpdated` fires. Marking those spuriously stale would reject the same
+ * operation's own `active` report and strand the popup on `connecting`.
+ */
+export function shouldMarkStale(
+  entry: TabStatusEntry,
+  changeInfo: { url?: string | undefined; status?: string | undefined }
+): boolean {
+  if (changeInfo.status === 'loading') return true;
+  if (typeof changeInfo.url !== 'string') return false;
+  const nextVideoId = parseVideoId(changeInfo.url);
+  // Keep the entry live only when the URL still points at the exact video the entry already describes.
+  return !(nextVideoId !== null && entry.videoId != null && entry.videoId === nextVideoId);
 }
 
 /**
@@ -238,7 +263,7 @@ export function resolveUiState(
   // Cross-check the report against the URL in front of the user: an entry describing a different
   // video means a navigation outran its status report, so keep showing "connecting" until it lands.
   const urlVideoId = parseVideoId(url);
-  if (entry.videoId != null && urlVideoId != null && entry.videoId !== urlVideoId) {
+  if (entry.videoId == null || urlVideoId == null || entry.videoId !== urlVideoId) {
     return { kind: 'connecting' };
   }
 

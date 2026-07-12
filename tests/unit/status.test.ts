@@ -11,6 +11,7 @@ import {
   parseVideoId,
   reduceStatusUpdate,
   resolveUiState,
+  shouldMarkStale,
   STATUS_CHANGED_MESSAGE,
   STATUS_UPDATE_MESSAGE,
   type StatusUpdate,
@@ -122,6 +123,12 @@ describe('resolveUiState', () => {
     expect(resolveUiState(WATCH, entry({ stale: true }))).toEqual({ kind: 'connecting' });
   });
 
+  it('returns connecting when a watch-page entry is missing videoId provenance', () => {
+    const missingVideoId = entry();
+    delete missingVideoId.videoId;
+    expect(resolveUiState(WATCH, missingVideoId)).toEqual({ kind: 'connecting' });
+  });
+
   it('returns connecting when the entry describes a different video (nav outran the report)', () => {
     expect(resolveUiState(WATCH, entry({ videoId: 'OTHERVIDEO1' }))).toEqual({
       kind: 'connecting',
@@ -206,16 +213,44 @@ describe('reduceStatusUpdate', () => {
     expect(next).toBe(current);
   });
 
-  it('accepts any update onto a stale entry, clearing the stale flag', () => {
-    const current = entry({ runStart: 9_000, generation: 9, stale: true });
+  it('accepts an equal-tuple status change within one live operation (fetching -> active)', () => {
+    const current = entry({ status: 'fetching', runStart: 1_000, generation: 2 });
     const next = reduceStatusUpdate(
+      current,
+      update({ status: 'active', runStart: 1_000, generation: 2 }),
+      9_000
+    );
+    expect(next).not.toBe(current);
+    expect(next.status).toBe('active');
+  });
+
+  it('stale entries still require a superseding update before they can be revived', () => {
+    const current = entry({ runStart: 9_000, generation: 9, stale: true });
+    const obsolete = reduceStatusUpdate(
       current,
       update({ status: 'active', runStart: 1_000, generation: 1 }),
       9_000
     );
-    expect(next).not.toBe(current);
-    expect(next.stale).toBeUndefined();
-    expect(next.ts).toBe(9_000);
+    expect(obsolete).toBe(current);
+
+    // An equal-`(runStart, generation)` straggler from the now-unloaded old document must NOT revive
+    // a stale entry — only a strictly-newer epoch may. Regression for the `>=` stale-revival gap
+    // where a same-tuple duplicate cleared `stale` and restored the prior video's `active` state.
+    const equalTuple = reduceStatusUpdate(
+      current,
+      update({ status: 'active', runStart: 9_000, generation: 9 }),
+      9_500
+    );
+    expect(equalTuple).toBe(current);
+
+    const fresh = reduceStatusUpdate(
+      current,
+      update({ status: 'fetching', runStart: 10_000, generation: 0 }),
+      10_000
+    );
+    expect(fresh).not.toBe(current);
+    expect(fresh.stale).toBeUndefined();
+    expect(fresh.ts).toBe(10_000);
   });
 
   it('omits reason and videoId when absent (non-watch status)', () => {
@@ -235,6 +270,65 @@ describe('markEntryStale', () => {
     expect(stale.stale).toBe(true);
     expect(fresh.stale).toBeUndefined(); // pure: original untouched
     expect(resolveUiState(WATCH, stale)).toEqual({ kind: 'connecting' });
+  });
+});
+
+describe('shouldMarkStale', () => {
+  const watchEntry = entry({ videoId: 'dQw4w9WgXcQ' });
+
+  it("marks stale on a document reload ('loading'), regardless of url", () => {
+    expect(shouldMarkStale(watchEntry, { status: 'loading' })).toBe(true);
+  });
+
+  it('marks stale when the url navigates to a different video', () => {
+    expect(
+      shouldMarkStale(watchEntry, { url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' })
+    ).toBe(true);
+  });
+
+  it('does NOT mark stale when the url still points at the same video (param rewrite / SPA report race)', () => {
+    // The regression this fixes: YouTube rewrites the watch url with &t=/list during playback, or the
+    // content script already reported the new video before onUpdated fires. Marking that stale would
+    // reject the same operation's own `active` report and strand the popup on `connecting`.
+    expect(
+      shouldMarkStale(watchEntry, {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s&list=RDxyz',
+      })
+    ).toBe(false);
+  });
+
+  it('marks stale when the url leaves the watch page', () => {
+    expect(shouldMarkStale(watchEntry, { url: 'https://www.youtube.com/feed/subscriptions' })).toBe(
+      true
+    );
+  });
+
+  it('ignores events with neither a url nor a loading status', () => {
+    expect(shouldMarkStale(watchEntry, { status: 'complete' })).toBe(false);
+  });
+
+  it('marks stale when the entry has no videoId to match against', () => {
+    const noVideoId = entry();
+    delete noVideoId.videoId;
+    expect(shouldMarkStale(noVideoId, { url: WATCH })).toBe(true);
+  });
+
+  it('keeps a same-video entry live so its equal-generation active report lands (end-to-end)', () => {
+    // fetching(R,G) accepted -> onUpdated fires for the SAME video -> NOT marked stale -> active(R,G)
+    // still supersedes an equal, non-stale generation. Without shouldMarkStale, this stuck at connecting.
+    const fetching = entry({
+      status: 'fetching',
+      videoId: 'dQw4w9WgXcQ',
+      runStart: 1_000,
+      generation: 3,
+    });
+    expect(shouldMarkStale(fetching, { url: WATCH })).toBe(false);
+    const active = reduceStatusUpdate(
+      fetching,
+      update({ status: 'active', videoId: 'dQw4w9WgXcQ', runStart: 1_000, generation: 3 }),
+      9_000
+    );
+    expect(active.status).toBe('active');
   });
 });
 

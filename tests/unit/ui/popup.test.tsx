@@ -10,6 +10,7 @@ import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
+  loudnessNormalizationSignal,
 } from '../../../src/shared/settings-signals';
 
 function actions(): PopupActions {
@@ -47,11 +48,12 @@ afterEach(() => {
   enabledSignal.value = true;
   audioOnlyEnabledSignal.value = true;
   backgroundPlayEnabledSignal.value = true;
+  loudnessNormalizationSignal.value = true;
 });
 
 describe('Popup', () => {
   it('active renders the audio-only on hero with a pulse', () => {
-    audioOnlyEnabledSignal.value = false;
+    audioOnlyEnabledSignal.value = true;
     playbackStatusSignal.value = { kind: 'active' };
 
     const container = mount(<Popup actions={actions()} />);
@@ -61,7 +63,7 @@ describe('Popup', () => {
     expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
     expect(hero?.classList.contains('is-active')).toBe(true);
     expect(hero?.querySelector('.now-playing')).not.toBeNull();
-    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('true');
     expect(
       Array.from(container.querySelectorAll('[role="switch"]'), (control) =>
         control.getAttribute('aria-label')
@@ -70,6 +72,39 @@ describe('Popup', () => {
     expect(container.textContent).not.toContain('Current page');
     expect(container.textContent).not.toContain('Ready');
     expect(container.textContent).not.toContain('Segment skipping');
+  });
+
+  it('audio-only off with loudness normalization on does not render the on copy or pulse', () => {
+    audioOnlyEnabledSignal.value = false;
+    loudnessNormalizationSignal.value = true;
+    // Defend against a stale enhancement result that still reports the old incorrect status.
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+    const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
+
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
+    expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
+    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.classList.contains('is-active')).toBe(false);
+    expect(hero?.querySelector('.now-playing')).toBeNull();
+  });
+
+  it('paused extension does not render the audio-only on hero even while the toggle is on', () => {
+    // Global Pause flips enabledSignal immediately; the page-world `disabled` status has not yet
+    // round-tripped. Until it does, the hero must not keep claiming audio-only is active.
+    enabledSignal.value = false;
+    audioOnlyEnabledSignal.value = true;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+
+    expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
+    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.classList.contains('is-active')).toBe(false);
+    expect(hero?.querySelector('.now-playing')).toBeNull();
   });
 
   it('updates the hero live when playback status changes', () => {

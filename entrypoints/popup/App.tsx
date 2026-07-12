@@ -87,7 +87,14 @@ function PlaybackHero({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
-  const active = status.kind === 'active';
+  // Never claim audio-only is active when the preference is off OR the extension is paused. Both the
+  // audio-only toggle and the global pause flip their signal immediately, before the page-world
+  // `disabled` status round-trips back, so gate the displayed active state on the live signals.
+  const displayStatus =
+    status.kind === 'active' && (!checked || !enabledSignal.value)
+      ? { kind: 'disabled' as const }
+      : status;
+  const active = displayStatus.kind === 'active';
   const statusId = 'audio-only-status';
 
   return (
@@ -97,7 +104,7 @@ function PlaybackHero({
           <h1 id="popup-hero-title">Audio-only</h1>
           <span class="popup-hero-status" id={statusId}>
             {active && <span class="now-playing" aria-hidden="true" />}
-            <span>{heroStatusCopy(status)}</span>
+            <span>{heroStatusCopy(displayStatus)}</span>
           </span>
         </span>
         <Switch label="Audio-only" checked={checked} describedBy={statusId} onChange={onChange} />

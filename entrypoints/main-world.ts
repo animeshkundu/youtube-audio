@@ -56,6 +56,11 @@ interface YouTubeConfig {
   data_?: Record<string, unknown>;
 }
 
+interface PlaybackOperation {
+  videoId: string | null;
+  generation: number;
+}
+
 interface YouTubePlayerElement extends HTMLElement {
   setPlaybackQualityRange?(minimum: string, maximum?: string): void;
   setPlaybackQuality?(quality: string): void;
@@ -97,7 +102,7 @@ export default defineUnlistedScript(() => {
     lyricsEnabled: false,
     downloadEnabled: false,
   };
-  let generation = player.navigate();
+  player.navigate();
   let visibilityCleanup: () => void = () => undefined;
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
@@ -107,13 +112,24 @@ export default defineUnlistedScript(() => {
   let lastSkipKey = '';
   let audioGraphCleanup: () => void = () => undefined;
 
-  const emitStatus = (status: PlaybackStatus, reason?: string) => {
+  const emitStatus = (status: PlaybackStatus, operation: PlaybackOperation, reason?: string) => {
     log('playback.status', { status, ...(reason ? { reason } : {}) });
+    // Carries only display fields. The ordering provenance (runStart + generation) is owned by the
+    // isolated content script, which never trusts this page-observable event for ordering.
     document.dispatchEvent(
       new CustomEvent(STATUS_EVENT, {
-        detail: { status, ...(reason ? { reason: reason.slice(0, 120) } : {}) },
+        detail: {
+          status,
+          ...(operation.videoId ? { videoId: operation.videoId } : {}),
+          ...(reason ? { reason: reason.slice(0, 120) } : {}),
+        },
       })
     );
+  };
+
+  const startPlaybackOperation = (): PlaybackOperation => {
+    const videoId = getVideoId();
+    return { videoId, generation: player.navigate() };
   };
 
   const applySettings = (next: PageSettings) => {
@@ -132,14 +148,14 @@ export default defineUnlistedScript(() => {
         })
         .catch(() => undefined);
     }
-    generation = player.navigate();
+    const operation = startPlaybackOperation();
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
     audioGraphCleanup();
     audioGraphCleanup = () => undefined;
     if (!settings.enabled) {
-      emitStatus('disabled');
+      emitStatus('disabled', operation);
       return;
     }
     if (
@@ -148,9 +164,9 @@ export default defineUnlistedScript(() => {
       settings.equalizerEnabled ||
       settings.lyricsEnabled
     ) {
-      void activateEnhancements(generation);
+      void activateEnhancements(operation);
     } else {
-      emitStatus('disabled');
+      emitStatus('disabled', operation);
     }
   };
 
@@ -250,7 +266,7 @@ export default defineUnlistedScript(() => {
 
   observeYouTubeSpa(() => {
     log('spa.rearm');
-    generation = player.navigate();
+    const operation = startPlaybackOperation();
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
@@ -261,7 +277,9 @@ export default defineUnlistedScript(() => {
         settings.equalizerEnabled ||
         settings.lyricsEnabled)
     ) {
-      void activateEnhancements(generation);
+      void activateEnhancements(operation);
+    } else {
+      emitStatus('disabled', operation);
     }
   });
 
@@ -310,16 +328,16 @@ export default defineUnlistedScript(() => {
     });
   }
 
-  async function activateEnhancements(operationGeneration: number): Promise<void> {
+  async function activateEnhancements(operation: PlaybackOperation): Promise<void> {
+    const { generation: operationGeneration, videoId } = operation;
     try {
-      const videoId = getVideoId();
       const apiKey = getConfigString('INNERTUBE_API_KEY');
       if (!videoId || !apiKey) {
-        emitStatus('fallback', 'not-a-watch-page');
+        emitStatus('fallback', operation, 'not-a-watch-page');
         return;
       }
 
-      emitStatus('fetching');
+      emitStatus('fetching', operation);
       const visitorData = getConfigString('VISITOR_DATA');
       const response = await fetch(
         `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
@@ -332,7 +350,7 @@ export default defineUnlistedScript(() => {
       );
       if (operationGeneration !== player.generation) return;
       if (!response.ok) {
-        emitStatus('fallback', `http-${response.status}`);
+        emitStatus('fallback', operation, `http-${response.status}`);
         return;
       }
 
@@ -341,7 +359,7 @@ export default defineUnlistedScript(() => {
       const playability = getPlayability(playerResponse);
       log('player.props', describePlayer(playerResponse, playability.isPlayable));
       if (!playability.isPlayable) {
-        emitStatus('fallback', playability.status ?? 'unplayable');
+        emitStatus('fallback', operation, playability.status ?? 'unplayable');
         return;
       }
 
@@ -352,19 +370,19 @@ export default defineUnlistedScript(() => {
       emitTrack(responseData);
 
       if (!settings.audioOnlyEnabled) {
-        emitStatus('active');
+        emitStatus('disabled', operation);
         return;
       }
       // Live/DVR broadcasts return OK + an audio url, but that url is a live-edge segment that
       // stalls when hijacked as a progressive <video>.src. Leave YouTube's native player in control
       // (the audio graph armed above still applies loudness/EQ to normal playback).
       if (isLiveStream(playerResponse)) {
-        emitStatus('fallback', 'live');
+        emitStatus('fallback', operation, 'live');
         return;
       }
       const audioUrl = pickBestAudioUrl(playerResponse);
       if (!audioUrl || !isAllowedAudioUrl(audioUrl, __BENCH__ ? location.origin : undefined)) {
-        emitStatus('fallback', 'no-direct-audio');
+        emitStatus('fallback', operation, 'no-direct-audio');
         return;
       }
       if (player.attach(mediaElement, audioUrl, operationGeneration)) {
@@ -380,13 +398,15 @@ export default defineUnlistedScript(() => {
             bench: __BENCH__,
           });
         }
-        emitStatus('active');
+        emitStatus('active', operation);
       } else {
-        emitStatus('fallback', 'media-attach-failed');
+        emitStatus('fallback', operation, 'media-attach-failed');
       }
     } catch (error) {
       log('error', { where: 'page.activate', ...errorFields(error) });
-      if (operationGeneration === player.generation) emitStatus('fallback', 'request-failed');
+      if (operationGeneration === player.generation) {
+        emitStatus('fallback', operation, 'request-failed');
+      }
     }
   }
 

@@ -35,6 +35,7 @@ import {
   parseStatusUpdate,
   reduceStatusUpdate,
   resolveUiState,
+  shouldMarkStale,
   STATUS_CHANGED_MESSAGE,
   STATUS_UPDATE_MESSAGE,
   type PlaybackUiState,
@@ -459,12 +460,17 @@ function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSen
 
 function installStatusChannel(): void {
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    // A top-level navigation (url change) or a document reload (status 'loading', which fires even
-    // when the url is unchanged) means the stored status describes the previous document. Mark it
-    // stale so the resolver falls back to `connecting` until the freshly loaded content reports.
+    // A document reload (status 'loading', fires even when the url is unchanged) or a navigation to a
+    // DIFFERENT video means the stored status describes the previous document — mark it stale so the
+    // resolver falls back to `connecting` until fresh content reports. A same-video url rewrite
+    // (YouTube appending &t=/list params during playback, or the content script already reporting the
+    // new video before this event) is NOT stale: marking it so would reject the same operation's own
+    // `active` report and strand the popup on `connecting`. See shouldMarkStale.
     if (typeof changeInfo.url !== 'string' && changeInfo.status !== 'loading') return;
     const current = tabStatus.get(tabId);
-    if (current && current.stale !== true) tabStatus.set(tabId, markEntryStale(current));
+    if (current && current.stale !== true && shouldMarkStale(current, changeInfo)) {
+      tabStatus.set(tabId, markEntryStale(current));
+    }
     void broadcastIfActive(tabId);
   });
   browser.tabs.onRemoved.addListener((tabId) => {
