@@ -127,6 +127,7 @@ nav:
       - ADR-0006 AMO + Beta Distribution: adrs/0006-firefox-amo-distribution-and-beta-channel.md
       - ADR-0007 Popup Playback-Status Delivery: adrs/0007-popup-playback-status-delivery.md
       - ADR-0008 Audio-Mode Artwork and Egress: adrs/0008-audio-mode-artwork-and-egress.md
+      - ADR-0009 Ad-free Video Mode (deferred): adrs/0009-ad-free-video-mode-android-vr.md
       - ADR Template: adrs/0000-template.md
   - Design:
       - Popup UX Review: design/ux-popup.md
