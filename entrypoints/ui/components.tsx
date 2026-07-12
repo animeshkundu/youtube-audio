@@ -1,4 +1,5 @@
 import type { ComponentChildren } from 'preact';
+import { useLayoutEffect, useRef } from 'preact/hooks';
 
 export type SwitchProps = {
   label: string;
@@ -178,6 +179,9 @@ export function StatusRow({
   );
 }
 
+const ONBOARDING_FOCUSABLE =
+  'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Onboarding({
   onDismiss,
   onOpenYouTube,
@@ -185,27 +189,101 @@ export function Onboarding({
   onDismiss: () => void;
   onOpenYouTube: () => void;
 }) {
+  const surfaceRef = useRef<HTMLElement>(null);
+  const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const handledRef = useRef(false);
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  const handleOnce = (action: () => void) => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+    action();
+  };
+
+  useLayoutEffect(() => {
+    initialFocusRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        handleOnce(() => dismissRef.current());
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(surface.querySelectorAll<HTMLElement>(ONBOARDING_FOCUSABLE));
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+        surface.focus();
+        return;
+      }
+
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || !surface.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !surface.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
-    <div class="onboarding-backdrop" role="presentation">
+    <div class="onboarding-backdrop">
       <section
+        ref={surfaceRef}
         class="onboarding"
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-title"
+        aria-describedby="onboarding-summary onboarding-teaching onboarding-privacy"
+        tabIndex={-1}
       >
         <span class="onboarding-mark" aria-hidden="true">
           ♪
         </span>
         <h1 id="onboarding-title">You're all set.</h1>
-        <p>
-          Audio-only, ad blocking, and background play are already on. Nothing else is required.
+        <p id="onboarding-summary" class="onboarding-summary">
+          Audio-only, background play, and ad blocking are on.
+          <strong>Nothing to set up.</strong>
         </p>
-        <button class="primary-action" type="button" onClick={onOpenYouTube}>
-          Open YouTube
-        </button>
-        <button class="text-action" type="button" onClick={onDismiss}>
-          Tune settings
-        </button>
+        <p id="onboarding-teaching" class="onboarding-teaching">
+          While a video plays, tap{' '}
+          <span role="img" aria-label="the Audio-only button">
+            ♪
+          </span>{' '}
+          in the player to switch between audio and video.
+        </p>
+        <div class="onboarding-actions">
+          <button
+            ref={initialFocusRef}
+            class="primary-action"
+            type="button"
+            onClick={() => handleOnce(onOpenYouTube)}
+          >
+            Open YouTube
+          </button>
+          <button class="text-action" type="button" onClick={() => handleOnce(onDismiss)}>
+            Explore settings
+          </button>
+        </div>
+        <p id="onboarding-privacy" class="onboarding-privacy">
+          Runs without your account, and sends nothing about you anywhere.
+        </p>
       </section>
     </div>
   );

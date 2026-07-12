@@ -73,6 +73,29 @@ const PLAYER_RESPONSE_REQUESTS = [
 let settings: ExtensionSettings;
 let diagnostics: DiagnosticsHub | undefined;
 
+type OnboardingInstallDetails = Pick<browser.runtime._OnInstalledDetails, 'reason'>;
+
+export function shouldOpenOnboarding(details: OnboardingInstallDetails): boolean {
+  return details.reason === 'install';
+}
+
+export function handleOnboardingInstalled(details: OnboardingInstallDetails): void {
+  if (!shouldOpenOnboarding(details)) return;
+  try {
+    void browser.runtime.openOptionsPage().catch(() => undefined);
+  } catch {
+    // Onboarding is helpful, but a missing options API must not affect the extension.
+  }
+}
+
+export function registerOnboardingInstallHandler(): void {
+  try {
+    browser.runtime.onInstalled.addListener(handleOnboardingInstalled);
+  } catch {
+    // Keep initialization fail-open if this runtime event is unavailable.
+  }
+}
+
 function asBenchYouTubeUrl(url: string): string {
   const parsed = new URL(url);
   parsed.hostname = 'www.youtube.com';
@@ -479,6 +502,7 @@ async function benchStatusMapSnapshot(): Promise<{
 export default defineBackground({
   persistent: { firefox: true },
   async main() {
+    registerOnboardingInstallHandler();
     try {
       getExtensionPlatform();
       void loadRescueConfig;

@@ -237,20 +237,19 @@
   position: fixed;
   z-index: 10;
   inset: 0;
-  padding: var(--space-5);
+  min-height: 100%;
+  padding: var(--space-8) var(--space-5);
   display: grid;
-  place-items: center;
-  background: var(--scrim);
+  overflow-y: auto;
+  place-items: safe center;
+  background: var(--surface-0);
 }
 
 .onboarding {
-  width: min(420px, 100%);
-  padding: var(--space-8);
+  width: min(440px, 100%);
+  padding: var(--space-6) 0;
   text-align: center;
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--elev-2);
+  outline: 0;
   animation: enter var(--dur-3) var(--ease-emphasized);
 }
 
@@ -272,9 +271,32 @@
 }
 
 .onboarding p {
-  margin: var(--space-2) 0 var(--space-6);
   color: var(--text-secondary);
   font: var(--type-body);
+}
+
+.onboarding-summary {
+  margin: var(--space-2) 0 0;
+}
+
+.onboarding-summary strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.onboarding-teaching {
+  margin: var(--space-6) 0;
+}
+
+.onboarding-teaching span {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.onboarding-actions {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .primary-action,
@@ -305,10 +327,15 @@
 }
 
 .text-action {
-  margin-top: var(--space-2);
   color: var(--accent-text);
   background: transparent;
   font: var(--type-body);
+}
+
+.onboarding .onboarding-privacy {
+  margin: var(--space-5) 0 0;
+  color: var(--text-tertiary);
+  font: var(--type-desc);
 }
 
 @keyframes breathe {

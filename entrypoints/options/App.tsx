@@ -102,11 +102,25 @@ export function Options({
   const normalizedQuery = useMemo(() => query.trim().toLocaleLowerCase(), [query]);
   const dismissOnboarding = () => {
     setShowOnboarding(false);
-    void actions.markOnboardingSeen();
+    void actions.markOnboardingSeen().catch(() => undefined);
   };
   const settingVisible = (...text: string[]) => matchesSearch(normalizedQuery, ...text);
   const sectionVisible = (...text: string[]) =>
     normalizedQuery.length === 0 || settingVisible(...text);
+
+  if (showOnboarding) {
+    return (
+      <div class="options-app options-app-onboarding">
+        <Onboarding
+          onDismiss={dismissOnboarding}
+          onOpenYouTube={() => {
+            dismissOnboarding();
+            actions.openYouTube();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div class="options-app">
@@ -395,16 +409,6 @@ export function Options({
           {sectionVisible('help feedback report issue diagnostics logs bug') && <IssueReporter />}
         </main>
       </div>
-
-      {showOnboarding && (
-        <Onboarding
-          onDismiss={dismissOnboarding}
-          onOpenYouTube={() => {
-            dismissOnboarding();
-            actions.openYouTube();
-          }}
-        />
-      )}
     </div>
   );
 }
