@@ -118,7 +118,14 @@ nav:
       - ADR-0001 WXT + TypeScript + Preact: adrs/0001-wxt-typescript-preact-foundation.md
       - ADR-0002 Firefox Distribution Identities: adrs/0002-separate-firefox-distribution-identities.md
       - ADR-0003 AMO Distribution Preflight: adrs/0003-amo-distribution-preflight.md
+      - ADR-0004 Multi-browser CD Scope: adrs/0004-multi-browser-cd.md
       - ADR Template: adrs/0000-template.md
+  - Design:
+      - Popup UX Review: design/ux-popup.md
+      - Options UX Review: design/ux-options.md
+      - Onboarding UX Review: design/ux-onboarding.md
+      - In-Player Controls UX Review: design/ux-in-player-controls.md
+      - Audio-Mode Artwork: design/audio-mode-artwork.md
   - Research:
       - 01 Audio-Only Playback: research/01-disable-video-audio-only.md
       - 02 YouTube Ad Blocking: research/02-youtube-ad-blocking.md
