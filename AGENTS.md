@@ -14,8 +14,8 @@ detailed sources rather than duplicating them.
 audio only**: it fetches the audio stream through a credentialless `ANDROID_VR` InnerTube
 request and hijacks the page `<video>` source so playback continues without downloading
 video. It also handles background play, ad/telemetry blocking, SponsorBlock-style segment
-skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ / lyrics, and
-audio download.
+skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ / lyrics, audio
+download, and a PII-free local diagnostics log with a serverless issue reporter.
 
 |                 |                                                                         |
 | --------------- | ----------------------------------------------------------------------- |
@@ -25,6 +25,12 @@ audio download.
 | Manifest        | **MV2 is the shipping target**; MV3 is emitted as a capability artifact |
 | Targets         | Firefox desktop and Firefox for Android (Fenix)                         |
 | Node            | 20+                                                                     |
+
+**Distribution.** Production ships from a **single add-on ID `youtube-audio@animesh.kundus.in`**
+on the AMO **listed** channel (AMO is the sole update authority for desktop + Android; no
+self-hosted `update_url` in production), with an **unlisted** signed **beta** on the same ID at a
+distinct pre-release version for hand-installed desktop/Android testing. Publishing to AMO is
+**on demand** (manual, post-testing). See ADR-0006 (supersedes ADR-0002's two-identity model).
 
 ## Core rules
 
@@ -78,6 +84,12 @@ Auto-fixers: `npm run lint:fix`, `npm run format`.
   No live YouTube, no real media decoding: it asserts fetch-to-hijack, disabled = untouched,
   and background visibility suppression, then emits a PASS/FAIL summary. This is the
   preferred no-human validation bench for new features. Headful: `HEADLESS=0 npm run test:bench`.
+- **Settings-permutation matrix.** `npm run test:matrix`
+  ([`tests/e2e/bench/run-matrix.mjs`](./tests/e2e/bench/run-matrix.mjs)) drives the same real
+  built add-on against the hermetic fixture across the full toggle space (all-off, each toggle
+  alone, a pairwise covering array, key interaction pairs, and quality/EQ edges), so a
+  regression in any setting or interaction surfaces deterministically. Add a combo here when you
+  add a toggle. Heavier than the smoke bench; not part of `npm run validate`.
 - **Installability check.** `npm run test:e2e` builds a packaged XPI and verifies it loads
   in Firefox ([`tests/e2e/verify-firefox.mjs`](./tests/e2e/verify-firefox.mjs)).
 - **Firefox Android (Fenix).** Device/emulator-gated and run manually, outside the default
@@ -115,7 +127,11 @@ youtube-audio/
 │   ├── rescue.ts           # Static page-world rescue operation baseline (compiled op IDs only)
 │   ├── scriptlets.ts       # Page-world scriptlet helpers used by rescue
 │   ├── spa.ts              # SPA navigation generation control (invalidates stale work)
-│   └── config.ts           # Settings model, defaults, and storage keys
+│   ├── config.ts           # Settings model, defaults, and storage keys
+│   ├── logger.ts           # Pure PII-free-by-construction log primitives (closed per-code schema)
+│   ├── redact.ts           # Defensive PII scrub applied over the final report (safety net)
+│   ├── report.ts           # Assembles the human-readable, timestamp-free diagnostic report
+│   └── diagnostics.ts      # Browser-API glue: background aggregator hub + page/content/options helpers
 ├── tests/
 │   ├── unit/               # Vitest unit tests over real src/ modules (incl. ui/ Preact tests)
 │   └── e2e/                # Selenium probes + hermetic bench/, android/ Fenix driver

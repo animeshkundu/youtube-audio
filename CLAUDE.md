@@ -4,7 +4,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 
 ## Project Overview
 
-**YouTube Audio** is a Firefox extension (desktop + Android) for **YouTube and YouTube Music** that plays only the audio of videos, stopping video bytes to save battery and bandwidth, and adds a paid-tier-like experience for free: audio-only playback, background/lock-screen play, ad + telemetry ("ghost") blocking, SponsorBlock-style segment skipping, quality-of-life tweaks, YouTube Music loudness normalization + EQ + lyrics, and audio download. Simple by default, powerful on demand.
+**YouTube Audio** is a Firefox extension (desktop + Android) for **YouTube and YouTube Music** that plays only the audio of videos, stopping video bytes to save battery and bandwidth, and adds a paid-tier-like experience for free: audio-only playback, background/lock-screen play, ad + telemetry ("ghost") blocking, SponsorBlock-style segment skipping, quality-of-life tweaks, YouTube Music loudness normalization + EQ + lyrics, audio download, and a PII-free local diagnostics log with a serverless issue reporter. Simple by default, powerful on demand.
 
 ### Technology Stack
 
@@ -18,6 +18,10 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 ### Core mechanism
 
 A credentialless **ANDROID_VR** InnerTube `POST /youtubei/v1/player` (`credentials:"omit"`) returns a direct audio URL; the extension hijacks the page `<video>.src` to it (native player UI intact, video bytes stop). It falls back to normal playback whenever the credentialless fetch is non-playable (live, made-for-kids, age-restricted, members-only, unavailable).
+
+### Distribution
+
+Production ships from a **single permanent add-on ID `youtube-audio@animesh.kundus.in`** on the AMO **listed** channel; **AMO is the sole update authority** (no self-hosted `update_url` in production), giving hands-off auto-update on Firefox desktop and Firefox for Android. A **beta** channel uses the same ID signed **unlisted** at a distinct pre-release version, installed by hand for desktop + Android testing. Publishing to AMO is **on demand** (a manual run after testing), never automatic on a tag. See ADR-0006 (this supersedes the two-identity model in ADR-0002).
 
 ## Required Reading
 
@@ -56,6 +60,8 @@ If you modify code, you **MUST**:
 - Update architecture diagrams if structure changes
 - Create an ADR for significant decisions
 - Record a handoff in `docs/history/`
+- Capture UX/design decisions in `docs/design/`, grounding research in `docs/research/`, and product direction and notable issues where they are tracked
+- Keep `CLAUDE.md` and `AGENTS.md` accurate, current, and optimized as the project evolves (they load into every agent session)
 
 ### Rule 4: Research, Don't Hallucinate
 
@@ -102,7 +108,8 @@ If you modify code, you **MUST**:
 youtube-audio/
 ├── entrypoints/            # WXT entrypoints: background.ts, content.ts, main-world.ts, ui/, popup/, options/
 ├── src/shared/             # Core logic: innertube, player, audiograph, adblock, scriptlets, rescue,
-│                           #   sponsorblock, telemetry, quality-of-life, lyrics, download, config, spa, platform
+│                           #   sponsorblock, telemetry, quality-of-life, lyrics, download, config, spa, platform,
+│                           #   logger + redact + report + diagnostics (PII-free log & serverless reporter)
 ├── tests/
 │   ├── unit/               # Vitest unit tests
 │   └── e2e/                # Selenium bench (bench/) + live/mobile probes + tests/e2e/android/ui.py
@@ -111,8 +118,8 @@ youtube-audio/
 │   ├── agent-instructions/ # Agent protocols (00-03)
 │   ├── architecture/       # System diagrams
 │   ├── history/            # Handoff records
-│   ├── research/           # Grounding research (01-18)
-│   └── specs/              # Technical specifications (SPEC-001..010)
+│   ├── research/           # Grounding research (01-19)
+│   └── specs/              # Technical specifications (SPEC-001..011)
 ├── img/                    # Icons and images
 ├── scripts/                # build-ext.sh, validate.sh, release.sh
 ├── .github/                # agents/, workflows/ (ci, pages, release, mobile-e2e, live-canary), templates
@@ -152,16 +159,17 @@ youtube-audio/
 
 ## Quick Reference
 
-| Task                   | Command                                             |
-| ---------------------- | --------------------------------------------------- |
-| Type-check             | `npm run typecheck`                                 |
-| Lint                   | `npm run lint`                                      |
-| Format check / fix     | `npm run format:check` / `npm run format`           |
-| Unit tests (+cov)      | `npm test`                                          |
-| Hermetic Firefox bench | `npm run test:bench`                                |
-| Build MV2 / MV3        | `npm run build` / `npm run build:mv3`               |
-| Validate MV2 package   | `npx web-ext lint --source-dir=.output/firefox-mv2` |
-| All gates              | `./scripts/validate.sh`                             |
+| Task                        | Command                                             |
+| --------------------------- | --------------------------------------------------- |
+| Type-check                  | `npm run typecheck`                                 |
+| Lint                        | `npm run lint`                                      |
+| Format check / fix          | `npm run format:check` / `npm run format`           |
+| Unit tests (+cov)           | `npm test`                                          |
+| Hermetic Firefox bench      | `npm run test:bench`                                |
+| Settings-permutation matrix | `npm run test:matrix`                               |
+| Build MV2 / MV3             | `npm run build` / `npm run build:mv3`               |
+| Validate MV2 package        | `npx web-ext lint --source-dir=.output/firefox-mv2` |
+| All gates                   | `./scripts/validate.sh`                             |
 
 The hermetic bench and the Android-emulator / live-YouTube probes are documented in `docs/ci-cd.md`.
 

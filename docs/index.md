@@ -158,14 +158,14 @@ flowchart TB
   The "no spec, no code" contracts for milestones M0 through M7, from the
   foundation to release infrastructure.
 
-  [:octicons-arrow-right-24: SPEC-001 to SPEC-010](specs/README.md)
+  [:octicons-arrow-right-24: SPEC-001 to SPEC-011](specs/README.md)
 
 - :material-gavel:{ .lg .middle } **Decisions (ADRs)**
 
   ***
 
-  Why WXT + TypeScript + Preact, and how the two Firefox distribution
-  identities and AMO preflight are structured.
+  Why WXT + TypeScript + Preact, and how single-ID AMO-listed distribution,
+  the unlisted beta channel, and AMO preflight are structured.
 
   [:octicons-arrow-right-24: Architecture decisions](adrs/README.md)
 

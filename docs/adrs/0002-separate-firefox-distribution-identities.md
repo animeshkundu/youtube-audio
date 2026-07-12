@@ -1,8 +1,15 @@
 # ADR-0002: Separate Firefox Distribution Identities
 
+> **Superseded by ADR-0006 (partial).** The owner has since consolidated to a **single**
+> permanent add-on ID (`youtube-audio@animesh.kundus.in`) with AMO-listed production plus an
+> unlisted beta channel on the same ID. The two-identity decision below no longer holds; see
+> [`0006-firefox-amo-distribution-and-beta-channel.md`](./0006-firefox-amo-distribution-and-beta-channel.md).
+> The channel semantics this ADR documents (listed vs unlisted, listed omits `update_url`)
+> remain accurate.
+
 ## Status
 
-**Accepted**
+**Superseded (partial) by ADR-0006.** Originally Accepted.
 
 ## Date
 

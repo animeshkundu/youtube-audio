@@ -1,5 +1,13 @@
 # Specification: M7 Release Infrastructure
 
+> **Amended by ADR-0006 (2026-07-12).** The two-identity, self-hosted-desktop distribution
+> model below is superseded: production now ships from a single add-on ID
+> (`youtube-audio@animesh.kundus.in`) on the AMO **listed** channel with AMO as the sole update
+> authority, plus an unlisted beta on the same ID; the self-hosted `updates.json` path is
+> retired for production. The build/signing mechanics this spec documents remain accurate; only
+> the channel and update-authority decision changed. See
+> [`../adrs/0006-firefox-amo-distribution-and-beta-channel.md`](../adrs/0006-firefox-amo-distribution-and-beta-channel.md).
+
 ## Overview
 
 M7 adds reproducible Firefox release validation, Mozilla unlisted signing, GitHub Release publishing, and documented desktop/Android distribution paths without changing extension features or default manifest behavior.

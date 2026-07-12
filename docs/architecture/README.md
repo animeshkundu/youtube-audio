@@ -244,17 +244,16 @@ Acquisition, bridge, validation, direct-download, and fallback failures return a
 
 ## Release and Distribution
 
-One source tree feeds two Firefox distribution identities. The self-hosted desktop channel is unlisted-signed by AMO and explicitly built with an HTTPS `SELF_HOSTED_UPDATE_URL`; its signed XPI and hashed `updates.json` are published as GitHub Release assets. The Android auto-update channel uses a distinct permanent Gecko ID, omits `update_url`, and is submitted as an AMO listing. Default builds omit `update_url` so they remain listing-compatible. AMO credentials exist only at signing time.
+One source tree feeds a single Firefox add-on identity, `youtube-audio@animesh.kundus.in` (ADR-0006). Production is the AMO **listed** channel: the listed build omits `update_url`, and AMO is the sole update authority, delivering hands-off auto-update on Firefox desktop and Firefox for Android. A **beta** channel uses the same ID signed **unlisted** at a distinct pre-release version and is installed by hand for desktop and Android testing. Publishing to AMO is on demand (a manual run after testing), never automatic on a tag. AMO credentials (`AMO_JWT_ISSUER` / `AMO_JWT_SECRET`) exist only at signing time. The self-hosted desktop `updates.json` path from ADR-0004 is retired for production; the release/publish-workflow rewire and the ID wiring (currently the `youtube-audio@local` placeholder) are pending follow-ups.
 
 ```mermaid
 flowchart LR
-    Source[WXT source] --> Default[Default build: no update_url]
-    Source --> SelfHosted[Self-hosted build flag]
-    SelfHosted --> Unlisted[AMO unlisted signature]
-    Unlisted --> Release[GitHub Release XPI + updates.json]
-    Release --> Desktop[Firefox desktop auto-update]
-    Default --> Listed[Separate-ID AMO listing]
-    Listed --> Android[Firefox Android auto-update]
+    Source[WXT source, single ID] --> Beta[Unlisted signed beta: pre-release version]
+    Source --> Prod[Listed build: no update_url]
+    Beta --> Install[Hand-installed desktop + Android testing]
+    Prod --> AMO[AMO listed signature, on-demand publish]
+    AMO --> Desktop[Firefox desktop auto-update]
+    AMO --> Android[Firefox Android auto-update]
 ```
 
 ## Build Outputs
