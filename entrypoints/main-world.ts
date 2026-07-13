@@ -559,11 +559,22 @@ export default defineUnlistedScript(() => {
       }
       // If a toggle-off reclaim of THIS video is still settling, resume the hijacked audio at the
       // real pre-toggle-off position/paused rather than the native element's mid-reload transient.
+      // A plain player-element replacement (mobile: the native player swaps the <video> mid-playback)
+      // arms no settling reclaim, so fall back to the release record's live position for the same
+      // video; otherwise the re-hijack would restart at the fresh element's zero/stale clock.
+      const releasedPosition =
+        pendingReclaim && pendingReclaim.videoId === videoId
+          ? { currentTime: pendingReclaim.currentTime, paused: pendingReclaim.paused }
+          : undefined;
       const intent =
         settlingReclaim && settlingReclaim.videoId === videoId
           ? { currentTime: settlingReclaim.currentTime, paused: settlingReclaim.paused }
-          : undefined;
+          : releasedPosition;
       if (player.attach(mediaElement, audioUrl, operationGeneration, intent)) {
+        // The released position is one-shot: once a same-video re-hijack has consumed it, drop it so a
+        // later same-video attach (a replay or re-navigation) cannot resume at a stale position. This
+        // only clears when releasedPosition was actually used, never another video's pending record.
+        if (releasedPosition && intent === releasedPosition) pendingReclaim = null;
         clearSettling();
         currentHijackVideoId = videoId;
         if (settings.audioArtworkEnabled) {

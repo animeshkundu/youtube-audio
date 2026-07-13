@@ -106,4 +106,10 @@ MUTATION_CHECK_MS = 100)` alongside `requestAnimationFrame`; `cancelMutationChec
   non-gating mobile canary. It passed a local arm64 AVD with `-no-window`: cold `active`, trusted
   activation, readyState 4, unmuted, 0.9 -> 46.0 s clock advance over 45 s, and `/videoplayback` at
   every sample.
-- Investigate the mid-run re-source + clock reset observed under real playback.
+- A follow-up instrumented MAIN-world run classified the mid-run clock reset as the extension's
+  re-hijack path, not a native googlevideo expiry refresh: the reset coincided with a video identity
+  replacement and a new `fetching` -> `active` status pair. The re-attach now consumes the released
+  element's live position and paused state (one-shot, so a later same-video attach cannot pick up a
+  stale position), preventing the replacement element's zero/stale clock from becoming the next
+  attach snapshot. The hardened hold probe now asserts a pre-tap-to-post-tap activation transition
+  and per-sample forward progress (tolerating at most one backward reset).

@@ -135,6 +135,9 @@ jobs:
             python3 tests/e2e/android/ui.py tap "remote debugging" || true
             sleep 2
 
+            # Preserve the source/fallback matrix across two VODs, kids, and live content.
+            node tests/e2e/probe-mobile-fenix.mjs dist/youtube-audio-bench.xpi
+
             # Require a trusted Android tap to sustain decoded, unmuted /videoplayback audio for
-            # 45 seconds. This includes cold-load active + element-swap re-hijack assertions.
+            # 45 seconds. This covers cold-load activation and the sustained audio-only outcome.
             node tests/e2e/android/probe-audio-hold.mjs dist/youtube-audio-bench.xpi

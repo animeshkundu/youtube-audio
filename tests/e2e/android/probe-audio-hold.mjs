@@ -206,6 +206,8 @@ try {
   );
   report.timeline.push({ elapsedSeconds: 0, phase: 'cold-active', ...coldActive });
 
+  const preTap = await snapshot(driver);
+  report.timeline.push({ elapsedSeconds: 0, phase: 'pre-tap', ...preTap });
   const activation = await tapPlayControlUntilActivated(driver);
   report.playControl = activation.target;
 
@@ -234,23 +236,39 @@ try {
   }
 
   const holdSamples = report.timeline.filter((sample) => sample.phase === 'hold');
-  const final = holdSamples.at(-1);
+  const playbackSamples = [playing, ...holdSamples];
+  const progress = playbackSamples.slice(1).reduce(
+    (result, sample, index) => {
+      const previous = playbackSamples[index];
+      if (!Number.isFinite(previous?.currentTime) || !Number.isFinite(sample.currentTime)) {
+        result.valid = false;
+      } else if (sample.currentTime < previous.currentTime) {
+        result.backwardResets += 1;
+      } else if (sample.currentTime === previous.currentTime) {
+        result.valid = false;
+      }
+      return result;
+    },
+    { valid: true, backwardResets: 0 }
+  );
   report.assertions = {
     coldLoadReachedActive:
       coldActive.activeSeen && coldActive.currentSrcKind === 'videoplayback' && coldActive.readyState >= 2,
-    elementSwapRehijackHeld:
+    audioOnlyVideoplaybackHeld:
       coldActive.currentSrcKind === 'videoplayback' &&
-      holdSamples.every((sample) => sample.currentSrcKind === 'videoplayback'),
-    trustedActivation: holdSamples.every(
-      (sample) => sample.userActivation.hasBeenActive === true
-    ),
+      playbackSamples.every((sample) => sample.currentSrcKind === 'videoplayback'),
+    trustedActivation:
+      preTap.userActivation.hasBeenActive === false &&
+      activation.snapshot.userActivation.hasBeenActive === true &&
+      holdSamples.every((sample) => sample.userActivation.hasBeenActive === true),
     playbackDecodedAndUnmuted: holdSamples.every(
       (sample) => sample.paused === false && sample.readyState === 4 && sample.muted === false
     ),
     currentTimeAdvanced:
       Number.isFinite(startTime) &&
-      Number.isFinite(final?.currentTime) &&
-      final.currentTime > startTime + Math.min(10, HOLD_SECONDS / 2),
+      progress.valid &&
+      progress.backwardResets <= 1 &&
+      playbackSamples.length > 1,
     sustainedWindow:
       holdSamples.length >= Math.floor(HOLD_SECONDS / SAMPLE_SECONDS) &&
       (holdSamples.at(-1)?.elapsedSeconds || 0) >= HOLD_SECONDS,

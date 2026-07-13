@@ -15,6 +15,7 @@ import { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
 const GECKO = process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
+const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.fenix';
 const CASES = [
   { id: 'Bu4ztj3R32k', kind: 'vod', label: 'music' },
   { id: 'DaWe9L1iwNw', kind: 'vod', label: 'podcast' },
@@ -27,7 +28,7 @@ function options() {
   const v = new firefox.Options();
   // Target Fenix via Marionette. Only one device is connected, so let geckodriver auto-detect the
   // serial (selenium's enableMobile emits a `deviceSerial` field geckodriver 0.37 rejects).
-  v.enableMobile('org.mozilla.fenix');
+  v.enableMobile(FENIX_PACKAGE);
   return v;
 }
 
