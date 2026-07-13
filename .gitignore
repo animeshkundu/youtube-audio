@@ -39,3 +39,6 @@ npm-debug.log*
 *.tmp
 *.temp
 .cache/
+
+# Ad-hoc scratch validation probes (never committed)
+tests/e2e/scratch-*.mjs
