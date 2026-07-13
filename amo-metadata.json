@@ -1,9 +1,12 @@
 {
   "summary": {
-    "en-US": "Listen to YouTube and YouTube Music without downloading video. Audio-only playback saves battery and data, with background and lock-screen play, ad and telemetry blocking, segment skipping, loudness normalization, EQ, lyrics, and audio download."
+    "en-US": "Listen to YouTube and YouTube Music without downloading video. Audio-only playback saves battery and data, with background and lock-screen play, ad and telemetry blocking, segment skipping, loudness normalization, EQ, and audio download."
   },
   "categories": ["other"],
   "version": {
-    "license": "GPL-3.0-only"
+    "license": "GPL-3.0-only",
+    "release_notes": {
+      "en-US": "Listen to YouTube and YouTube Music as audio only. The extension points the player at a direct audio stream and stops the video download at its source, so your battery and mobile data last far longer while the sound keeps playing. Native controls stay intact.\n\nHighlights:\n- Audio-only playback with background and lock-screen play.\n- Ad and telemetry blocking, on by default and quiet.\n- SponsorBlock-style skipping of sponsor reads and off-topic intros; only a tiny hash ever leaves your machine to look them up.\n- YouTube Music loudness normalization and a 5-band equalizer.\n- Save the current track as a single .m4a file.\n- Optional tidy-ups: hide Shorts, recommendations, or comments; cap quality; stop autoplay-next.\n\nLogged out only, and it collects nothing: no analytics, no phone-home, and the media it fetches is requested without your cookies. When a video cannot play as audio only (live, made-for-kids, age-restricted, or members-only) it hands you back to normal YouTube. Firefox 128 and up, desktop and Android."
+    }
   }
 }
