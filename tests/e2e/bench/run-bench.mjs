@@ -199,6 +199,60 @@ export async function openBrowserActionPopup(driver) {
 
 // --- Page-context probes (serialized to the browser) -----------------------
 
+/**
+ * Change one persisted setting while keeping the fixture watch page alive.
+ * The extension options tab is opened once per session and reused for later mutations.
+ */
+export async function mutateSettingMidSession(driver, context, setting, value) {
+  context.watchHandle ||= await driver.getWindowHandle();
+  let result;
+  try {
+    if (context.optionsHandle) {
+      await driver.switchTo().window(context.optionsHandle);
+    } else {
+      await driver.switchTo().newWindow('tab');
+      context.optionsHandle = await driver.getWindowHandle();
+      await driver.get(OPTIONS_URL);
+    }
+    result = await driver.executeAsyncScript(
+      function (settingName, nextValue) {
+        const done = arguments[arguments.length - 1];
+        try {
+          browser.storage.local
+            .get('settings')
+            .then((stored) => {
+              const current =
+                stored && typeof stored.settings === 'object' && stored.settings
+                  ? stored.settings
+                  : {};
+              const previous = current[settingName];
+              return browser.storage.local
+                .set({ settings: { ...current, [settingName]: nextValue } })
+                .then(() => ({
+                  ok: true,
+                  setting: settingName,
+                  previous,
+                  value: nextValue,
+                }));
+            })
+            .then(done)
+            .catch((error) => done({ ok: false, error: String(error) }));
+        } catch (error) {
+          done({ ok: false, error: String(error) });
+        }
+      },
+      setting,
+      value
+    );
+  } finally {
+    await driver.switchTo().window(context.watchHandle);
+  }
+  if (!result?.ok) {
+    throw new Error(`setting mutation failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+}
+
 /** Snapshot the observable DOM signals the bench keys on. */
 function snapshotScript() {
   const v = document.querySelector('video');
@@ -218,6 +272,13 @@ function snapshotScript() {
     status: document.documentElement.dataset.ytaStatus || null,
     reason: document.documentElement.dataset.ytaReason || null,
     videoSrc: v ? v.currentSrc || v.src : null,
+    videoDeclaredSrc: v ? v.src : null,
+    videoCurrentTime: v ? v.currentTime : null,
+    videoPaused: v ? v.paused : null,
+    videoReadyState: v ? v.readyState : null,
+    nativeReclaimCalls: Array.isArray(window.__ytaNativeReclaimCalls)
+      ? window.__ytaNativeReclaimCalls.slice()
+      : [],
     swapped: v?.dataset.swapped || null,
     ready: document.documentElement.getAttribute('data-fixture-ready'),
     telemetryReady: document.documentElement.getAttribute('data-fixture-telemetry-ready'),
@@ -266,7 +327,8 @@ function visibilityProbeScript() {
 /**
  * One fresh-profile browser session against the fixture watch page.
  * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
- *           probeCoach?: boolean, origin: string, resetLog: () => void }} opts
+ *           probeCoach?: boolean, probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
+ *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
   withAddon,
@@ -284,6 +346,8 @@ export async function runSession({
   probeStatusMap,
   probeBrowserActionPopup,
   probeElementSwap,
+  probeToggleOffReclaim,
+  probeRapidRetoggle,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -385,6 +449,115 @@ export async function runSession({
           const snap = await driver.executeScript(snapshotScript);
           return snap.ytaArtwork ? snap : null;
         }, 4000);
+      }
+    }
+
+    let toggleOffReclaim = null;
+    let rapidRetoggle = null;
+    if (probeToggleOffReclaim || probeRapidRetoggle) {
+      const target = probeRapidRetoggle ? 91.5 : 73.25;
+      const mutationContext = {};
+      await waitFor(async () => {
+        const state = await driver.executeScript(snapshotScript);
+        return state.status === 'active' && state.videoReadyState >= 1 ? state : null;
+      }, 8000, 50);
+      await driver.executeScript(function (currentTime) {
+        const video = document.querySelector('video[data-fixture-video]');
+        if (!video) return;
+        video.pause();
+        video.currentTime = currentTime;
+      }, target);
+      const frozen =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.status === 'active' &&
+            state.videoPaused === true &&
+            Math.abs(state.videoCurrentTime - target) < 0.1
+            ? state
+            : null;
+        }, 4000, 50)) || (await driver.executeScript(snapshotScript));
+      const reclaimCallBaseline = frozen.nativeReclaimCalls.length;
+      const offMutation = await mutateSettingMidSession(
+        driver,
+        mutationContext,
+        'audioOnlyEnabled',
+        false
+      );
+      const reclaimed =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          const calls = state.nativeReclaimCalls.slice(reclaimCallBaseline);
+          return state.status === 'disabled' &&
+            calls.some((call) => call.method === 'loadVideoById')
+            ? state
+            : null;
+        }, 4000, 50)) || (await driver.executeScript(snapshotScript));
+
+      if (probeToggleOffReclaim) {
+        const settled =
+          (await waitFor(async () => {
+            const state = await driver.executeScript(snapshotScript);
+            const calls = state.nativeReclaimCalls.slice(reclaimCallBaseline);
+            return state.status === 'disabled' &&
+              state.videoDeclaredSrc?.includes('/native-video?') &&
+              state.videoDeclaredSrc.includes('ytaReclaim=1') &&
+              state.videoReadyState >= 2 &&
+              state.videoPaused === true &&
+              calls.some((call) => call.method === 'pauseVideo')
+              ? state
+              : null;
+          }, 12000, 100)) || (await driver.executeScript(snapshotScript));
+        toggleOffReclaim = {
+          target,
+          reclaimCallBaseline,
+          frozen,
+          mutation: offMutation,
+          reclaimed,
+          settled,
+        };
+      }
+
+      if (probeRapidRetoggle) {
+        const transient =
+          (await waitFor(async () => {
+            const state = await driver.executeScript(snapshotScript);
+            return state.status === 'disabled' &&
+              state.videoDeclaredSrc?.includes('/native-video?') &&
+              state.videoDeclaredSrc.includes('ytaReclaim=1') &&
+              state.videoCurrentTime < 0.5 &&
+              state.videoPaused === false
+              ? state
+              : null;
+          }, 3000, 25)) || (await driver.executeScript(snapshotScript));
+        const onMutation = await mutateSettingMidSession(
+          driver,
+          mutationContext,
+          'audioOnlyEnabled',
+          true
+        );
+        const observedRehijacked = await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.status === 'active' && state.videoDeclaredSrc?.includes('/videoplayback')
+            ? state
+            : null;
+        }, 8000, 50);
+        const rehijacked = observedRehijacked || (await driver.executeScript(snapshotScript));
+        const rehijackedCallCount = observedRehijacked
+          ? observedRehijacked.nativeReclaimCalls.length
+          : null;
+        await new Promise((resolveWait) => setTimeout(resolveWait, 8500));
+        const final = await driver.executeScript(snapshotScript);
+        rapidRetoggle = {
+          target,
+          reclaimCallBaseline,
+          frozen,
+          mutation: { off: offMutation, on: onMutation },
+          reclaimed,
+          transient,
+          rehijacked,
+          rehijackedCallCount,
+          final,
+        };
       }
     }
 
@@ -738,6 +911,8 @@ export async function runSession({
       diagnostics,
       browserActionPopup,
       statusMap,
+      toggleOffReclaim,
+      rapidRetoggle,
     };
   } finally {
     try {
@@ -836,6 +1011,125 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
+    const reclaimSeedSettings = {
+      enabled: true,
+      audioOnlyEnabled: true,
+      audioArtworkEnabled: false,
+      backgroundPlayEnabled: false,
+      ghostEnabled: false,
+      aggressiveTelemetry: false,
+      adBlockEnabled: false,
+      segmentSkipEnabled: false,
+      segmentSkipCategories: [],
+      forceQualityMax: 'off',
+      disableAutoplayNext: false,
+      hideShorts: false,
+      hideRecommendations: false,
+      hideComments: false,
+      loudnessNormalization: false,
+      equalizerEnabled: false,
+      equalizerBands: [0, 0, 0, 0, 0],
+      lyricsEnabled: false,
+      downloadEnabled: false,
+    };
+    const toggleOffRun = await runSession({
+      withAddon: true,
+      seedSettings: reclaimSeedSettings,
+      probeToggleOffReclaim: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const toggleOff = toggleOffRun.toggleOffReclaim;
+    const toggleOffCalls =
+      toggleOff?.settled?.nativeReclaimCalls.slice(toggleOff.reclaimCallBaseline) || [];
+    const toggleOffLoadIndex = toggleOffCalls.findIndex(
+      (call) => call.method === 'loadVideoById'
+    );
+    const toggleOffPauseIndex = toggleOffCalls.findIndex((call) => call.method === 'pauseVideo');
+    const toggleOffLoad = toggleOffCalls[toggleOffLoadIndex];
+    const toggleOffPause = toggleOffCalls[toggleOffPauseIndex];
+    record(
+      'm1:toggle-off-reclaims-native-in-place',
+      toggleOff?.frozen?.status === 'active' &&
+        toggleOff.frozen.videoPaused === true &&
+        toggleOff.mutation?.previous === true &&
+        toggleOff.mutation.value === false &&
+        toggleOffLoad?.request?.videoId === 'FIXTURE0001' &&
+        toggleOffLoad.request.startSeconds > 0 &&
+        Math.abs(toggleOffLoad.request.startSeconds - toggleOff.frozen.videoCurrentTime) < 0.5 &&
+        toggleOffLoad.sourceBefore?.includes('/videoplayback') &&
+        !toggleOffLoad.sourceBefore.includes('/native-video') &&
+        toggleOffPauseIndex > toggleOffLoadIndex &&
+        toggleOffPause?.readyState >= 2 &&
+        toggleOff.settled?.status === 'disabled' &&
+        toggleOff.settled.videoDeclaredSrc?.includes('/native-video?') &&
+        toggleOff.settled.videoDeclaredSrc.includes('ytaReclaim=1') &&
+        !toggleOff.settled.videoDeclaredSrc.startsWith('blob:') &&
+        toggleOff.settled.videoReadyState >= 2 &&
+        toggleOff.settled.videoPaused === true,
+      {
+        target: toggleOff?.target,
+        frozen: toggleOff?.frozen,
+        mutation: toggleOff?.mutation,
+        reclaimed: toggleOff?.reclaimed,
+        settled: toggleOff?.settled,
+        calls: toggleOffCalls,
+      }
+    );
+
+    const rapidRetoggleRun = await runSession({
+      withAddon: true,
+      seedSettings: reclaimSeedSettings,
+      probeRapidRetoggle: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const rapid = rapidRetoggleRun.rapidRetoggle;
+    const rapidCalls = rapid?.final?.nativeReclaimCalls.slice(rapid.reclaimCallBaseline) || [];
+    const rapidLoads = rapidCalls.filter((call) => call.method === 'loadVideoById');
+    const staleRapidPauses =
+      rapid?.final?.nativeReclaimCalls
+        .slice(rapid.rehijackedCallCount)
+        .filter((call) => call.method === 'pauseVideo') || [];
+    const rapidLoad = rapidLoads[0];
+    record(
+      'm1:rapid-retoggle-preserves-position-and-pause',
+      rapid?.frozen?.status === 'active' &&
+        rapid.frozen.videoPaused === true &&
+        rapid.mutation?.off?.previous === true &&
+        rapid.mutation.off.value === false &&
+        rapid.mutation.on?.previous === false &&
+        rapid.mutation.on.value === true &&
+        rapid.transient?.status === 'disabled' &&
+        rapid.transient.videoDeclaredSrc?.includes('/native-video?') &&
+        rapid.transient.videoDeclaredSrc.includes('ytaReclaim=1') &&
+        rapid.transient.videoCurrentTime < 0.5 &&
+        rapid.transient.videoPaused === false &&
+        rapidLoads.length === 1 &&
+        rapidLoad?.request?.videoId === 'FIXTURE0001' &&
+        rapidLoad.request.startSeconds > 0 &&
+        Math.abs(rapidLoad.request.startSeconds - rapid.frozen.videoCurrentTime) < 0.5 &&
+        rapid.rehijacked?.status === 'active' &&
+        rapid.rehijacked.videoDeclaredSrc?.includes('/videoplayback') &&
+        Number.isInteger(rapid.rehijackedCallCount) &&
+        staleRapidPauses.length === 0 &&
+        rapid.final?.status === 'active' &&
+        rapid.final.videoDeclaredSrc?.includes('/videoplayback') &&
+        Math.abs(rapid.final.videoCurrentTime - rapid.frozen.videoCurrentTime) < 0.5 &&
+        rapid.final.videoPaused === true,
+      {
+        target: rapid?.target,
+        frozen: rapid?.frozen,
+        mutation: rapid?.mutation,
+        reclaimed: rapid?.reclaimed,
+        transient: rapid?.transient,
+        rehijacked: rapid?.rehijacked,
+        final: rapid?.final,
+        calls: rapidCalls,
+        stalePausesAfterRehijack: staleRapidPauses,
+      }
+    );
+
     record(
       'ux:toggle-mounts-in-right-controls-before-gear',
       enabled.audioOnlyTogglePresent === true &&

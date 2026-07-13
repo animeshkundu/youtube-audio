@@ -296,8 +296,9 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
       : ''
   }
   <script>
-    // Record player quality-API calls so the QoL bench can assert forced quality.
+    // Record player quality-API and native-reclaim calls so the bench can assert both paths.
     window.__ytaQualityCalls = [];
+    window.__ytaNativeReclaimCalls = [];
     (function () {
       var mp = document.getElementById('movie_player');
       if (mp) {
@@ -306,6 +307,39 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
         };
         mp.setPlaybackQuality = function (q) {
           window.__ytaQualityCalls.push({ quality: q });
+        };
+        mp.loadVideoById = function (arg) {
+          var video = document.querySelector('video[data-fixture-video]');
+          if (!video) return;
+          var videoId = arg && arg.videoId;
+          var startSeconds = arg && arg.startSeconds;
+          window.__ytaNativeReclaimCalls.push({
+            method: 'loadVideoById',
+            request: { videoId: videoId, startSeconds: startSeconds },
+            sourceBefore: video.currentSrc || video.src,
+            currentTimeBefore: video.currentTime,
+            pausedBefore: video.paused,
+            ts: Date.now(),
+          });
+          video.src =
+            '/native-video?mime=video/mp4&ytaReclaim=1&videoId=' +
+            encodeURIComponent(videoId || '');
+          video.currentTime = 0;
+          var played = video.play();
+          if (played && played.catch) played.catch(function () {});
+        };
+        mp.pauseVideo = function () {
+          var video = document.querySelector('video[data-fixture-video]');
+          if (!video) return;
+          window.__ytaNativeReclaimCalls.push({
+            method: 'pauseVideo',
+            source: video.currentSrc || video.src,
+            currentTime: video.currentTime,
+            readyState: video.readyState,
+            pausedBefore: video.paused,
+            ts: Date.now(),
+          });
+          video.pause();
         };
       }
       // The autonav toggle flips its aria-checked on click, mirroring YouTube. The extension's
@@ -577,6 +611,10 @@ export function createFixtureServer() {
       // A tiny valid silent WAV gives the <video> a real, seekable timeline so the
       // segment-skip test can assert an actual currentTime seek. Still JS-signal-driven
       // (no third-party codec); the URL resolves and the request is logged.
+      if (path === '/native-video' && url.searchParams.get('ytaReclaim') === '1') {
+        setTimeout(() => sendMedia(req, res, FIXTURE_WAV, requestRecord), 4000);
+        return;
+      }
       return sendMedia(req, res, FIXTURE_WAV, requestRecord);
     }
     if (path === '/youtubei/v1/log_event' || path.startsWith('/api/stats/')) {
