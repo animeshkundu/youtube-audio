@@ -217,7 +217,8 @@ function snapshotScript() {
     marker: document.documentElement.dataset.ytaBench || null,
     status: document.documentElement.dataset.ytaStatus || null,
     reason: document.documentElement.dataset.ytaReason || null,
-    videoSrc: v ? v.src : null,
+    videoSrc: v ? v.currentSrc || v.src : null,
+    swapped: v?.dataset.swapped || null,
     ready: document.documentElement.getAttribute('data-fixture-ready'),
     telemetryReady: document.documentElement.getAttribute('data-fixture-telemetry-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
@@ -282,6 +283,7 @@ export async function runSession({
   probeReadDiagnostics,
   probeStatusMap,
   probeBrowserActionPopup,
+  probeElementSwap,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -337,7 +339,7 @@ export async function runSession({
     resetLog();
 
     await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
-    await driver.wait(until.elementLocated(By.css('video[data-fixture-video]')), 10000);
+    await driver.wait(until.elementLocated(By.css('video')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
     // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
     // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
@@ -384,6 +386,17 @@ export async function runSession({
           return snap.ytaArtwork ? snap : null;
         }, 4000);
       }
+    }
+
+    let elementSwap = null;
+    if (probeElementSwap) {
+      elementSwap =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.swapped === '1' && state.videoSrc?.includes('/videoplayback')
+            ? state
+            : null;
+        }, 8000, 50)) || (await driver.executeScript(snapshotScript));
     }
 
     if (seedSettings?.lyricsEnabled) {
@@ -721,6 +734,7 @@ export async function runSession({
       circuitBreaker,
       reconcileChurn,
       spaLeak,
+      elementSwap,
       diagnostics,
       browserActionPopup,
       statusMap,
@@ -1048,6 +1062,31 @@ async function main() {
         videoSrc: coldConfigRun.videoSrc,
         entry: coldConfigEntry?.entry,
         statusMap: coldConfigRun.statusMap,
+      }
+    );
+
+    const elementSwapRun = await runSession({
+      withAddon: true,
+      watchQuery: 'elementSwap=1',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      probeElementSwap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const elementSwapEntry = statusMapEntry(elementSwapRun.statusMap);
+    record(
+      'm0:element-swap-rehijack',
+      elementSwapRun.elementSwap?.swapped === '1' &&
+        elementSwapRun.elementSwap.videoSrc?.includes('/videoplayback') &&
+        elementSwapRun.elementSwap.status === 'active' &&
+        elementSwapEntry?.entry?.status === 'active',
+      {
+        swapped: elementSwapRun.elementSwap?.swapped,
+        status: elementSwapRun.elementSwap?.status,
+        videoSrc: elementSwapRun.elementSwap?.videoSrc,
+        entry: elementSwapEntry?.entry,
+        statusMap: elementSwapRun.statusMap,
       }
     );
 

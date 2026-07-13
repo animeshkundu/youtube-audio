@@ -7,11 +7,20 @@ export interface SpaObserver {
   stop(): void;
 }
 
+/**
+ * How long the mutation-driven navigation check waits before its timer fallback fires when the
+ * animation-frame path is starved (hidden tab or Firefox-for-Android rAF throttling). Kept short so
+ * a native element swap is re-hijacked promptly, but long enough to coalesce a burst of mutations
+ * into one lookup. On a visible tab rAF wins the race and cancels this timer, so it is a no-op there.
+ */
+const MUTATION_CHECK_MS = 100;
+
 export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => void): SpaObserver {
   let lastUrl = location.href;
   let lastVideo = document.querySelector('video');
   let scheduled = false;
   let mutationFrame: number | null = null;
+  let mutationTimer: number | null = null;
   let stopped = false;
 
   const emit = (reason: SpaNavigation['reason']) => {
@@ -25,7 +34,9 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
 
   const cancelMutationCheck = () => {
     if (mutationFrame !== null) cancelAnimationFrame(mutationFrame);
+    if (mutationTimer !== null) clearTimeout(mutationTimer);
     mutationFrame = null;
+    mutationTimer = null;
   };
   // Compare the current URL / <video> against the last seen and emit on a real change. Called both
   // from the rAF-deferred mutation path and, immediately, from the history hooks below.
@@ -42,12 +53,20 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
     }
   };
   const checkForMutationNavigation = () => {
-    mutationFrame = null;
+    cancelMutationCheck();
     detectNavigation();
   };
   const scheduleMutationCheck = () => {
-    if (stopped || mutationFrame !== null) return;
+    if (stopped || mutationFrame !== null || mutationTimer !== null) return;
+    // rAF batches the check with paint on a visible tab, but it is suspended when the tab is hidden
+    // and Firefox for Android throttles it to a single frame shortly after load. That would strand
+    // the identity check below, which is the only signal that catches a native <video> element swap:
+    // the mobile audio reclaim REPLACES the element (old one detached, a fresh one installed with the
+    // native source) rather than re-sourcing it in place, so the property-setter guard never sees it.
+    // Arm a bounded timer alongside rAF so the check still runs when rAF is starved; whichever fires
+    // first cancels the other, so a visible tab keeps the paint-aligned fast path unchanged.
     mutationFrame = requestAnimationFrame(checkForMutationNavigation);
+    mutationTimer = window.setTimeout(checkForMutationNavigation, MUTATION_CHECK_MS);
   };
 
   // This path stays independent of rAF so navigation is detected even while a hidden tab's frames

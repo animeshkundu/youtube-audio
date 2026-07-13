@@ -124,6 +124,54 @@ describe('observeYouTubeSpa', () => {
     observer.stop();
   });
 
+  it('detects a native <video> element swap via the timer fallback when rAF is suspended', async () => {
+    // Firefox for Android throttles requestAnimationFrame to a single frame after load, so the mobile
+    // audio reclaim (which REPLACES the <video> element) would otherwise never be detected: the
+    // mutation check is scheduled but its rAF callback never runs. A bounded timer fallback must fire
+    // the same identity check. Modelled on the real Fenix mechanism: id1 hijacked, then swapped for a
+    // fresh id2 while rAF is dead.
+    let mutationCallback: MutationCallback = () => undefined;
+    class FakeMutationObserver {
+      constructor(callback: MutationCallback) {
+        mutationCallback = callback;
+      }
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): MutationRecord[] {
+        return [];
+      }
+    }
+    vi.useFakeTimers();
+    // rAF returns a handle but NEVER invokes its callback: this is the suspended-frame condition.
+    const requestFrame = vi.fn(() => 1);
+    vi.stubGlobal('MutationObserver', FakeMutationObserver);
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const onNavigate = vi.fn();
+    document.body.replaceChildren(document.createElement('video'));
+
+    const observer = observeYouTubeSpa(onNavigate);
+    await Promise.resolve(); // flush the 'initial' emit
+    onNavigate.mockClear();
+
+    // Native reclaim swaps the hijacked element for a fresh one, then a mutation batch fires.
+    document.body.replaceChildren(document.createElement('video'));
+    mutationCallback([], {} as MutationObserver);
+
+    // rAF is dead, so nothing has fired yet; the identity change is still pending on the timer.
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    await Promise.resolve(); // flush the queued player-change emit
+    expect(onNavigate).toHaveBeenCalledWith({
+      url: expect.any(String),
+      reason: 'player-change',
+    });
+
+    observer.stop();
+    vi.useRealTimers();
+  });
+
   it('restores the patched history methods on stop', () => {
     class FakeMutationObserver {
       constructor(_callback: MutationCallback) {}

@@ -169,8 +169,8 @@ function fixtureSkipSegments(videoId) {
   ];
 }
 
-/** The fake YouTube watch page. Static except for the requested config-hydration mode. */
-function watchPageHtml({ coldConfig = false } = {}) {
+/** The fake YouTube watch page. Static except for requested deterministic regression modes. */
+function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -269,6 +269,32 @@ function watchPageHtml({ coldConfig = false } = {}) {
       </div></div>
     </div>
   </ytd-watch-flexy>
+  ${
+    elementSwap
+      ? `<script>
+    // Mimic the native mobile player reclaiming playback by replacing the hijacked media element.
+    (function () {
+      var swapped = false;
+      var poll = function () {
+        var oldVideo = document.querySelector('video');
+        var source = oldVideo ? oldVideo.currentSrc || oldVideo.src : '';
+        if (!swapped && oldVideo && source.indexOf('/videoplayback') !== -1) {
+          swapped = true;
+          var newVideo = document.createElement('video');
+          newVideo.className = 'video-stream html5-main-video';
+          newVideo.setAttribute('playsinline', '');
+          newVideo.dataset.swapped = '1';
+          newVideo.src = '/native-video?mime=video/mp4';
+          oldVideo.replaceWith(newVideo);
+          return;
+        }
+        setTimeout(poll, 10);
+      };
+      poll();
+    })();
+  </script>`
+      : ''
+  }
   <script>
     // Record player quality-API calls so the QoL bench can assert forced quality.
     window.__ytaQualityCalls = [];
@@ -505,7 +531,13 @@ export function createFixtureServer() {
     // --- Fake YouTube surface ---------------------------------------------
     if (path === '/' || path === '/watch' || path === '/index.html') {
       const coldConfig = url.searchParams.get('coldConfig') === '1';
-      return sendText(res, 200, watchPageHtml({ coldConfig }), 'text/html; charset=utf-8');
+      const elementSwap = url.searchParams.get('elementSwap') === '1';
+      return sendText(
+        res,
+        200,
+        watchPageHtml({ coldConfig, elementSwap }),
+        'text/html; charset=utf-8'
+      );
     }
     if (path === '/youtubei/v1/player') {
       let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;
