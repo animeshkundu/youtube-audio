@@ -232,11 +232,12 @@ function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
   container.setAttribute('aria-label', 'Synced lyrics');
   container.dataset.videoId = videoId;
   container.style.cssText =
-    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;display:flex;flex-direction:column;overflow:hidden;border-radius:12px;background:rgba(15,15,15,.92);color:#fff;font:16px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4);';
+    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;display:flex;flex-direction:column;overflow:hidden;border-radius:12px;background:rgba(15,15,15,.92);color:#fff;font:16px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;';
 
-  // Header with minimize + close controls. Without these the fixed panel had no dismiss affordance
-  // and, on YouTube Music, physically covered the Up Next queue so a user could not click a row to
-  // switch songs. Minimize collapses to just this header (freeing the queue); close removes it.
+  // Header with minimize + close controls. The panel is click-through (container `pointer-events:none`,
+  // only the buttons re-enable events), so on YouTube Music the lyric text no longer swallows clicks
+  // meant for the Up Next queue behind it (a click on a queue row passes through and switches songs).
+  // Minimize collapses to just this header; close removes the panel.
   const header = document.createElement('div');
   header.style.cssText =
     'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;flex:0 0 auto;';
@@ -259,7 +260,7 @@ function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
     button.textContent = symbol;
     button.setAttribute('aria-label', ariaLabel);
     button.style.cssText =
-      'appearance:none;border:0;background:transparent;color:#fff;opacity:.65;cursor:pointer;width:28px;height:28px;border-radius:6px;font:16px/1 system-ui,sans-serif;';
+      'appearance:none;border:0;background:transparent;color:#fff;opacity:.65;cursor:pointer;width:28px;height:28px;border-radius:6px;font:16px/1 system-ui,sans-serif;pointer-events:auto;';
     button.addEventListener('mouseenter', () => button.style.setProperty('opacity', '1'));
     button.addEventListener('mouseleave', () => button.style.setProperty('opacity', '.65'));
     button.addEventListener('click', onClick);

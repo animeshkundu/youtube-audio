@@ -222,6 +222,13 @@ function snapshotScript() {
     telemetryReady: document.documentElement.getAttribute('data-fixture-telemetry-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
     lyrics: document.documentElement.dataset.ytaLyrics || null,
+    lyricsPanelPointerEvents: (() => {
+      const panel = document.getElementById('yta-synced-lyrics');
+      return panel ? getComputedStyle(panel).pointerEvents : null;
+    })(),
+    lyricsControls: Array.from(document.querySelectorAll('#yta-synced-lyrics button')).map((b) =>
+      b.getAttribute('aria-label')
+    ),
     download: document.documentElement.dataset.ytaDownload || null,
     downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
     audioOnlyTogglePresent: !!audioOnlyToggle,
@@ -700,6 +707,8 @@ export async function runSession({
       qol,
       audioGraph: snap.audioGraph,
       lyrics: snap.lyrics,
+      lyricsPanelPointerEvents: snap.lyricsPanelPointerEvents,
+      lyricsControls: snap.lyricsControls,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
       audioOnlyTogglePresent: snap.audioOnlyTogglePresent,
@@ -1240,8 +1249,19 @@ async function main() {
     const lyricsLog = fixture.getRequests();
     record(
       'm4:lyrics-opt-in-fetches-and-renders',
-      lyricsRun.lyrics === '2' && lyricsLog.some((r) => r.path === '/api/get'),
-      { marker: lyricsRun.lyrics, fetched: lyricsLog.filter((r) => r.path === '/api/get') }
+      lyricsRun.lyrics === '2' &&
+        lyricsLog.some((r) => r.path === '/api/get') &&
+        // Click-through: the panel must not swallow clicks meant for what is behind it (e.g. the
+        // YouTube Music Up Next queue), and it must carry its minimize + close controls.
+        lyricsRun.lyricsPanelPointerEvents === 'none' &&
+        lyricsRun.lyricsControls?.includes('Minimize lyrics') &&
+        lyricsRun.lyricsControls?.includes('Close lyrics'),
+      {
+        marker: lyricsRun.lyrics,
+        fetched: lyricsLog.filter((r) => r.path === '/api/get'),
+        pointerEvents: lyricsRun.lyricsPanelPointerEvents,
+        controls: lyricsRun.lyricsControls,
+      }
     );
 
     const downloadDisabled = await runSession({
