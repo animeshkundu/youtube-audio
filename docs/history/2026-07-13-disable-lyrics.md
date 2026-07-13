@@ -66,6 +66,11 @@ rather than deleted so it can be brought back cheaply if the calculus changes (f
   stored `true`; it is not migrated to `false`. That is harmless: with the `lrclib.net` permission
   removed the background cannot fetch and there is no UI, so nothing renders. The extension is also
   not yet released, so no field profile carries this state.
+- **Matrix assertion was left stale (fixed in a follow-up).** This change updated the smoke bench but
+  not the settings-permutation matrix (`tests/e2e/bench/run-matrix.mjs`), whose `lyricsEnabled` case
+  still expected lyrics to render when a combo seeds it true. Eight matrix combos therefore failed
+  ("lyrics on: not rendered") and, because CI runs the matrix, that job went red. A follow-up flips
+  the assertion to a kill-switch lock (lyrics must never render regardless of the seeded value).
 
 ## Next steps
 

@@ -144,7 +144,9 @@ function checkFeature(feature, s, r, log) {
     case 'hideComments':
       return want ? (r.qol?.commentsHidden === true ? null : 'hideComments on: comments visible') : (r.qol?.commentsHidden === false ? null : 'hideComments off: comments not confirmed visible');
     case 'lyricsEnabled':
-      return want ? (r.lyrics !== null ? null : 'lyrics on: not rendered') : (r.lyrics === null ? null : 'lyrics off: rendered');
+      // Lyrics was disabled and hidden (the config kill switch coerces the setting off), so it must
+      // never render, even when a combo seeds it true. Both seed states assert no rendered panel.
+      return r.lyrics === null ? null : 'lyrics disabled: rendered';
     case 'downloadEnabled':
       return want ? (r.downloadButtonVisible === true ? null : 'download on: button hidden') : (r.downloadButtonVisible !== true ? null : 'download off: button visible');
     case 'disableAutoplayNext':
