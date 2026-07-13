@@ -176,6 +176,7 @@ nav:
       - Status Hardening & Real-YouTube UI Fixes: history/2026-07-12-status-hardening-and-real-youtube-ui-fixes.md
       - Comments, Downloads & ADR-0009 Caveat: history/2026-07-12-comments-download-and-adr0009.md
       - Audio-Only Toggle-Off Reclaim: history/2026-07-12-audio-only-toggle-off-reclaim.md
+      - Smoke-Test Convergence: history/2026-07-12-smoke-test-convergence.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md
