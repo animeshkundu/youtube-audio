@@ -285,6 +285,8 @@ export async function runSession({
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
+  watchQuery,
+  probeLateAutonav,
 }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
@@ -333,7 +335,7 @@ export async function runSession({
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(`${origin}/watch?v=${videoId}`);
+    await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
     await driver.wait(until.elementLocated(By.css('video[data-fixture-video]')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
     // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
@@ -503,6 +505,18 @@ export async function runSession({
 
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
+
+    // Late-autonav: the fixture inserts the autonav button after the extension's fixed retry
+    // schedule (past 3s), so only the MutationObserver fallback can click it. Poll for aria-checked
+    // to flip to "false" (a slow poll so the observer has time to catch the late insertion).
+    let lateAutonav = null;
+    if (probeLateAutonav) {
+      lateAutonav =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.autonavChecked === 'false' ? state.autonavChecked : null;
+        }, 8000, 250)) || (await driver.executeScript(snapshotScript)).autonavChecked;
+    }
 
     const inlinePlayerResponse = await driver.executeScript(function () {
       const value = window.ytInitialPlayerResponse || {};
@@ -698,6 +712,7 @@ export async function runSession({
       coachObserved,
       skipArmed: snap.skipArmed,
       autonavChecked: snap.autonavChecked,
+      lateAutonav,
       spaRearm,
       circuitBreaker,
       reconcileChurn,
@@ -1429,6 +1444,36 @@ async function main() {
         recsOnlyRun.qol?.secondaryPanelCommentsHidden === false,
       { treatment: recsOnlyRun.qol }
     );
+
+    // Regression lock for the disable-autoplay slow-load race: the fixture inserts the autonav button
+    // after the extension's fixed retry schedule (3.5s > the last 3s timer), so ONLY the
+    // MutationObserver fallback can click it. Before the fallback, the fixed timers missed a
+    // late-rendered button and autonav stayed "true" (the intermittent real-Firefox failure).
+    const lateAutonavRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: false,
+        backgroundPlayEnabled: false,
+        ghostEnabled: false,
+        aggressiveTelemetry: false,
+        adBlockEnabled: false,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: 'off',
+        disableAutoplayNext: true,
+        hideShorts: false,
+        hideRecommendations: false,
+        hideComments: false,
+      },
+      watchQuery: 'yta-late-autonav=1',
+      probeLateAutonav: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record('m3b:disable-autoplay-late-button', lateAutonavRun.lateAutonav === 'false', {
+      lateAutonav: lateAutonavRun.lateAutonav,
+    });
   } finally {
     await fixture.close();
   }

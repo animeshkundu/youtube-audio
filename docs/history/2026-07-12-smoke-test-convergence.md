@@ -36,15 +36,20 @@ download on/off correct).
 
 ## Open follow-ups (NOT defects, no code change this cycle)
 
-1. **Background-play verification gap (testing, not product).** WebDriver/marionette-automated
-   Firefox does not expose a real hidden-tab state: neither opening/focusing a second tab nor
-   minimizing the window makes `document.hidden` become `true` for the YouTube tab (Firefox
-   appears to suppress visibility-state throttling for automated sessions). So an automated harness
-   cannot establish the "backgrounded" precondition that distinguishes `backgroundPlayEnabled`
-   true vs false. The mechanism itself (`enableBackgroundPlay()` in `entrypoints/main-world.ts`) is
-   sound by direct code reading: it patches the `document.hidden`/`visibilityState` getters and
-   swallows `visibilitychange` in the capture phase, with full descriptor restoration on cleanup.
-   Verify this via a packaged extension on a real device or a manual check, not WebDriver.
+1. **Background-play is covered (correction).** An earlier version of this note understated the
+   coverage, saying the mechanism was "sound by code reading, needs a real-device or manual check."
+   In fact `backgroundPlayEnabled` is deterministically locked by the hermetic bench
+   (`m1:visibility-suppression`: it swallows a synthetic `visibilitychange` when the setting is ON
+   and passes it through when OFF) and by the settings-permutation matrix, and it has now ALSO been
+   confirmed on real YouTube: with the setting ON a synthetic `visibilitychange` is swallowed via
+   the capture-phase `stopImmediatePropagation`, with it OFF the event passes through, and
+   `document.hidden` is a patched non-native getter. The mechanism itself
+   (`enableBackgroundPlay()` in `entrypoints/main-world.ts`) patches the
+   `document.hidden`/`visibilityState` getters and swallows `visibilitychange` in the capture phase,
+   with full descriptor restoration on cleanup. The only thing WebDriver/marionette-automated
+   Firefox cannot do is force a truly hidden tab (neither a second tab nor minimizing makes
+   `document.hidden` become `true` for an automated session), and that is not needed to validate the
+   mechanism. See `docs/history/2026-07-12-settings-permutation-real-firefox-validation.md`.
 
 2. **Age-restricted playback observation (docs accuracy, not a code defect).** One
    age-restricted-labelled video (`7E9Ed9DUQoQ`) was hijacked (audio-only active, real googlevideo
@@ -58,6 +63,20 @@ download on/off correct).
    the ANDROID_VR response is non-playable." Worth a ground-truth pass against a known-currently
    age-restricted video and, if confirmed, a wording softening in `CLAUDE.md` / the research docs.
    No fallback logic change is warranted (the playability-driven gate is already correct).
+
+## Update (2026-07-12): follow-ups addressed by the permutation validation pass
+
+The exhaustive settings-permutation real-Firefox validation
+(`docs/history/2026-07-12-settings-permutation-real-firefox-validation.md`) addressed and
+re-scoped these follow-ups:
+
+- **Background-play** is fully covered (see the correction in follow-up #1): deterministically
+  locked by the bench and matrix, and now confirmed on real YouTube.
+- **Age-restricted** playback was re-checked on a currently age-restricted video and behaves per
+  the playability-driven gate ("falls back whenever the ANDROID_VR response is non-playable"), so
+  the follow-up is re-scoped to a wording softening only, with no fallback logic change.
+- **Ad-block (#69)** is now confirmed working on real YouTube (live in-player ads suppressed with
+  the setting ON versus OFF; residual SABR-stitched ads remain a documented ADR-0009 limitation).
 
 ## Verification
 

@@ -29,7 +29,7 @@ The shared settings object adds `forceQualityMax`, `disableAutoplayNext`, `hideS
 
 The MAIN-world entrypoint feature-detects `#movie_player` or `.html5-video-player`. When a quality ceiling is active it calls `setPlaybackQualityRange(label, label)` and `setPlaybackQuality(label)`, where the user-facing resolution maps to YouTube's internal quality label. It listens for the player's playback-quality-change event when available and performs only a bounded sequence of delayed reassertions. Missing or throwing APIs are no-ops.
 
-Autoplay suppression inspects `.ytp-autonav-toggle-button`. It clicks only when the control reports `aria-checked="true"`, using YouTube's native state transition. Initial load, SPA navigation, and a bounded delayed retry cover late player controls. Disabling the extension does not turn autoplay on or otherwise change native state.
+Autoplay suppression inspects `.ytp-autonav-toggle-button`. It clicks only when the control reports `aria-checked="true"`, using YouTube's native state transition. Initial load, SPA navigation, and a bounded delayed retry cover late player controls. On a slow load where the button renders past the last fixed retry, a bounded `MutationObserver` fallback (scoped to `childList` + `subtree` with an `aria-checked` `attributeFilter`) still switches a late-appearing or late-toggled control off, then disconnects on success or at a 10s hard cap, mirroring the event-driven reassertion the quality path gets from the player's quality-change event. Disabling the extension does not turn autoplay on or otherwise change native state.
 
 ### Cosmetic controls
 
@@ -44,7 +44,7 @@ All DOM queries, player calls, event registration, timer work, and style install
 ## Testing Strategy
 
 - Unit tests import the real stylesheet builder and quality-label selector, covering every setting independently, combined settings, disabled settings, valid quality mappings, and malformed/off values.
-- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, and comments fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off. The `m3b:hide-recs-preserves-comments` scenario asserts that hiding recommendations leaves both the primary and the reparented-panel comments nodes visible.
+- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, and comments fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off. The `m3b:hide-recs-preserves-comments` scenario asserts that hiding recommendations leaves both the primary and the reparented-panel comments nodes visible. The `m3b:disable-autoplay-late-button` scenario inserts the autonav button at 3.5s (past the last fixed retry) and asserts the `MutationObserver` fallback still switches it off.
 - Release gates: strict typecheck, zero-warning lint, gate-weakener scan, real-source coverage, packaged Firefox bench, production build, and manifest inspection.
 
 ## Security and Privacy Considerations

@@ -278,14 +278,29 @@ function watchPageHtml() {
       // The autonav toggle flips its aria-checked on click, mirroring YouTube. The extension's
       // disable-autoplay clicks it (only when currently "true"), so aria-checked becoming "false"
       // is the observable proof that disableAutoplayNext took effect.
-      var autonav = document.querySelector('.ytp-autonav-toggle-button');
-      if (autonav) {
-        autonav.addEventListener('click', function () {
-          autonav.setAttribute(
+      function wireAutonav(btn) {
+        btn.addEventListener('click', function () {
+          btn.setAttribute(
             'aria-checked',
-            autonav.getAttribute('aria-checked') === 'true' ? 'false' : 'true'
+            btn.getAttribute('aria-checked') === 'true' ? 'false' : 'true'
           );
         });
+      }
+      var autonav = document.querySelector('.ytp-autonav-toggle-button');
+      if (autonav) wireAutonav(autonav);
+      // Late-autonav regression mode: remove the button and re-insert it AFTER the extension's fixed
+      // retry schedule (past 3s), so only the disable-autoplay MutationObserver fallback can click it.
+      if (/[?&]yta-late-autonav=1/.test(location.search) && autonav && autonav.parentNode) {
+        var slot = autonav.parentNode;
+        autonav.remove();
+        setTimeout(function () {
+          var late = document.createElement('button');
+          late.className = 'ytp-autonav-toggle-button';
+          late.setAttribute('aria-checked', 'true');
+          late.textContent = 'Autoplay';
+          wireAutonav(late);
+          slot.appendChild(late);
+        }, 3500);
       }
     })();
   </script>

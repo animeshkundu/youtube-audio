@@ -625,6 +625,8 @@ function applyQualityOfLife(settings: PageSettings): () => void {
   const qualityLabel = getQualityLabel(settings.forceQualityMax);
   const timers: number[] = [];
   let observedPlayer: YouTubePlayerElement | null = null;
+  let autoplayObserver: MutationObserver | null = null;
+  let autoplayTimeout = 0;
   const reassertQuality = () => {
     if (!qualityLabel) return;
     try {
@@ -639,18 +641,54 @@ function applyQualityOfLife(settings: PageSettings): () => void {
       // Undocumented player APIs are optional; native ABR remains in control on failure.
     }
   };
-  const disableAutoplay = () => {
-    if (!settings.disableAutoplayNext) return;
+  const stopAutoplayObserver = () => {
+    if (autoplayObserver) {
+      autoplayObserver.disconnect();
+      autoplayObserver = null;
+    }
+    if (autoplayTimeout) {
+      window.clearTimeout(autoplayTimeout);
+      autoplayTimeout = 0;
+    }
+  };
+  // Returns true once the native autonav toggle has been switched off, or there is nothing to do, so
+  // the DOM watcher can stop. Returns false while the toggle is absent or not yet "on", so the watcher
+  // keeps waiting. (Fixed timers alone missed the click when the button rendered past the last 3s
+  // retry on a slow load, so a bounded MutationObserver below covers a late-appearing / late-toggled
+  // button, mirroring what `reassertQuality` already gets from the player's quality-change event.)
+  const disableAutoplay = (): boolean => {
+    if (!settings.disableAutoplayNext) return true;
     try {
       const toggle = document.querySelector<HTMLElement>('.ytp-autonav-toggle-button');
-      if (toggle?.getAttribute('aria-checked') === 'true') toggle.click();
+      if (!toggle) return false;
+      if (toggle.getAttribute('aria-checked') === 'true') {
+        toggle.click();
+        return true;
+      }
+      return false;
     } catch {
       // A missing or changing native control leaves YouTube's current state untouched.
+      return false;
     }
+  };
+  const armAutoplayObserver = () => {
+    if (autoplayObserver || !settings.disableAutoplayNext) return;
+    autoplayObserver = new MutationObserver(() => {
+      if (disableAutoplay()) stopAutoplayObserver();
+    });
+    autoplayObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['aria-checked'],
+    });
+    // Hard cap so the watcher can never outlive the navigation or spin indefinitely (fail-open).
+    autoplayTimeout = window.setTimeout(stopAutoplayObserver, 10_000);
   };
   const apply = () => {
     reassertQuality();
-    disableAutoplay();
+    if (disableAutoplay()) stopAutoplayObserver();
+    else armAutoplayObserver();
   };
   const qualityChanged = () => reassertQuality();
   apply();
@@ -670,6 +708,7 @@ function applyQualityOfLife(settings: PageSettings): () => void {
   }
   return () => {
     timers.forEach((timer) => window.clearTimeout(timer));
+    stopAutoplayObserver();
     try {
       observedPlayer?.removeEventListener?.('onPlaybackQualityChange', qualityChanged);
     } catch {
