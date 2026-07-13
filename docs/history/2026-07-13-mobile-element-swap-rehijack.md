@@ -80,14 +80,28 @@ MUTATION_CHECK_MS = 100)` alongside `requestAnimationFrame`; `cancelMutationChec
 
 ## Known issues / notes
 
-- **Audio-decode HOLD needs a real device.** The headless emulator cannot supply the trusted user
-  gesture YouTube's player gate demands, so the confirmation above proves src-level hold (the element
-  loads and keeps our `/videoplayback` source, `readyState` 4) but not sustained audible playback.
-  That final proof is the owner-gated real-Fenix device lane.
-- **Perf sanity (emulator, no audio decode):** Total PSS ~198 MB after install to ~249 MB after ~90 s
-  of repeated cold loads, CPU ~0% on the Fenix process at rest; no runaway. Reflects activation plus
-  the re-hijack cycle, not continuous audio decode (same gesture-gate reason).
+- **Audio-decode HOLD is validatable on a headful emulator (earlier "needs a real device" claim was
+  wrong).** A follow-up dig disproved it: the trusted-gesture failure was a foreground artifact, not
+  an emulator-trust limit. A fresh geckodriver profile floats Fenix's add-on confirmation and
+  onboarding over the Gecko content (`innerWidth`/`innerHeight` 0, `document.hasFocus()` false), so
+  taps never reached the page. After dismissing those overlays, foregrounding the watch URL
+  (`adb shell am start -W -a android.intent.action.VIEW -d <url> org.mozilla.fenix`), waiting for
+  uiautomator to expose the Play control, and `adb shell input tap`, `navigator.userActivation`
+  went `isActive`/`hasBeenActive` true and audio-only playback held: `readyState 4`, unmuted,
+  `currentTime` advancing (3.1 -> 8.1 -> 13.1 s ...), `/videoplayback` throughout, never the native
+  blob, sustained past 70 s. (Firefox Android exposes no audio-only decode counters, so the evidence
+  is readyState 4 + unmuted + advancing clock, not a byte/frame counter.)
+- **New follow-up found under real playback:** around 35-40 s the stream re-sources to a DIFFERENT
+  googlevideo host with a brief clock reset (paused, `readyState` 2 at t~13.7, then auto-resumes near
+  t~3 and advances continuously). Audio-only still held (never went native blob). Source-only probes
+  miss this because it only manifests during actual decode. Worth investigating whether this is a
+  normal googlevideo URL/segment refresh or our re-hijack re-attaching at a stale position.
+- **Perf under ~60 s of REAL playback (headful emulator):** Total PSS ~196 MB, Total RSS ~373 MB, no
+  swap; point-in-time CPU sampling was not reliable (rounded to 0%), so treat CPU as unmeasured, not
+  zero.
 
 ## Next steps
 
-- Stand up the owner-gated real-Fenix device lane for the audio-decode HOLD proof.
+- Automate the headful-emulator audio-decode-hold check (the gesture recipe above is deterministic
+  enough) and wire it into the non-gating mobile canary and the self-healing canary.
+- Investigate the mid-run re-source + clock reset observed under real playback.
