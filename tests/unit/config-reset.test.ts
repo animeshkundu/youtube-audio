@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   getSettings,
+  initializeSettings,
   resetSettings,
   setEnabled,
   setEqualizerBand,
@@ -63,5 +64,25 @@ describe('resetSettings', () => {
 
     await resetSettings();
     expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+describe('lyrics kill switch', () => {
+  it('coerces a stored lyricsEnabled:true to false so the disabled feature cannot run', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { enabled: true, lyricsEnabled: true } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+
+    await initializeSettings();
+
+    // Lyrics were retired (YouTube Music has native lyrics). normalizeSettings coerces the setting
+    // off regardless of what is persisted, so a stale stored `true` can never run the feature.
+    expect(getSettings().lyricsEnabled).toBe(false);
   });
 });

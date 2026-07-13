@@ -32,7 +32,6 @@ import {
   hideRecommendationsSignal,
   hideShortsSignal,
   loudnessNormalizationSignal,
-  lyricsEnabledSignal,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
 } from '../../src/shared/settings-signals';
@@ -63,7 +62,6 @@ const OPTION_LABELS = {
   comments: 'Hide comments',
   loudness: 'Normalize loudness',
   equalizer: 'Equalizer',
-  lyrics: 'Synced lyrics',
   download: 'Download audio',
   reset: 'Reset to defaults',
 } as const;
@@ -265,11 +263,6 @@ export function Options({
     'Shapes sound with five frequency bands.',
     'Plays sound without equalizer adjustments.'
   );
-  const lyricsDescription = stateDescription(
-    lyricsEnabledSignal.value,
-    'Shows time-synced lyrics from LRCLIB. Lookup is anonymous.',
-    'Time-synced lyrics stay hidden.'
-  );
   const downloadDescription = stateDescription(
     downloadEnabledSignal.value,
     'Shows a save-audio button in the player.',
@@ -333,7 +326,6 @@ export function Options({
     OPTION_LABELS.equalizer,
     equalizerDescription
   );
-  const lyricsVisible = matchesSearch(normalizedQuery, OPTION_LABELS.lyrics, lyricsDescription);
   const downloadVisible = matchesSearch(
     normalizedQuery,
     OPTION_LABELS.download,
@@ -348,7 +340,7 @@ export function Options({
   const skippingVisible =
     skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
   const cleanerVisible = shortsVisible || recommendationsVisible || commentsVisible;
-  const musicVisible = loudnessVisible || equalizerVisible || lyricsVisible;
+  const musicVisible = loudnessVisible || equalizerVisible;
   const sections = [
     { id: 'quick-controls', label: 'Quick Controls', visible: quickVisible },
     { id: 'playback', label: 'Playback', visible: playbackVisible },
@@ -686,18 +678,6 @@ export function Options({
                     checked={equalizerEnabledSignal.value}
                     onChange={(checked) =>
                       apply('equalizer', () => actions.setMusicSetting('equalizerEnabled', checked))
-                    }
-                  />
-                )}
-                {lyricsVisible && (
-                  <SettingRow
-                    id="option-lyrics"
-                    label={OPTION_LABELS.lyrics}
-                    description={lyricsDescription}
-                    error={errors.lyrics}
-                    checked={lyricsEnabledSignal.value}
-                    onChange={(checked) =>
-                      apply('lyrics', () => actions.setMusicSetting('lyricsEnabled', checked))
                     }
                   />
                 )}

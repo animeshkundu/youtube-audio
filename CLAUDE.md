@@ -4,7 +4,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 
 ## Project Overview
 
-**YouTube Audio** is a Firefox extension (desktop + Android) for **YouTube and YouTube Music** that plays only the audio of videos, stopping video bytes to save battery and bandwidth, and adds a paid-tier-like experience for free: audio-only playback, background/lock-screen play, ad + telemetry ("ghost") blocking, SponsorBlock-style segment skipping, quality-of-life tweaks, YouTube Music loudness normalization + EQ + lyrics, audio download, and a PII-free local diagnostics log with a serverless issue reporter. Simple by default, powerful on demand.
+**YouTube Audio** is a Firefox extension (desktop + Android) for **YouTube and YouTube Music** that plays only the audio of videos, stopping video bytes to save battery and bandwidth, and adds a paid-tier-like experience for free: audio-only playback, background/lock-screen play, ad + telemetry ("ghost") blocking, SponsorBlock-style segment skipping, quality-of-life tweaks, YouTube Music loudness normalization + EQ, audio download, and a PII-free local diagnostics log with a serverless issue reporter. Simple by default, powerful on demand.
 
 ### Technology Stack
 
@@ -94,7 +94,7 @@ If you modify code, you **MUST**:
 
 - Follow WebExtension API conventions; handle permissions gracefully.
 - Treat every page-world message as hostile: fixed schemas, origin/tab checks, endpoint allowlists.
-- Keep exactly four production **content-script** matches for YouTube; never widen content-script matching to `*://*/*`. The credentialless fetch-origin permissions for `*://*.googlevideo.com/*`, `https://sponsor.ajay.app/*`, and `https://lrclib.net/*` are separate, intended, and required.
+- Keep exactly four production **content-script** matches for YouTube; never widen content-script matching to `*://*/*`. The credentialless fetch-origin permissions for `*://*.googlevideo.com/*` and `https://sponsor.ajay.app/*` are separate, intended, and required. (The `https://lrclib.net/*` origin was dropped when the redundant synced-lyrics feature was disabled.)
 
 ### Testing
 

@@ -48,7 +48,6 @@ Every feature fails open: if anything goes wrong, native YouTube playback is lef
 | **Hide distractions**             | Independently hide Shorts, recommendations, and comments via a single managed stylesheet.                                                                               | Off     |
 | **Loudness normalization**        | Applies YouTube Music's per-track loudness value through a Web Audio gain stage so volume stays even.                                                                   | On      |
 | **Equalizer**                     | A 5-band EQ (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz; ±12 dB) chained into the same audio graph.                                                                            | Off     |
-| **Synced lyrics**                 | Opt-in, time-synced lyrics from LRCLIB, fetched without credentials or referrer.                                                                                        | Off     |
 | **Audio download**                | Save the current track as an audio file straight from a validated direct URL.                                                                                           | Off     |
 
 <details>
@@ -56,7 +55,7 @@ Every feature fails open: if anything goes wrong, native YouTube playback is lef
 
 On out of the box: audio-only, background play, ghost tracking block, ad blocking, segment skipping (`sponsor` + `music_offtopic`), and YouTube Music loudness normalization.
 
-Off until you ask: aggressive telemetry, force-quality cap, disable autoplay-next, hide Shorts / recommendations / comments, equalizer, synced lyrics, and audio download.
+Off until you ask: aggressive telemetry, force-quality cap, disable autoplay-next, hide Shorts / recommendations / comments, equalizer, and audio download.
 
 </details>
 

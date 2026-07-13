@@ -14,7 +14,7 @@ detailed sources rather than duplicating them.
 audio only**: it fetches the audio stream through a credentialless `ANDROID_VR` InnerTube
 request and hijacks the page `<video>` source so playback continues without downloading
 video. It also handles background play, ad/telemetry blocking, SponsorBlock-style segment
-skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ / lyrics, audio
+skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ, audio
 download, and a PII-free local diagnostics log with a serverless issue reporter.
 
 |                 |                                                                         |
@@ -171,8 +171,9 @@ Do not break these without an ADR that supersedes the decision:
   `PlayerHandle` in `src/shared/player.ts`. No other module writes a media element `src`.
 - **Four production content-script matches only.** Keep content scripts scoped to the four
   YouTube match patterns and never widen them to `*://*/*`. The credentialless fetch-origin
-  permissions for `*://*.googlevideo.com/*`, `https://sponsor.ajay.app/*`, and
-  `https://lrclib.net/*` are separate, intended, and required.
+  permissions for `*://*.googlevideo.com/*` and `https://sponsor.ajay.app/*` are separate,
+  intended, and required. (The `https://lrclib.net/*` origin was dropped when the redundant
+  synced-lyrics feature was disabled.)
 - **Fail open to native YouTube.** Live streams, YouTube Kids, age-restricted / auth-required
   videos, and any fetch/parse/DOM/media failure must leave or restore normal YouTube
   playback. A feature failure is never a broken page.

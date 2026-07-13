@@ -2,7 +2,7 @@ site_name: YouTube Audio
 site_description: >-
   Audio-only YouTube and YouTube Music for Firefox on desktop and Android.
   Background play, ad and telemetry blocking, segment skipping, YT Music
-  loudness, EQ and lyrics, and one-tap audio download.
+  loudness and EQ, and one-tap audio download.
 site_author: Animesh Kundu
 site_url: https://animeshkundu.github.io/youtube-audio/
 
@@ -179,6 +179,7 @@ nav:
       - Smoke-Test Convergence: history/2026-07-12-smoke-test-convergence.md
       - Settings-Permutation Real-Firefox Validation: history/2026-07-12-settings-permutation-real-firefox-validation.md
       - YouTube Music Synced-Lyrics Fixes: history/2026-07-13-youtube-music-lyrics.md
+      - Disable Synced Lyrics: history/2026-07-13-disable-lyrics.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

@@ -12,7 +12,7 @@ Works on Firefox, desktop and Android. No account, no sign-in, nothing to config
 - **Keeps playing in the background.** Lock the phone, switch tabs, the audio carries on, with your usual lock-screen and OS media controls.
 - **Ghost mode.** Ads and tracking pings get blocked before they leave your browser, quietly, by default.
 - **Skip the boring bits.** SponsorBlock-style auto-skip past sponsor reads and off-topic music intros. Only a tiny 4-character hash ever leaves your machine to look them up.
-- **YouTube Music, leveled up.** Even out loud-and-quiet tracks with loudness normalization, shape the sound with a 5-band equalizer, and follow along with time-synced lyrics.
+- **YouTube Music, leveled up.** Even out loud-and-quiet tracks with loudness normalization, and shape the sound with a 5-band equalizer.
 - **Save a track.** Download the current audio as a single, tidy `.m4a` file that plays just about anywhere.
 - **Tidy up the page.** Optionally hide Shorts, recommendations, or comments, cap the quality to save more data, or switch off autoplay-next.
 
@@ -26,7 +26,6 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Nicer in the player.** The audio-only button now matches YouTube's own controls in size and style, and audio mode shows the track artwork instead of a black rectangle.
 - **Hiding recommendations leaves your comments alone.** Ask to hide recommendations and that is all that goes. Comments stay put.
 - **Cleaner downloads.** One track, one well-behaved `.m4a`, no pile of stray files.
-- **Lyrics that behave.** On YouTube Music you can minimize or close the synced lyrics panel, and it follows the song and refreshes when you skip to the next one.
 
 ## Good to know
 

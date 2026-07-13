@@ -35,7 +35,6 @@ const YOUTUBE_MATCHES = [
 const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
-const LRCLIB_ORIGIN = 'https://lrclib.net/*';
 // Permanent Gecko add-on ID: a single identity for AMO-listed production and the unlisted beta
 // channel (ADR-0006, which supersedes ADR-0002's two-identity model). AMO is the sole update
 // authority, so production builds omit `update_url`. The bench pins its moz-extension UUID by this
@@ -104,7 +103,6 @@ export default defineConfig({
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
             SPONSORBLOCK_ORIGIN,
-            LRCLIB_ORIGIN,
             ...(BENCH ? BENCH_MATCHES : []),
           ]
         : []),
@@ -115,7 +113,6 @@ export default defineConfig({
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
             SPONSORBLOCK_ORIGIN,
-            LRCLIB_ORIGIN,
             ...(BENCH ? BENCH_MATCHES : []),
           ]
         : undefined,

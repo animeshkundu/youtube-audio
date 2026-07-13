@@ -2,15 +2,15 @@
 
 ## Overview
 
-M4 adds local Web Audio loudness normalization and equalization plus opt-in synchronized LRCLIB lyrics. Enhancements are instant-disableable and fail open to native YouTube playback.
+M4 adds local Web Audio loudness normalization and equalization. It also shipped opt-in synchronized LRCLIB lyrics, now disabled and hidden because YouTube Music provides native synchronized lyrics that make ours redundant (see the Lyrics section). Loudness normalization and the equalizer are the active M4 extras. Enhancements are instant-disableable and fail open to native YouTube playback.
 
 ## Goals
 
 - Route the current page media element through one shared `AudioContext` and exactly one `MediaElementAudioSourceNode` per element.
 - Normalize each track from YouTube's `playerConfig.audioConfig.loudnessDb`, with a bounded gain that avoids extreme amplification or attenuation.
 - Offer an off-by-default five-band equalizer with validated gain settings.
-- Fetch timed lyrics anonymously from LRCLIB only when the user opts in, and render synchronized text safely on YouTube Music.
-- Apply loudness, EQ, and lyrics settings instantly.
+- Fetch timed lyrics anonymously from LRCLIB only when the user opts in, and render synchronized text safely on YouTube Music. (Now disabled and hidden; see the Lyrics section.)
+- Apply loudness and EQ settings instantly.
 
 ## Non-Goals
 
@@ -26,6 +26,8 @@ M4 adds local Web Audio loudness normalization and equalization plus opt-in sync
 Loudness gain is `10 ** (-loudnessDb / 20)`, clamped to `0.5..2`. Invalid values use unity gain. Disabling normalization uses unity gain. AudioContext creation, source creation, connection, and updates are guarded; failure leaves the native media path untouched.
 
 ### Lyrics
+
+> **Status: disabled and hidden.** YouTube Music now provides native synchronized lyrics, so this feature is redundant. The options "Synced lyrics" toggle was removed, and the `https://lrclib.net/*` host permission was dropped from both the MV2 `permissions` and the MV3 `host_permissions` in `wxt.config.ts`, so the feature can no longer fetch. The feature code (`entrypoints/content.ts`, `entrypoints/main-world.ts`, `entrypoints/background.ts`, `src/shared/lyrics.ts`) and the `lyricsEnabled` setting (default `false`) are retained for possible future use, but the feature is no longer user-reachable. The design below documents the retained behavior.
 
 The MAIN-world player response supplies bounded title, artist, duration, and video ID metadata to the isolated content layer. The content layer requests a fixed background operation. Background constructs only `https://lrclib.net/api/get` with `track_name`, `artist_name`, and `duration`, uses `credentials: "omit"`, `referrerPolicy: "no-referrer"`, and no identifying headers. Bench builds may substitute the validated local fixture origin. Lyrics remain YouTube-Music-only: `handleTrack` returns unless the host is `music.youtube.com`.
 
@@ -59,9 +61,9 @@ YouTube Music switches songs (search results, linked navigation, back/forward, a
 - `loudnessNormalization`: default `true`
 - `equalizerEnabled`: default `false`
 - `equalizerBands`: five validated gains at 60, 250, 1000, 4000, and 12000 Hz; default flat
-- `lyricsEnabled`: default `false`
+- `lyricsEnabled`: default `false`; retained in storage but no longer surfaced in any UI (see the Lyrics section)
 
-Popup exposes the three feature toggles. Options exposes the toggles and five EQ gain controls.
+Options exposes the loudness and equalizer toggles and the five EQ gain controls. The `lyricsEnabled` setting is no longer exposed in the popup or options.
 
 ## Error Handling
 
@@ -69,15 +71,15 @@ All graph, metadata, bridge, network, response, parsing, DOM, and synchronizatio
 
 ## Testing Strategy
 
-- Unit tests import real source functions for loudness conversion and clamps, EQ parameter mapping, and LRC parsing. `tests/unit/spa.test.ts` adds two locks: a `history.pushState` song change is detected immediately without `yt-navigate-finish`, and the patched history methods are restored on `stop()`.
-- The packaged bench seeds settings through the options-page storage path and compares graph-on versus graph-off sessions using a bench-only graph marker. It also proves the fixture LRCLIB response reaches an opt-in lyrics marker; `m4:lyrics-opt-in-fetches-and-renders` additionally asserts the panel is `pointer-events:none` and carries its Minimize and Close controls.
-- Suite totals after this batch: 244 unit, 48/48 bench, 50/50 settings-permutation matrix.
+- Unit tests import real source functions for loudness conversion and clamps, EQ parameter mapping, and LRC parsing. `tests/unit/spa.test.ts` adds two locks: a `history.pushState` song change is detected immediately without `yt-navigate-finish`, and the patched history methods are restored on `stop()`. `tests/unit/ui/options.test.tsx` locks the hidden state: the "Synced lyrics" row is absent (`#option-lyrics` is not rendered) and a search for "lyrics" matches nothing and shows the empty-search status.
+- The packaged bench seeds settings through the options-page storage path (not the UI) and compares graph-on versus graph-off sessions using a bench-only graph marker. It also exercises the retained lyrics code: with `lyricsEnabled` seeded directly, `m4:lyrics-opt-in-fetches-and-renders` proves the fixture LRCLIB response reaches an opt-in lyrics marker and asserts the panel is `pointer-events:none` and carries its Minimize and Close controls. The bench lyrics fetch targets the local fixture origin (permitted by the bench-only match patterns), not `lrclib.net`, so dropping the `lrclib.net` host permission leaves the bench unaffected.
+- Suite totals after this batch: 245 unit, 48/48 bench, 50/50 settings-permutation matrix.
 - Release gates: strict typecheck, zero-warning lint, empty gate-weakener scan, real-source unit coverage, packaged Firefox bench, production build, and manifest inspection.
 
 ## Security and Privacy Considerations
 
-LRCLIB is contacted only after explicit opt-in. Requests omit credentials and referrers and contain only track, artist, and duration. Response text is rendered through DOM text nodes, never HTML. The background accepts no arbitrary production URL. Scrobbling is deliberately excluded because sending listening history conflicts with ghost mode.
+With lyrics currently disabled and the `lrclib.net` host permission removed, LRCLIB is not contacted at all. The retained design contacts LRCLIB only after explicit opt-in. Requests omit credentials and referrers and contain only track, artist, and duration. Response text is rendered through DOM text nodes, never HTML. The background accepts no arbitrary production URL. Scrobbling is deliberately excluded because sending listening history conflicts with ghost mode.
 
 ## Rollout and Rollback
 
-Loudness normalization defaults on; EQ and lyrics default off. Each can be disabled instantly. If Web Audio cannot attach, the graph is not installed. If LRCLIB is unavailable or malformed, no lyrics UI is shown.
+Loudness normalization defaults on; EQ defaults off. Each can be disabled instantly. If Web Audio cannot attach, the graph is not installed. Lyrics is disabled and hidden (see the Lyrics section): its setting stays `false`, and with the `lrclib.net` host permission removed it cannot fetch, so no lyrics UI is shown.

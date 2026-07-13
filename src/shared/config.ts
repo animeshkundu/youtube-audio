@@ -263,10 +263,12 @@ function normalizeSettings(value: unknown): ExtensionSettings {
         ? candidate.equalizerEnabled
         : DEFAULT_SETTINGS.equalizerEnabled,
     equalizerBands: normalizeEqualizerBands(candidate.equalizerBands),
-    lyricsEnabled:
-      typeof candidate.lyricsEnabled === 'boolean'
-        ? candidate.lyricsEnabled
-        : DEFAULT_SETTINGS.lyricsEnabled,
+    // Lyrics are disabled. YouTube Music now shows synced lyrics natively, so ours is redundant. The
+    // feature code and this setting are retained (reversible), but the setting is coerced off so a
+    // stale stored `true` cannot run it, and the options toggle + the lrclib.net host permission are
+    // gone. To bring it back: restore this to read `candidate.lyricsEnabled`, re-add the options
+    // toggle, and re-add the lrclib host permission.
+    lyricsEnabled: false,
     downloadEnabled:
       typeof candidate.downloadEnabled === 'boolean'
         ? candidate.downloadEnabled

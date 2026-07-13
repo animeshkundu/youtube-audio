@@ -92,10 +92,10 @@ describe('Options', () => {
       'Advanced/About',
       'Help & feedback',
     ]);
-    expect(switches).toHaveLength(17);
+    expect(switches).toHaveLength(16);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
-    expect(container.querySelectorAll('.setting-description')).toHaveLength(16);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(15);
     expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
       'Quick Controls'
     );
@@ -207,15 +207,27 @@ describe('Options', () => {
   it('filters settings across sections from row labels and descriptions', () => {
     const container = mount(<Options actions={actions()} />);
 
-    searchFor(container, 'time-synced lyrics');
+    searchFor(container, 'equalizer adjustments');
 
-    expect(container.textContent).toContain('Synced lyrics');
+    expect(container.textContent).toContain('Equalizer');
     expect(container.querySelector('#music')).not.toBeNull();
     expect(container.querySelector('#cleaner-youtube')).toBeNull();
     expect(container.querySelector('#playback')).toBeNull();
     expect(
       Array.from(container.querySelectorAll('.settings-nav a')).map((link) => link.textContent)
     ).toEqual(['●Music']);
+  });
+
+  it('keeps synced lyrics hidden from settings and search', () => {
+    const container = mount(<Options actions={actions()} />);
+
+    expect(container.querySelector('#option-lyrics')).toBeNull();
+    expect(container.textContent).not.toContain('Synced lyrics');
+
+    searchFor(container, 'lyrics');
+
+    expect(container.querySelector('#music')).toBeNull();
+    expect(container.querySelector('.empty-search[role="status"]')).not.toBeNull();
   });
 
   it('does not render an empty Playback card for removed Audio-only or Background terms', () => {
