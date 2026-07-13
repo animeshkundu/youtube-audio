@@ -183,7 +183,7 @@ jobs:
       # Preserve the signed bytes immediately so a later Release-publish failure never strands a
       # version that AMO has already signed (AMO rejects a re-sign of the same version).
       - name: Upload signed XPI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: youtube-audio-${{ steps.version.outputs.version }}-beta-xpi
           path: ${{ steps.sign.outputs.xpi }}
