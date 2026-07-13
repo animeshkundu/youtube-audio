@@ -1,0 +1,60 @@
+name: Feature request
+description: Suggest a new capability or an improvement to an existing one.
+title: '[Feature]: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. This repo is documentation-driven ("No spec, no code"): an
+        accepted feature starts with a spec in `docs/specs/`. Please check that your idea
+        fits the hard invariants in `AGENTS.md` (logged-out only, credentialless core,
+        fail-open to native playback).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do, and why is it hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the extension do? Describe the behavior and the UI, if any.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Audio-only playback
+        - Background play
+        - Ad / telemetry blocking
+        - Segment skip
+        - Quality-of-life tweaks
+        - YouTube Music loudness / EQ
+        - Lyrics
+        - Audio download
+        - Popup / options UI
+        - Build / tooling / docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, existing workarounds, or prior art.
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Fit with project invariants
+      options:
+        - label: Works with the logged-out experience only (no dependency on the user's login)
+          required: true
+        - label: Consistent with the credentialless core (no credentialed requests)
+          required: true
+        - label: I searched existing issues and specs for a duplicate
+          required: true

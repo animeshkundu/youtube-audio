@@ -2,11 +2,19 @@
 node_modules/
 
 # Build output
+.output/
+.wxt/
 dist/
 *.zip
 
 # Coverage
 coverage/
+
+# MkDocs documentation build output
+site/
+
+# Generated E2E probe reports (machine evidence, not source)
+tests/e2e/*-report.json
 
 # IDE
 .idea/
@@ -31,3 +39,6 @@ npm-debug.log*
 *.tmp
 *.temp
 .cache/
+
+# Ad-hoc scratch validation probes (never committed)
+tests/e2e/scratch-*.mjs

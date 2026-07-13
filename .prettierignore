@@ -1,6 +1,11 @@
 node_modules/
 coverage/
 dist/
+.output/
+.wxt/
+# Preserve evidence/research formatting unless intentionally editing those files.
+docs/research/
+tests/e2e/
 *.log
 .DS_Store
 *.zip

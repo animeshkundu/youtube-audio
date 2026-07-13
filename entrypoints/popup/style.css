@@ -1,0 +1,217 @@
+body {
+  min-width: 320px;
+}
+
+.popup-shell {
+  width: 320px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  overflow: hidden;
+  background: var(--surface-1);
+  animation: popup-enter var(--dur-3) var(--ease-emphasized);
+}
+
+.popup-header,
+.popup-footer {
+  min-height: 52px;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.popup-header {
+  border-bottom: 1px solid var(--divider);
+}
+
+.icon-button {
+  width: 44px;
+  height: 44px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 17px;
+  transition:
+    color var(--dur-1) var(--ease-standard),
+    background var(--dur-1) var(--ease-standard);
+}
+
+.icon-button:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.popup-content {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.popup-hero,
+.popup-secondary-card {
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elev-1);
+}
+
+.popup-hero {
+  transition:
+    background var(--dur-2) var(--ease-standard),
+    border-color var(--dur-2) var(--ease-standard);
+}
+
+.popup-hero.is-active {
+  background: linear-gradient(135deg, var(--accent-wash), transparent 74%);
+  border-color: var(--accent-wash);
+}
+
+.popup-hero-row {
+  min-height: 94px;
+  padding: var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-2) var(--ease-standard),
+    transform var(--dur-press) var(--ease-standard);
+}
+
+.popup-hero-row:hover {
+  background: var(--surface-3);
+}
+
+.popup-hero-row:active {
+  transform: scale(0.995);
+}
+
+.popup-hero-row:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent-hover);
+}
+
+.popup-hero-copy {
+  min-width: 0;
+}
+
+.popup-hero-copy h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--type-display);
+}
+
+.popup-hero-status {
+  margin-top: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font: var(--type-desc);
+}
+
+.popup-hero-status .now-playing {
+  width: 8px;
+  height: 8px;
+}
+
+.popup-hero:not(.is-active) .switch-control.is-on .switch-track {
+  background: var(--surface-4);
+  border-color: var(--border-strong);
+}
+
+.popup-secondary-card .setting-row {
+  min-height: 68px;
+}
+
+.popup-protection-line {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: var(--type-desc);
+  text-align: left;
+  transition:
+    color var(--dur-1) var(--ease-standard),
+    background var(--dur-1) var(--ease-standard);
+}
+
+.popup-protection-line:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.error-message {
+  margin: 0;
+  color: var(--danger);
+  font: var(--type-desc);
+}
+
+.popup-footer {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--divider);
+}
+
+.popup-footer button,
+.empty-settings-action {
+  min-height: 44px;
+  padding: 0;
+  color: var(--accent-text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: var(--type-desc);
+}
+
+.popup-footer .popup-pause-action {
+  color: var(--text-secondary);
+}
+
+.popup-footer button:hover,
+.empty-settings-action:hover {
+  color: var(--accent-hover);
+}
+
+.popup-shell-empty {
+  grid-template-rows: auto auto;
+}
+
+.popup-empty-state {
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.popup-empty-state h1 {
+  margin: 0 0 var(--space-2);
+  font: var(--type-title);
+}
+
+.popup-empty-state .primary-action {
+  width: 100%;
+}
+
+@keyframes popup-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+    transform-origin: top right;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: top right;
+  }
+}

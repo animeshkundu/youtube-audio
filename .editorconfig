@@ -1,0 +1,23 @@
+# EditorConfig - https://editorconfig.org
+# Matches the repo's Prettier (.prettierrc) and ESLint conventions.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+# Markdown uses two trailing spaces for hard line breaks.
+[*.md]
+trim_trailing_whitespace = false
+
+# The Firefox Android UI driver follows PEP 8 (4-space indent).
+[*.py]
+indent_size = 4
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2

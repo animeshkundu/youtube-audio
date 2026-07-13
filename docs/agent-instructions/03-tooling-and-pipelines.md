@@ -129,27 +129,23 @@ Every project must have these scripts in `scripts/`:
 
 #### `validate.sh`
 
-**Purpose**: Run all validation checks locally
+**Purpose**: Run all validation checks locally (mirrors `.github/workflows/ci.yml`)
 
 ```bash
 #!/bin/bash
-# Run full validation suite
+# Run the deterministic quality gate (see scripts/validate.sh)
 
-set -e
+set -euo pipefail
 
-echo "🔍 Running linter..."
 npm run lint
+npm run typecheck
+npm run format:check
+npm test                       # Vitest + 90% coverage floor
+npm run build                  # Firefox MV2 (shipping)
+npx web-ext lint --source-dir=.output/firefox-mv2
+npm run build:mv3              # Firefox MV3 (capability artifact)
 
-echo "🔨 Building..."
-npm run build
-
-echo "🧪 Running tests..."
-npm test
-
-echo "📊 Checking coverage..."
-npm run test:coverage
-
-echo "✅ All validations passed!"
+echo "All validations passed."
 ```
 
 #### `setup.sh`
@@ -208,12 +204,14 @@ Maintain `scripts/README.md`:
 
 ### Required Development Tools
 
-| Tool     | Purpose            | Configuration File |
-| -------- | ------------------ | ------------------ |
-| ESLint   | JavaScript linting | `.eslintrc.js`     |
-| Prettier | Code formatting    | `.prettierrc`      |
-| Jest     | Testing            | `jest.config.js`   |
-| Husky    | Git hooks          | `.husky/`          |
+| Tool       | Purpose            | Configuration File |
+| ---------- | ------------------ | ------------------ |
+| TypeScript | Strict type checks | `tsconfig.json`    |
+| ESLint     | Lint (TS/JS)       | `.eslintrc.js`     |
+| Prettier   | Code formatting    | `.prettierrc`      |
+| Vitest     | Unit tests         | `vitest.config.ts` |
+| WXT        | Extension build    | `wxt.config.ts`    |
+| Husky      | Git hooks          | `.husky/`          |
 
 ### Configuration Files
 
@@ -223,7 +221,9 @@ Keep all configuration in project root:
 project/
 ├── .eslintrc.js
 ├── .prettierrc
-├── jest.config.js
+├── tsconfig.json
+├── vitest.config.ts
+├── wxt.config.ts
 ├── package.json
 └── scripts/
     └── ...
@@ -236,72 +236,69 @@ All tools must be version-pinned in `package.json`:
 ```json
 {
   "devDependencies": {
-    "eslint": "8.56.0",
-    "prettier": "3.2.4",
-    "jest": "29.7.0"
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wxt": "0.20.27"
   }
 }
 ```
 
 ## CI/CD Workflow Template
 
-### Complete GitHub Actions Workflow
+### The repository's actual gate
+
+The live pipeline is [`.github/workflows/ci.yml`](https://github.com/animeshkundu/youtube-audio/blob/master/.github/workflows/ci.yml). Coverage is
+enforced by the thresholds in `vitest.config.ts` (not a separate script), and the project does
+not run CodeQL. Mirror that gate rather than the generic example above:
 
 ```yaml
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master, rebuild]
   pull_request:
-    branches: [main]
+    branches: [main, master, rebuild]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run lint
+      - run: npm test # Vitest + 90% coverage floor
+      - run: npm run build # Firefox MV2 (shipping)
+      - run: npx web-ext lint --source-dir=.output/firefox-mv2
 
-  test:
+  build-mv3:
     runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
       - run: npm ci
-      - run: npm test -- --coverage
-      - name: Check coverage threshold
-        run: |
-          COVERAGE=$(cat coverage/coverage-summary.json | jq '.total.lines.pct')
-          if (( $(echo "$COVERAGE < 90" | bc -l) )); then
-            echo "Coverage is $COVERAGE%, minimum is 90%"
-            exit 1
-          fi
-
-  security:
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript
-      - uses: github/codeql-action/analyze@v3
+      - run: npm run build:mv3 # Firefox MV3 (capability artifact)
 ```
+
+The optional Selenium bench runs only on manual dispatch and is non-gating.
 
 ## Summary
 
 1. **Automate on second occurrence** - Script everything repeatable
-2. **CI/CD is mandatory** - Lint → Build → Test → Deploy
+2. **CI/CD is mandatory** - Typecheck → Lint → Test → Build (MV2 + MV3)
 3. **Standard scripts** - validate.sh, setup.sh, lint.sh
 4. **Pin all versions** - Reproducibility is key

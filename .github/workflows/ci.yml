@@ -2,16 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, rebuild]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, rebuild]
+  workflow_dispatch:
+
+# Cancel superseded runs for the same ref so only the newest commit's checks run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    name: Lint
+  validate:
+    name: Typecheck, lint, format, test, and validate MV2
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,23 +27,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
         run: npm run lint
 
-      - name: Check formatting with Prettier
+      - name: Check formatting
         run: npm run format:check
 
-  test:
-    name: Test
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build Firefox MV2
+        run: npm run build
+
+      - name: Validate Firefox MV2 package
+        run: npx web-ext lint --source-dir=.output/firefox-mv2
+
+  build-mv3:
+    name: Build Firefox MV3 capability artifact
     runs-on: ubuntu-latest
-    needs: lint
-    permissions:
-      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,112 +61,92 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=json-summary --coverageReporters=text
+      - name: Build Firefox MV3
+        run: npm run build:mv3
 
-      - name: Check coverage threshold
-        run: |
-          if [ -f coverage/coverage-summary.json ]; then
-            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
-            echo "Current coverage: $COVERAGE%"
-            # Note: Coverage tracking is limited for legacy IIFE browser extension code
-            # Tests validate the core logic but direct file imports aren't possible
-            echo "✅ Tests passed (coverage tracking limited for legacy code pattern)"
-          else
-            echo "⚠️ No coverage report found - skipping threshold check"
-          fi
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 30
-
-  security:
-    name: Security Scan
+  bench:
+    name: Hermetic Selenium Firefox bench
     runs-on: ubuntu-latest
-    needs: lint
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          languages: javascript
+          node-version: '20'
+          cache: npm
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: '/language:javascript'
+      - name: Install dependencies
+        run: npm ci
 
-  build:
-    name: Build Extension
+      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
+      # latest mainline release (proven green): latest-esr regressed the seeded-settings
+      # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
+      - name: Run hermetic integration bench
+        run: xvfb-run --auto-servernum npm run test:bench
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  matrix:
+    name: Settings-permutation matrix (Firefox)
     runs-on: ubuntu-latest
-    needs: [lint, test]
-    permissions:
-      contents: read
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate manifest.json
-        run: |
-          echo "Validating manifest.json..."
-          if [ -f manifest.json ]; then
-            jq . manifest.json > /dev/null
-            echo "✅ manifest.json is valid JSON"
-          else
-            echo "❌ manifest.json not found"
-            exit 1
-          fi
-
-      - name: Check required files
-        run: |
-          echo "Checking required extension files..."
-          required_files=(
-            "manifest.json"
-            "js/global.js"
-            "js/youtube_audio.js"
-            "css/youtube_audio.css"
-          )
-          for file in "${required_files[@]}"; do
-            if [ -f "$file" ]; then
-              echo "✅ $file exists"
-            else
-              echo "❌ $file is missing"
-              exit 1
-            fi
-          done
-
-      - name: Package extension
-        run: |
-          echo "Creating extension package..."
-          zip -r youtube-audio-extension.zip \
-            manifest.json \
-            js/ \
-            css/ \
-            html/ \
-            img/ \
-            -x "*.git*" \
-            -x "node_modules/*" \
-            -x "*.test.js"
-          echo "✅ Extension packaged successfully"
-
-      - name: Upload extension artifact
-        uses: actions/upload-artifact@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: youtube-audio-extension
-          path: youtube-audio-extension.zip
-          retention-days: 30
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # Drives the real built add-on across the full toggle permutation space (all-off, each
+      # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
+      # edges) against the hermetic fixture. Deterministic; safe to gate on.
+      - name: Run settings-permutation matrix
+        run: xvfb-run --auto-servernum npm run test:matrix
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  docs:
+    name: MkDocs strict build (nav + links)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install documentation dependencies
+        run: pip install -r requirements-docs.txt
+
+      # --strict fails on a broken nav entry, a dangling internal link, or a page missing from
+      # the nav, so a stale docs tree cannot merge green.
+      - name: Build docs (strict)
+        run: mkdocs build --strict

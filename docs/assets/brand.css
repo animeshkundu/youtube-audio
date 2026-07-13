@@ -1,0 +1,155 @@
+/* ==========================================================================
+   YouTube Audio - brand theme for Material for MkDocs
+   Brand accent: "Live aqua" #22D3B4. Dark-first aesthetic.
+   ========================================================================== */
+
+/* Custom primary color (header, tabs, active nav). Material applies these
+   because the palette uses `primary: custom`. */
+[data-md-color-primary='custom'] {
+  --md-primary-fg-color: #22d3b4;
+  --md-primary-fg-color--light: #5be0cb;
+  --md-primary-fg-color--dark: #12b89b;
+  /* Foreground text that sits on top of the aqua header: dark ink for contrast. */
+  --md-primary-bg-color: #04120f;
+  --md-primary-bg-color--light: rgba(4, 18, 15, 0.72);
+}
+
+/* Custom accent color (links on hover, focus rings, interactive highlights). */
+[data-md-color-accent='custom'] {
+  --md-accent-fg-color: #16b598;
+  --md-accent-fg-color--transparent: rgba(34, 211, 180, 0.1);
+  --md-accent-bg-color: #04120f;
+  --md-accent-bg-color--light: rgba(4, 18, 15, 0.72);
+}
+
+/* ---- Dark scheme (default) --------------------------------------------- */
+[data-md-color-scheme='slate'] {
+  --md-hue: 205;
+  --md-default-bg-color: hsl(210, 24%, 8%);
+  --md-default-bg-color--light: hsl(210, 22%, 11%);
+  --md-accent-fg-color: #2ee0bf;
+  --md-typeset-a-color: #35e2c2;
+  --md-code-bg-color: hsl(210, 24%, 12%);
+  --md-footer-bg-color: hsl(210, 26%, 6%);
+  --md-footer-bg-color--dark: hsl(210, 28%, 5%);
+}
+
+/* Keep body text comfortably bright against the deep background. */
+[data-md-color-scheme='slate'] {
+  --md-typeset-color: hsla(210, 15%, 92%, 0.9);
+}
+
+/* ---- Light scheme ------------------------------------------------------ */
+[data-md-color-scheme='default'] {
+  /* Darker aqua so links keep AA contrast on white. */
+  --md-typeset-a-color: #0f9e86;
+}
+
+/* ==========================================================================
+   Landing page hero
+   ========================================================================== */
+.yta-hero {
+  position: relative;
+  margin: 0 0 2.5rem;
+  padding: 3rem 2rem 3.25rem;
+  border-radius: 1rem;
+  overflow: hidden;
+  text-align: center;
+  background:
+    radial-gradient(1200px 400px at 12% -10%, rgba(34, 211, 180, 0.28), transparent 60%),
+    radial-gradient(900px 380px at 100% 0%, rgba(34, 211, 180, 0.12), transparent 55%),
+    linear-gradient(160deg, hsl(210, 30%, 12%), hsl(210, 32%, 8%));
+  border: 1px solid rgba(34, 211, 180, 0.25);
+  box-shadow: 0 24px 60px -30px rgba(34, 211, 180, 0.55);
+}
+
+[data-md-color-scheme='default'] .yta-hero {
+  background:
+    radial-gradient(1200px 400px at 12% -10%, rgba(34, 211, 180, 0.22), transparent 60%),
+    radial-gradient(900px 380px at 100% 0%, rgba(34, 211, 180, 0.1), transparent 55%),
+    linear-gradient(160deg, hsl(168, 60%, 96%), hsl(210, 40%, 98%));
+  border: 1px solid rgba(34, 211, 180, 0.35);
+  box-shadow: 0 24px 60px -34px rgba(34, 211, 180, 0.45);
+}
+
+.yta-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.32rem 0.85rem;
+  border-radius: 2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #22d3b4;
+  background: rgba(34, 211, 180, 0.12);
+  border: 1px solid rgba(34, 211, 180, 0.4);
+}
+
+.yta-hero h1,
+.yta-hero .yta-hero__title {
+  margin: 1rem 0 0.5rem;
+  font-size: 2.6rem;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.yta-hero__title .aqua {
+  background: linear-gradient(92deg, #22d3b4, #4fe6cf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.yta-hero__subtitle {
+  max-width: 44rem;
+  margin: 0 auto;
+  font-size: 1.05rem;
+  opacity: 0.85;
+}
+
+.yta-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.75rem;
+}
+
+.yta-cta .md-button {
+  margin: 0;
+}
+
+.yta-cta .md-button--primary {
+  box-shadow: 0 14px 30px -14px rgba(34, 211, 180, 0.8);
+}
+
+/* ==========================================================================
+   Feature grid cards (Material .grid.cards) - brand hover accent
+   ========================================================================== */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border-radius: 0.7rem;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: rgba(34, 211, 180, 0.55);
+  box-shadow: 0 18px 40px -26px rgba(34, 211, 180, 0.7);
+  transform: translateY(-2px);
+}
+
+.md-typeset .grid.cards .twemoji svg,
+.md-typeset .grid.cards .lg svg {
+  fill: #22d3b4;
+}
+
+/* Mermaid diagrams: give them room to breathe and center them. */
+.md-typeset .mermaid {
+  text-align: center;
+}

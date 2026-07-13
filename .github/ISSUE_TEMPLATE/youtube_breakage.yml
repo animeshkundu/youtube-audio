@@ -1,0 +1,108 @@
+name: YouTube breakage report
+description: A YouTube or YouTube Music change broke a feature that used to work.
+title: '[Breakage]: '
+labels: ['breakage', 'youtube-change', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        YouTube changes its player and APIs often, and those changes can break a feature
+        that worked yesterday. These reports are time-sensitive, so **console signals matter
+        most**. The extension supports the **logged-out** experience only, so please confirm
+        you are signed out before filing.
+  - type: dropdown
+    id: broken-feature
+    attributes:
+      label: Which feature broke?
+      options:
+        - Audio-only playback (video plays, or nothing plays)
+        - Background play
+        - Ad / telemetry blocking
+        - Segment skip
+        - YouTube Music loudness / EQ
+        - Lyrics
+        - Audio download
+        - Other / not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: video-type
+    attributes:
+      label: Video type
+      description: These behave differently; live, Kids, and age-restricted are expected to fall back to normal playback.
+      options:
+        - Standard video
+        - YouTube Music track
+        - Live stream
+        - Premiere
+        - Short
+        - Age-restricted
+        - Members-only
+        - YouTube Kids
+        - Playlist / mix
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Site surface
+      options:
+        - www.youtube.com
+        - music.youtube.com
+        - m.youtube.com
+        - youtube-nocookie.com
+    validations:
+      required: true
+  - type: dropdown
+    id: login-state
+    attributes:
+      label: Login state
+      description: Logged-out is the supported and expected state. Logged-in is unsupported.
+      options:
+        - Logged out (supported)
+        - Logged in (unsupported, reporting anyway)
+    validations:
+      required: true
+  - type: input
+    id: first-broken
+    attributes:
+      label: When did it start?
+      placeholder: "e.g. 2026-07-10, or 'after updating Firefox to 128'"
+  - type: input
+    id: versions
+    attributes:
+      label: Extension and Firefox versions
+      placeholder: 'Extension 0.0.2.5, Firefox 128.0, desktop / Android'
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console output / network signals
+      description: |
+        Open the Browser Console (Ctrl+Shift+J). Paste extension errors and any relevant
+        `/youtubei/v1/player` or `videoplayback` failures. A `fallback` status with its
+        reason is especially useful. Redact anything private.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: video-url
+    attributes:
+      label: Example video URL (public, reproduces logged out)
+      placeholder: 'https://www.youtube.com/watch?v=...'
+  - type: textarea
+    id: details
+    attributes:
+      label: What you observed vs expected
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reproduced this while logged out, in a fresh Firefox profile with only this extension enabled
+          required: true
+        - label: Disabling the extension changes the behavior (confirming the extension is involved)
+          required: true
+        - label: I searched existing issues for a duplicate
+          required: true

@@ -1,0 +1,30 @@
+{
+  // Reproducible dev environment for YouTube Audio (WXT + strict TypeScript + Preact).
+  // Node 20 toolchain, plus Firefox ESR and Xvfb so the Selenium bench (npm run test:bench)
+  // and web-ext lint work out of the box. See CONTRIBUTING.md and AGENTS.md.
+  "name": "YouTube Audio (WXT + TypeScript)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "onCreateCommand": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y firefox-esr xvfb && sudo ln -sf /usr/bin/firefox-esr /usr/local/bin/firefox",
+  "postCreateCommand": "npm ci",
+  "remoteUser": "node",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "editorconfig.editorconfig"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "eslint.validate": ["javascript", "typescript", "typescriptreact"]
+      }
+    }
+  }
+}

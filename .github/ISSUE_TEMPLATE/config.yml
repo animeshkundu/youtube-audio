@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Install / usage help
+    url: https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/
+    about: Install the extension or find usage help on the Firefox Add-ons listing.
+  - name: Contributing guide and project docs
+    url: https://github.com/animeshkundu/youtube-audio/blob/master/CONTRIBUTING.md
+    about: Setup, the quality gate, and the documentation-driven workflow.
+  - name: Agent and architecture guide
+    url: https://github.com/animeshkundu/youtube-audio/blob/master/AGENTS.md
+    about: Project map, gate commands, and the hard invariants for contributors and agents.

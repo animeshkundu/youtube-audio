@@ -1,0 +1,5 @@
+# Documentation site build dependencies (MkDocs + Material for MkDocs).
+# Install with: pip install -r requirements-docs.txt
+# These two top-level pins transitively bring mkdocs and pymdown-extensions.
+mkdocs-material==9.7.6
+mkdocs-minify-plugin==0.8.0

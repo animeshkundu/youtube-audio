@@ -1,0 +1,9 @@
+{
+  "summary": {
+    "en-US": "Listen to YouTube and YouTube Music without downloading video. Audio-only playback saves battery and data, with background and lock-screen play, ad and telemetry blocking, segment skipping, loudness normalization, EQ, lyrics, and audio download."
+  },
+  "categories": ["other"],
+  "version": {
+    "license": "GPL-3.0-only"
+  }
+}
