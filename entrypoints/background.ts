@@ -282,11 +282,30 @@ function parseLyricsRequest(
 async function fetchLyrics(
   request: NonNullable<ReturnType<typeof parseLyricsRequest>>
 ): Promise<unknown> {
+  const base = request.benchOrigin ?? LRCLIB_BASE_URL;
+  const duration = Math.round(request.duration);
+  const primary = await lrclibGet(base, request.title, request.artist, duration);
+  if (primary) return primary;
+  // YouTube Music canonical (Content-ID) tracks report the author as "<Artist> - Topic"; lrclib often
+  // files those under the plain artist name, so retry once with the suffix stripped.
+  const stripped = request.artist.replace(/\s*-\s*topic\s*$/i, '').trim();
+  if (stripped && stripped !== request.artist) {
+    return lrclibGet(base, request.title, stripped, duration);
+  }
+  return null;
+}
+
+async function lrclibGet(
+  base: string,
+  title: string,
+  artist: string,
+  duration: number
+): Promise<{ syncedLyrics: string } | null> {
   try {
-    const url = new URL('/api/get', request.benchOrigin ?? LRCLIB_BASE_URL);
-    url.searchParams.set('track_name', request.title);
-    url.searchParams.set('artist_name', request.artist);
-    url.searchParams.set('duration', String(Math.round(request.duration)));
+    const url = new URL('/api/get', base);
+    url.searchParams.set('track_name', title);
+    url.searchParams.set('artist_name', artist);
+    url.searchParams.set('duration', String(duration));
     const response = await fetch(url, {
       method: 'GET',
       credentials: 'omit',

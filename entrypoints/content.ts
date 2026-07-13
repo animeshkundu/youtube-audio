@@ -53,6 +53,16 @@ const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 const PLAYER_CONTROL_STYLE_ID = 'yta-player-control-style';
 let lyricsCleanup: () => void = () => undefined;
+// The videoId whose lyrics are currently rendered, the last track handleTrack saw (so a duplicate
+// event for a just-closed track cannot reopen it), the track the user explicitly closed, a monotonic
+// token that drops a superseded lyrics fetch, and the last-seen enabled state so re-enabling lyrics
+// clears a prior manual dismiss.
+let lyricsVideoId: string | null = null;
+let lyricsLastTrackId: string | null = null;
+let lyricsFetchingVideoId: string | null = null;
+let lyricsDismissedVideoId: string | null = null;
+let lyricsRequestGeneration = 0;
+let lyricsWasEnabled = false;
 let coachRequest: Promise<void> | null = null;
 let coachSeenThisPage = false;
 let coachCleanup: () => void = () => undefined;
@@ -107,7 +117,10 @@ export default defineContentScript({
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
-        if (!settings.enabled || !settings.lyricsEnabled) removeLyrics();
+        const lyricsOn = settings.enabled && settings.lyricsEnabled;
+        if (!lyricsOn) removeLyrics();
+        else if (!lyricsWasEnabled) lyricsDismissedVideoId = null; // re-enabled: allow showing again
+        lyricsWasEnabled = lyricsOn;
       });
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
@@ -164,6 +177,20 @@ async function handleTrack(event: Event): Promise<void> {
   ) {
     return;
   }
+  const videoId = candidate.videoId;
+  // A genuinely different track (vs the last one we saw, not the rendered one which is null after a
+  // close) clears a prior manual dismiss; a duplicate event for the track the user just closed stays
+  // closed; a track already rendered needs no re-fetch (avoids flicker / resetting a minimized panel).
+  if (videoId !== lyricsLastTrackId) lyricsDismissedVideoId = null;
+  lyricsLastTrackId = videoId;
+  if (videoId === lyricsDismissedVideoId) return;
+  if (videoId === lyricsVideoId && document.getElementById(LYRICS_ID)) return;
+  // A fetch for this exact track is already in flight: skip a duplicate so it does not supersede the
+  // first (which would drop a good result if the duplicate then fails). Only a genuinely different
+  // track bumps the generation and supersedes.
+  if (videoId === lyricsFetchingVideoId) return;
+  const generation = ++lyricsRequestGeneration;
+  lyricsFetchingVideoId = videoId;
   try {
     const response: unknown = await browser.runtime.sendMessage({
       type: LYRICS_MESSAGE,
@@ -172,33 +199,96 @@ async function handleTrack(event: Event): Promise<void> {
       duration: candidate.duration,
       ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
     });
+    // Drop a superseded fetch (a newer track started while this one was in flight) so a slow lookup
+    // for the previous song can never overwrite the current one.
+    if (generation !== lyricsRequestGeneration) return;
     if (!getSettings().enabled || !getSettings().lyricsEnabled) return;
-    if (typeof response !== 'object' || response === null) return;
-    const syncedLyrics = (response as { syncedLyrics?: unknown }).syncedLyrics;
-    if (typeof syncedLyrics !== 'string' || syncedLyrics.length > 200_000) return;
-    renderLyrics(parseLrc(syncedLyrics), candidate.videoId);
+    if (videoId === lyricsDismissedVideoId) return;
+    const syncedLyrics =
+      typeof response === 'object' && response !== null
+        ? (response as { syncedLyrics?: unknown }).syncedLyrics
+        : undefined;
+    if (typeof syncedLyrics !== 'string' || syncedLyrics.length > 200_000) {
+      // No lyrics for the new track: clear a stale panel from the previous one.
+      if (videoId !== lyricsVideoId) removeLyrics();
+      return;
+    }
+    renderLyrics(parseLrc(syncedLyrics), videoId);
   } catch {
-    removeLyrics();
+    if (generation === lyricsRequestGeneration && videoId !== lyricsVideoId) removeLyrics();
+  } finally {
+    if (lyricsFetchingVideoId === videoId) lyricsFetchingVideoId = null;
   }
 }
 
 function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
   removeLyrics();
   if (lines.length === 0) return;
+  const video = document.querySelector<HTMLMediaElement>('video');
+  if (!video) return;
+
   const container = document.createElement('section');
   container.id = LYRICS_ID;
   container.setAttribute('aria-label', 'Synced lyrics');
+  container.dataset.videoId = videoId;
   container.style.cssText =
-    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;overflow:auto;padding:12px 16px;border-radius:12px;background:rgba(15,15,15,.9);color:#fff;font:16px/1.5 system-ui,sans-serif;';
+    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;display:flex;flex-direction:column;overflow:hidden;border-radius:12px;background:rgba(15,15,15,.92);color:#fff;font:16px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4);';
+
+  // Header with minimize + close controls. Without these the fixed panel had no dismiss affordance
+  // and, on YouTube Music, physically covered the Up Next queue so a user could not click a row to
+  // switch songs. Minimize collapses to just this header (freeing the queue); close removes it.
+  const header = document.createElement('div');
+  header.style.cssText =
+    'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;flex:0 0 auto;';
+  const label = document.createElement('span');
+  label.textContent = 'Lyrics';
+  label.style.cssText =
+    'font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7;';
+  const controls = document.createElement('div');
+  controls.style.cssText = 'display:flex;gap:2px;';
+  const body = document.createElement('div');
+  body.style.cssText = 'overflow:auto;padding:2px 16px 12px;flex:1 1 auto;';
+
+  const makeButton = (
+    symbol: string,
+    ariaLabel: string,
+    onClick: () => void
+  ): HTMLButtonElement => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = symbol;
+    button.setAttribute('aria-label', ariaLabel);
+    button.style.cssText =
+      'appearance:none;border:0;background:transparent;color:#fff;opacity:.65;cursor:pointer;width:28px;height:28px;border-radius:6px;font:16px/1 system-ui,sans-serif;';
+    button.addEventListener('mouseenter', () => button.style.setProperty('opacity', '1'));
+    button.addEventListener('mouseleave', () => button.style.setProperty('opacity', '.65'));
+    button.addEventListener('click', onClick);
+    return button;
+  };
+
+  let minimized = false;
+  const minimizeButton = makeButton('–', 'Minimize lyrics', () => {
+    minimized = !minimized;
+    body.style.setProperty('display', minimized ? 'none' : 'block');
+    minimizeButton.textContent = minimized ? '▸' : '–';
+    minimizeButton.setAttribute('aria-label', minimized ? 'Expand lyrics' : 'Minimize lyrics');
+  });
+  const closeButton = makeButton('×', 'Close lyrics', () => {
+    lyricsDismissedVideoId = videoId;
+    removeLyrics();
+  });
+  controls.append(minimizeButton, closeButton);
+  header.append(label, controls);
+
   const elements = lines.map((line) => {
     const paragraph = document.createElement('p');
     paragraph.textContent = line.text;
     paragraph.style.cssText = 'margin:4px 0;opacity:.55;';
-    container.append(paragraph);
+    body.append(paragraph);
     return paragraph;
   });
-  const video = document.querySelector<HTMLMediaElement>('video');
-  if (!video) return;
+  container.append(header, body);
+
   let activeIndex = -1;
   const sync = () => {
     let nextIndex = -1;
@@ -211,13 +301,13 @@ function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
     activeIndex = nextIndex;
     if (activeIndex >= 0) {
       elements[activeIndex]?.style.setProperty('opacity', '1');
-      elements[activeIndex]?.scrollIntoView({ block: 'nearest' });
+      if (!minimized) elements[activeIndex]?.scrollIntoView({ block: 'nearest' });
     }
   };
   video.addEventListener('timeupdate', sync);
   lyricsCleanup = () => video.removeEventListener('timeupdate', sync);
-  container.dataset.videoId = videoId;
   document.body.append(container);
+  lyricsVideoId = videoId;
   if (__BENCH__) document.documentElement.dataset.ytaLyrics = String(lines.length);
   sync();
 }
@@ -225,6 +315,7 @@ function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
 function removeLyrics(): void {
   lyricsCleanup();
   lyricsCleanup = () => undefined;
+  lyricsVideoId = null;
   document.getElementById(LYRICS_ID)?.remove();
   if (__BENCH__) delete document.documentElement.dataset.ytaLyrics;
 }

@@ -27,8 +27,9 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
     if (mutationFrame !== null) cancelAnimationFrame(mutationFrame);
     mutationFrame = null;
   };
-  const checkForMutationNavigation = () => {
-    mutationFrame = null;
+  // Compare the current URL / <video> against the last seen and emit on a real change. Called both
+  // from the rAF-deferred mutation path and, immediately, from the history hooks below.
+  const detectNavigation = () => {
     if (stopped) return;
     if (location.href !== lastUrl) {
       lastUrl = location.href;
@@ -39,6 +40,10 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
       lastVideo = video;
       emit('player-change');
     }
+  };
+  const checkForMutationNavigation = () => {
+    mutationFrame = null;
+    detectNavigation();
   };
   const scheduleMutationCheck = () => {
     if (stopped || mutationFrame !== null) return;
@@ -56,6 +61,33 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
   };
   document.addEventListener('yt-navigate-finish', navigationListener);
 
+  // YouTube Music changes songs via history.pushState/replaceState and frequently does NOT fire
+  // `yt-navigate-finish`, while its shadow-DOM-heavy player update may not trip the light-DOM
+  // MutationObserver below, so the `?v=` change would otherwise go undetected and per-song features
+  // (e.g. synced lyrics) would never re-arm. Wrap the history methods (and listen for popstate) to
+  // run the URL check immediately. Fail-open: the page's original method is always invoked first.
+  const wrapHistory = (name: 'pushState' | 'replaceState'): (() => void) => {
+    const original = history[name];
+    if (typeof original !== 'function') return () => undefined;
+    const patched: History['pushState'] = function (this: History, data, unused, url) {
+      const result = original.call(this, data, unused, url);
+      try {
+        detectNavigation();
+      } catch {
+        // Never let navigation detection break the page's own router.
+      }
+      return result;
+    };
+    history[name] = patched;
+    return () => {
+      if (history[name] === patched) history[name] = original;
+    };
+  };
+  const restorePushState = wrapHistory('pushState');
+  const restoreReplaceState = wrapHistory('replaceState');
+  const onPopState = () => detectNavigation();
+  window.addEventListener('popstate', onPopState);
+
   const observer = new MutationObserver(scheduleMutationCheck);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   emit('initial');
@@ -64,6 +96,9 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
     stop(): void {
       stopped = true;
       document.removeEventListener('yt-navigate-finish', navigationListener);
+      restorePushState();
+      restoreReplaceState();
+      window.removeEventListener('popstate', onPopState);
       cancelMutationCheck();
       observer.disconnect();
     },

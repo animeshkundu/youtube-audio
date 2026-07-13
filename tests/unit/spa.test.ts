@@ -73,11 +73,13 @@ describe('observeYouTubeSpa', () => {
     vi.stubGlobal('requestAnimationFrame', requestFrame);
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
     const onNavigate = vi.fn();
+    // Set the URL BEFORE observing so the history hook does not fire; this isolates the
+    // yt-navigate-finish path (which emits 'navigation' unconditionally).
+    window.history.replaceState({}, '', '/watch?v=CCCCCCCCCCC');
     const observer = observeYouTubeSpa(onNavigate);
     await Promise.resolve();
     onNavigate.mockClear();
 
-    window.history.replaceState({}, '', '/watch?v=CCCCCCCCCCC');
     document.dispatchEvent(new Event('yt-navigate-finish'));
     await Promise.resolve();
 
@@ -88,5 +90,64 @@ describe('observeYouTubeSpa', () => {
     });
 
     observer.stop();
+  });
+
+  it('detects a history.pushState song change immediately (YouTube Music, no yt-navigate-finish)', async () => {
+    class FakeMutationObserver {
+      constructor(_callback: MutationCallback) {}
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): MutationRecord[] {
+        return [];
+      }
+    }
+    const requestFrame = vi.fn(() => 1);
+    vi.stubGlobal('MutationObserver', FakeMutationObserver);
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const onNavigate = vi.fn();
+    const observer = observeYouTubeSpa(onNavigate);
+    await Promise.resolve();
+    onNavigate.mockClear();
+
+    // YouTube Music switches songs via pushState and does NOT fire yt-navigate-finish, so this must
+    // still re-arm (immediately, without an animation frame) so per-song features refresh.
+    window.history.pushState({}, '', '/watch?v=SONGB000000');
+    await Promise.resolve();
+
+    expect(requestFrame).not.toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledWith({
+      url: expect.stringContaining('/watch?v=SONGB000000'),
+      reason: 'url-change',
+    });
+
+    observer.stop();
+  });
+
+  it('restores the patched history methods on stop', () => {
+    class FakeMutationObserver {
+      constructor(_callback: MutationCallback) {}
+      observe(): void {}
+      disconnect(): void {}
+      takeRecords(): MutationRecord[] {
+        return [];
+      }
+    }
+    vi.stubGlobal('MutationObserver', FakeMutationObserver);
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 1)
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const originalPush = window.history.pushState;
+    const originalReplace = window.history.replaceState;
+
+    const observer = observeYouTubeSpa(vi.fn());
+    expect(window.history.pushState).not.toBe(originalPush);
+    expect(window.history.replaceState).not.toBe(originalReplace);
+
+    observer.stop();
+    expect(window.history.pushState).toBe(originalPush);
+    expect(window.history.replaceState).toBe(originalReplace);
   });
 });
