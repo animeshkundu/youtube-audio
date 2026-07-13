@@ -12,7 +12,7 @@ import {
   pickBestAudioUrl,
   type PlayerResponse,
 } from '../src/shared/innertube';
-import { PlayerHandle } from '../src/shared/player';
+import { PlayerHandle, type PlayerReleaseRecord } from '../src/shared/player';
 import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
@@ -64,6 +64,8 @@ interface PlaybackOperation {
 interface YouTubePlayerElement extends HTMLElement {
   setPlaybackQualityRange?(minimum: string, maximum?: string): void;
   setPlaybackQuality?(quality: string): void;
+  loadVideoById?(request: { videoId: string; startSeconds?: number }): void;
+  pauseVideo?(): void;
 }
 
 declare global {
@@ -76,6 +78,20 @@ declare const __BENCH__: boolean;
 
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
+  // Native-playback reclaim: PlayerHandle never rewrites <video>.src on teardown (the stale native
+  // blob is dead), so when an active hijack is released we re-establish native playback here via
+  // YouTube's own player API. A release only becomes an actual reclaim once the operation's terminal
+  // status is known: 'active' means a (re-)hijack owns the element (drop it); a terminal
+  // 'disabled'/'fallback' means we are NOT hijacking, so reclaim. Circuit-breaker/disable releases
+  // are not followed by a status emit, so they drive the reclaim directly. `videoId` pins the reclaim
+  // to the exact video we hijacked, so an SPA navigation (which changes the live videoId) never
+  // reloads the wrong video at the old position.
+  let currentHijackVideoId: string | null = null;
+  let pendingReclaim: (PlayerReleaseRecord & { videoId: string | null }) | null = null;
+  player.onRelease((record, reason) => {
+    pendingReclaim = { ...record, videoId: currentHijackVideoId };
+    if (reason === 'circuit' || reason === 'disable') queueMicrotask(reclaimNativePlayback);
+  });
   let artworkCleanup: () => void = () => undefined;
   let artworkEpoch = 0;
   player.onRestore(() => {
@@ -114,6 +130,11 @@ export default defineUnlistedScript(() => {
 
   const emitStatus = (status: PlaybackStatus, operation: PlaybackOperation, reason?: string) => {
     log('playback.status', { status, ...(reason ? { reason } : {}) });
+    // Resolve any pending native reclaim against this operation's outcome BEFORE dispatching (the
+    // dispatch is synchronous, so ordering the bookkeeping first keeps it insulated from listeners).
+    // 'fetching' is transient, so it neither reclaims nor clears.
+    if (status === 'active') pendingReclaim = null;
+    else if (status === 'disabled' || status === 'fallback') reclaimNativePlayback();
     // Carries only display fields. The ordering provenance (runStart + generation) is owned by the
     // isolated content script, which never trusts this page-observable event for ordering.
     document.dispatchEvent(
@@ -126,6 +147,81 @@ export default defineUnlistedScript(() => {
       })
     );
   };
+
+  // Re-establish native YouTube playback in place after an audio-only hijack is released, at the live
+  // position, using YouTube's own (authorized) player API. One-shot and fail-open: it never retries.
+  // It reclaims ONLY when we are reverting to native ON THE VIDEO WE HIJACKED and the element still
+  // holds the exact URL we installed. If the user SPA-navigated away (videoId changed) or YouTube has
+  // already reasserted its own src, native playback is (or will be) restored by YouTube itself, so we
+  // drop the record and never touch the element (preserving the sole-writer + fail-open invariants).
+  function reclaimNativePlayback(): void {
+    const record = pendingReclaim;
+    if (!record) return;
+    if (
+      !record.videoId ||
+      record.videoId !== getVideoId() ||
+      record.element.src !== record.ownedUrl
+    ) {
+      pendingReclaim = null;
+      return;
+    }
+    const playerElement = document.querySelector<YouTubePlayerElement>(
+      '#movie_player, .html5-video-player'
+    );
+    if (!playerElement) return; // Player not mounted yet: keep the record for the next terminal status.
+    pendingReclaim = null;
+    try {
+      const videoId = record.videoId;
+      const startSeconds = Number.isFinite(record.currentTime)
+        ? Math.max(0, record.currentTime)
+        : 0;
+      // Always load (never cue): cueVideoById only fetches a thumbnail and, per YouTube's own
+      // player-API contract, defers requesting the actual media stream until playVideo()/seekTo()
+      // is called. Using it here left a paused-toggle-off release permanently stalled at
+      // readyState 0 (confirmed directly against the real #movie_player element). loadVideoById
+      // is the call that reliably attaches real media. If the user had paused, pause back once the
+      // freshly-loaded media has actually attached to the element (calling pauseVideo()
+      // synchronously right after loadVideoById is a race YouTube silently drops, so we wait for
+      // the load to land first, mirroring the readyState-then-event pattern PlayerHandle already
+      // uses for restorePlaybackState).
+      playerElement.loadVideoById?.({ videoId, startSeconds });
+      if (record.paused) pauseOnceLoaded(record.element, playerElement, videoId);
+    } catch {
+      // Fail open: leave native-playback control with YouTube.
+    }
+  }
+
+  // Calls pauseVideo() once the element has actually attached real media after a loadVideoById()
+  // reclaim, instead of racing it synchronously (which YouTube silently drops, leaving the video
+  // auto-playing instead of paused). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
+  // we leave YouTube's autoplay in control rather than pausing a still-loading element. Guarded by
+  // videoId so a mid-wait SPA navigation never pauses the newly-navigated (different) video.
+  function pauseOnceLoaded(
+    element: HTMLMediaElement,
+    playerElement: YouTubePlayerElement,
+    videoId: string
+  ): void {
+    const tryPause = () => {
+      if (getVideoId() !== videoId) return;
+      try {
+        playerElement.pauseVideo?.();
+      } catch {
+        // Fail open: leave native-playback control with YouTube.
+      }
+    };
+    if (element.readyState >= 2) {
+      tryPause();
+      return;
+    }
+    const onLoadedData = () => {
+      window.clearTimeout(timeout);
+      tryPause();
+    };
+    const timeout = window.setTimeout(() => {
+      element.removeEventListener('loadeddata', onLoadedData);
+    }, VIDEO_WAIT_MS);
+    element.addEventListener('loadeddata', onLoadedData, { once: true });
+  }
 
   const startPlaybackOperation = (): PlaybackOperation => {
     const videoId = getVideoId();
@@ -386,6 +482,7 @@ export default defineUnlistedScript(() => {
         return;
       }
       if (player.attach(mediaElement, audioUrl, operationGeneration)) {
+        currentHijackVideoId = videoId;
         if (settings.audioArtworkEnabled) {
           const overlayEpoch = artworkEpoch;
           artworkCleanup = showArtworkOverlay(mediaElement, {

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PlayerHandle } from '../../src/shared/player';
+import {
+  PlayerHandle,
+  type PlayerReleaseReason,
+  type PlayerReleaseRecord,
+} from '../../src/shared/player';
 
 class FakeMedia {
   private source = 'blob:native';
@@ -82,14 +86,40 @@ describe('PlayerHandle', () => {
     expect(media.src).toBe('blob:third');
   });
 
-  it('restores the native source when audio-only is disabled', () => {
+  it('releases without rewriting src and reports the live release record when disabled', () => {
+    const released: Array<{ record: PlayerReleaseRecord; reason: PlayerReleaseReason }> = [];
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    handle.onRelease((record, reason) => released.push({ record, reason }));
     const generation = handle.navigate();
     const media = new FakeMedia();
     handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
 
     handle.disable();
 
-    expect(media.src).toBe('blob:native');
+    // restore() must NOT reassign the stale native blob (that silently stalls the element at
+    // readyState 0); it leaves our audio url in place for the reclaim coordinator to replace via the
+    // player API, and hands over the live release record.
+    expect(media.src).toBe('https://media.example/audio');
+    expect(handle.getMediaElement()).toBeNull();
+    expect(released).toHaveLength(1);
+    const [entry] = released;
+    if (!entry) throw new Error('expected a release record');
+    expect(entry.reason).toBe('disable');
+    expect(entry.record.ownedUrl).toBe('https://media.example/audio');
+    expect(entry.record.element).toBe(media as unknown as HTMLMediaElement);
+    expect(entry.record.currentTime).toBe(12);
+    expect(entry.record.paused).toBe(false);
+  });
+
+  it('fires the release handler on navigate only when a hijack was active', () => {
+    const reasons: PlayerReleaseReason[] = [];
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    handle.onRelease((_record, reason) => reasons.push(reason));
+    const generation = handle.navigate(); // no active hijack yet -> no release fired
+    const media = new FakeMedia();
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.navigate(); // tears down the active hijack -> release('navigate')
+
+    expect(reasons).toEqual(['navigate']);
   });
 });

@@ -16,8 +16,20 @@ interface PlaybackSnapshot {
   paused: boolean;
 }
 
-interface RestoreOptions {
-  skipSrc?: boolean;
+/** Why an active hijack was torn down, so the reclaim coordinator can pick the right recovery. */
+export type PlayerReleaseReason = 'navigate' | 'attach' | 'circuit' | 'disable';
+
+/**
+ * The live state of the `<video>` at the instant we released it, captured BEFORE internal state is
+ * cleared. The coordinator needs `ownedUrl` to prove the element still holds our audio URL (rather
+ * than one YouTube has already reasserted) and `currentTime`/`paused` to resume native playback in
+ * place.
+ */
+export interface PlayerReleaseRecord {
+  element: HTMLMediaElement;
+  ownedUrl: string;
+  currentTime: number;
+  paused: boolean;
 }
 
 export class PlayerHandle {
@@ -30,6 +42,9 @@ export class PlayerHandle {
   private readonly mediaPrototype: object;
   private originalDescriptor: PropertyDescriptor | undefined;
   private readonly restoreListeners = new Set<() => void>();
+  private releaseHandler:
+    | ((record: PlayerReleaseRecord, reason: PlayerReleaseReason) => void)
+    | undefined;
 
   constructor(options: PlayerHandleOptions = {}) {
     this.maxReassertions = options.maxReassertions ?? 3;
@@ -50,8 +65,19 @@ export class PlayerHandle {
     this.restoreListeners.add(listener);
   }
 
+  /**
+   * Register the single coordinator that re-establishes native playback after an ACTIVE hijack is
+   * released. PlayerHandle deliberately never rewrites `<video>.src` on teardown (the captured
+   * native blob URL is backed by a MediaSource YouTube has already discarded, so reassigning it
+   * silently stalls the element), so returning to native video is the coordinator's job via
+   * YouTube's own player API. Fired only when an owned audio URL was actually installed.
+   */
+  onRelease(handler: (record: PlayerReleaseRecord, reason: PlayerReleaseReason) => void): void {
+    this.releaseHandler = handler;
+  }
+
   navigate(): number {
-    this.restore();
+    this.restore('navigate');
     this.currentGeneration += 1;
     return this.currentGeneration;
   }
@@ -64,7 +90,7 @@ export class PlayerHandle {
     if (generation !== this.currentGeneration || !isSafeMediaUrl(audioUrl)) return false;
 
     try {
-      this.restore();
+      this.restore('attach');
       this.mediaElement = mediaElement;
       this.audioUrl = audioUrl;
       this.reassertions = 0;
@@ -81,13 +107,13 @@ export class PlayerHandle {
       this.restorePlaybackState(mediaElement, this.snapshot, generation);
       return true;
     } catch {
-      this.restore();
+      this.restore('attach');
       return false;
     }
   }
 
   disable(): void {
-    this.restore();
+    this.restore('disable');
   }
 
   private installDormantGuard(): void {
@@ -102,7 +128,7 @@ export class PlayerHandle {
       this.reassertions += 1;
       return this.reassertions > this.maxReassertions;
     };
-    const openCircuit = (options?: RestoreOptions) => this.openCircuit(options);
+    const openCircuit = () => this.openCircuit();
     Object.defineProperty(this.mediaPrototype, 'src', {
       configurable: true,
       enumerable: descriptor.enumerable ?? false,
@@ -113,7 +139,9 @@ export class PlayerHandle {
         const activeAudioUrl = getActiveAudioUrl(this);
         if (activeAudioUrl && typeof value === 'string' && value !== activeAudioUrl) {
           if (recordReassertion()) {
-            openCircuit({ skipSrc: true });
+            // YouTube keeps reasserting its own src: stop fighting, release, and let its value
+            // stand. Its reassertion IS the native-playback recovery, so restore() writes nothing.
+            openCircuit();
             descriptor.set!.call(this, value);
             return;
           }
@@ -152,13 +180,26 @@ export class PlayerHandle {
     else mediaElement.src = source;
   }
 
-  private openCircuit(options?: RestoreOptions): void {
-    this.restore(options);
+  private openCircuit(): void {
+    this.restore('circuit');
   }
 
-  private restore({ skipSrc = false }: RestoreOptions = {}): void {
+  private restore(reason: PlayerReleaseReason): void {
     const mediaElement = this.mediaElement;
+    const audioUrl = this.audioUrl;
     const snapshot = this.snapshot;
+    // Capture the live release state BEFORE clearing internal state: the coordinator needs proof of
+    // what we owned (ownedUrl) and where playback actually is now (the element's live currentTime,
+    // which tracks the audio we hijacked, not the stale attach-time snapshot).
+    const release: PlayerReleaseRecord | null =
+      mediaElement && audioUrl
+        ? {
+            element: mediaElement,
+            ownedUrl: audioUrl,
+            currentTime: finiteOr(mediaElement.currentTime, snapshot?.currentTime ?? 0),
+            paused: mediaElement.paused,
+          }
+        : null;
     this.mediaElement = null;
     this.audioUrl = null;
     this.snapshot = null;
@@ -169,14 +210,9 @@ export class PlayerHandle {
         Object.defineProperty(this.mediaPrototype, 'src', this.originalDescriptor);
         this.originalDescriptor = undefined;
       }
-      if (!skipSrc && mediaElement && snapshot) {
-        mediaElement.src = snapshot.src;
-        mediaElement.currentTime = snapshot.currentTime;
-        mediaElement.playbackRate = snapshot.playbackRate;
-        mediaElement.volume = snapshot.volume;
-        mediaElement.muted = snapshot.muted;
-        if (!snapshot.paused) void mediaElement.play().catch(() => undefined);
-      }
+      // Deliberately no `<video>.src` write here. The captured native blob URL is backed by a
+      // MediaSource YouTube has already discarded, so reassigning it silently stalls the element
+      // (readyState 0, no MediaError). Returning to native video is the reclaim coordinator's job.
     } catch {
       // Fail open: page playback remains in control.
     }
@@ -190,6 +226,15 @@ export class PlayerHandle {
         // ignore
       }
     });
+
+    // Hand an active hijack's release to the native-reclaim coordinator (fail-open).
+    if (release && this.releaseHandler) {
+      try {
+        this.releaseHandler(release, reason);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 

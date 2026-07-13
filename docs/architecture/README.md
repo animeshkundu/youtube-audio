@@ -120,7 +120,7 @@ sequenceDiagram
     Main-->>Content: bounded status code
 ```
 
-Failures and unsupported videos fail open to native playback. SPA navigation invalidates stale asynchronous operations before they can attach media.
+Failures and unsupported videos fail open to native playback. SPA navigation invalidates stale asynchronous operations before they can attach media. On every teardown (global disable, navigate, re-attach, or circuit breaker) `PlayerHandle` never rewrites `<video>.src`; the captured native `blob:` source is backed by a discarded MediaSource and reassigning it would stall the element. A MAIN-world coordinator instead reclaims native playback in place through YouTube's own player API (`#movie_player.loadVideoById`) at the live position, pinned to the hijacked `videoId` and guarded by the element still holding the owned URL. The reclaim is one-shot and fail-open.
 
 ## M3a Segment-skip Flow
 
