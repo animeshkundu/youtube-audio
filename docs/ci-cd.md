@@ -57,13 +57,16 @@ npm run test:bench     # hermetic bench (needs a local Firefox)
 `youtube-audio@animesh.kundus.in` (ADR-0006). It triggers on a **pre-release** version tag whose
 name carries the suffix letter (glob `v*[a-z]*`, e.g. `v0.0.2.5b1`; a clean `v0.0.2.5` tag never
 matches), or on a manual `workflow_dispatch` with the suffix as input. It **validates before
-signing**: it derives and validates the pre-release suffix, runs `typecheck && lint && test`, builds
-with the `BETA_SUFFIX` env so the manifest carries the pre-release version, asserts the built
-manifest's version, permanent ID, and absence of `update_url`, runs `web-ext lint`, then
-`web-ext sign --channel=unlisted`. After signing it re-checks the signed XPI (valid signed zip;
-bundled manifest version/id/no-`update_url`), uploads it as a workflow artifact for recoverability,
-and attaches it to a GitHub **prerelease** pinned to the built commit. The XPI is hand-installed for
-desktop and Android testing; it does not auto-update.
+signing**: it derives and validates the pre-release suffix, runs `typecheck && lint && test`, then
+re-runs the full deterministic hermetic Firefox suite (`test:bench` and `test:matrix`) on the exact
+ref being shipped. Both browser suites run before the clean `BETA_SUFFIX` build because they write
+a throwaway BENCH extension into `.output`; the later build therefore supplies the production
+bytes that are validated and signed. The workflow asserts the built manifest's version, permanent
+ID, and absence of `update_url`, runs `web-ext lint`, then `web-ext sign --channel=unlisted`. After
+signing it re-checks the signed XPI (valid signed zip; bundled manifest version/id/no-`update_url`),
+uploads it as a workflow artifact for recoverability, and attaches it to a GitHub **prerelease**
+pinned to the built commit. The XPI is hand-installed for desktop and Android testing; it does not
+auto-update.
 
 ## Publish to AMO (gating, manual-only)
 
@@ -71,12 +74,15 @@ desktop and Android testing; it does not auto-update.
 `workflow_dispatch`-only (no push/tag/release/schedule trigger), so a tag push can never publish to
 AMO. Inputs are `ref` (the clean release tag to check out and publish) and `dry_run`. It asserts
 `ref == v<package.json version>` and that the version is clean **before** signing, runs the same
-gates and build (no `BETA_SUFFIX`, so no `update_url`), asserts the built manifest is clean, runs
-`web-ext lint`, packages a reviewer **source archive** with `git archive` (tracked files only), then
-`web-ext sign --channel=listed --upload-source-code=<zip> --amo-metadata=amo-metadata.json
---approval-timeout=0`. AMO hosts the signed XPI and becomes the sole update authority for desktop
-and Android; there is no Release asset and no self-hosted `updates.json`. The recommended human gate
-is a GitHub Environment `amo-production` with a required reviewer. See `RELEASE.md`.
+static and unit gates, then re-runs `test:bench` and `test:matrix` on the exact checked-out ref in
+both real and dry-run paths. The hermetic suites precede the clean listed build so their throwaway
+BENCH output cannot become the submitted artifact. It builds without `BETA_SUFFIX`, asserts the
+built manifest is clean, runs `web-ext lint`, confirms tracked source is unchanged, packages a
+reviewer **source archive** with `git archive` (tracked files only), then `web-ext sign
+--channel=listed --upload-source-code=<zip> --amo-metadata=amo-metadata.json --approval-timeout=0`.
+AMO hosts the signed XPI and becomes the sole update authority for desktop and Android; there is no
+Release asset and no self-hosted `updates.json`. The recommended human gate is a GitHub Environment
+`amo-production` with a required reviewer. See `RELEASE.md`.
 
 ## Mobile E2E (non-gating, best-effort)
 

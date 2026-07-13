@@ -84,6 +84,27 @@ jobs:
       - name: Run gates
         run: npm run typecheck && npm run lint && npm test
 
+      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
+      # latest mainline release (proven green): latest-esr regressed the seeded-settings
+      # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
+      - name: Install Firefox (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
+      - name: Run hermetic integration bench
+        run: xvfb-run --auto-servernum npm run test:bench
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+      # Drives the real built add-on across the full toggle permutation space against the hermetic
+      # fixture. Run both suites before the clean beta build because they write BENCH output.
+      - name: Run settings-permutation matrix
+        run: xvfb-run --auto-servernum npm run test:matrix
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
       - name: Build beta MV2
         run: npm run build
         env:
