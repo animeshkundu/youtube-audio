@@ -54,8 +54,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Build the BENCH extension: the mobile probe keys on the __BENCH__ marker
-      # (data-yta-bench="1"), so it must be the BENCH build, not a plain production build.
+      # Build the BENCH extension. The source-only matrix still reads BENCH markers, while the
+      # audio-hold probe uses only production media state and the trusted Android gesture path.
       - name: Build BENCH extension XPI
         run: |
           set -euo pipefail
@@ -90,6 +90,8 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          # Keep -no-window: the trusted adb tap was validated locally on a headless arm64 AVD.
+          # CI remains x86_64, so this canary still detects architecture-specific Fenix drift.
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: |
             # android-emulator-runner executes this script under dash (/usr/bin/sh), which does
@@ -104,9 +106,15 @@ jobs:
             echo "Installing x86_64 Fenix from: $FENIX_APK_URL"
             curl -fL --retry 3 --retry-delay 5 -o /tmp/fenix.apk "$FENIX_APK_URL"
             adb install -r -g /tmp/fenix.apk
+            # Nightly uses org.mozilla.fenix; release Firefox builds use org.mozilla.firefox.
+            # Detect the installed package so the pinned/default APK and manual overrides both work.
+            FENIX_PACKAGE="$(adb shell pm list packages | grep -E '^package:org\.mozilla\.(fenix|firefox)$' | head -1 | cut -d: -f2 | tr -d '\r')"
+            test -n "$FENIX_PACKAGE"
+            export FENIX_PACKAGE
+            echo "Driving Android package: $FENIX_PACKAGE"
 
             # Launch Fenix once so first-run state initializes before we drive its UI.
-            adb shell monkey -p org.mozilla.fenix -c android.intent.category.LAUNCHER 1 || true
+            adb shell monkey -p "$FENIX_PACKAGE" -c android.intent.category.LAUNCHER 1 || true
             sleep 8
 
             # tests/e2e/android/ui.py hardcodes a macOS Homebrew SDK path. Shim it to the
@@ -127,5 +135,6 @@ jobs:
             python3 tests/e2e/android/ui.py tap "remote debugging" || true
             sleep 2
 
-            # Drive the core audio-only path on live m.youtube.com via geckodriver + Marionette.
-            node tests/e2e/probe-mobile-fenix.mjs
+            # Require a trusted Android tap to sustain decoded, unmuted /videoplayback audio for
+            # 45 seconds. This includes cold-load active + element-swap re-hijack assertions.
+            node tests/e2e/android/probe-audio-hold.mjs dist/youtube-audio-bench.xpi

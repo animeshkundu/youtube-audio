@@ -92,10 +92,13 @@ Auto-fixers: `npm run lint:fix`, `npm run format`.
   add a toggle. Heavier than the smoke bench; not part of `npm run validate`.
 - **Installability check.** `npm run test:e2e` builds a packaged XPI and verifies it loads
   in Firefox ([`tests/e2e/verify-firefox.mjs`](./tests/e2e/verify-firefox.mjs)).
-- **Firefox Android (Fenix).** Device/emulator-gated and run manually, outside the default
-  gate: the uiautomator UI driver [`tests/e2e/android/ui.py`](./tests/e2e/android/ui.py) and
-  [`tests/e2e/probe-mobile-fenix.mjs`](./tests/e2e/probe-mobile-fenix.mjs) require an attached
-  device or emulator via `adb`.
+- **Firefox Android (Fenix).** Device/emulator-gated and outside the default gate: the
+  trusted-gesture audio-hold probe
+  [`tests/e2e/android/probe-audio-hold.mjs`](./tests/e2e/android/probe-audio-hold.mjs), the
+  uiautomator UI driver [`tests/e2e/android/ui.py`](./tests/e2e/android/ui.py), and the broader
+  source/fallback matrix [`tests/e2e/probe-mobile-fenix.mjs`](./tests/e2e/probe-mobile-fenix.mjs)
+  require an attached device or emulator via `adb`. The audio-hold probe also runs in the
+  non-gating nightly mobile canary.
 - **Live canary.** The `tests/e2e/probe-*-live*.mjs` probes hit real YouTube. They are
   canary-only, never gating, and are not part of `npm run validate`.
 

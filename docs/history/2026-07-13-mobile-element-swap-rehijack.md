@@ -102,6 +102,8 @@ MUTATION_CHECK_MS = 100)` alongside `requestAnimationFrame`; `cancelMutationChec
 
 ## Next steps
 
-- Automate the headful-emulator audio-decode-hold check (the gesture recipe above is deterministic
-  enough) and wire it into the non-gating mobile canary and the self-healing canary.
+- `tests/e2e/android/probe-audio-hold.mjs` now automates the audio-decode hold and runs in the
+  non-gating mobile canary. It passed a local arm64 AVD with `-no-window`: cold `active`, trusted
+  activation, readyState 4, unmuted, 0.9 -> 46.0 s clock advance over 45 s, and `/videoplayback` at
+  every sample.
 - Investigate the mid-run re-source + clock reset observed under real playback.

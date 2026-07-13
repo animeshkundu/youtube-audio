@@ -90,7 +90,12 @@ Nightly probe of the core audio-only path on Fenix (Firefox for Android) in an x
 emulator (`reactivecircus/android-emulator-runner`, API 34, `google_apis`, `x86_64`,
 `-no-window -gpu swiftshader_indirect`). It builds the `BENCH` XPI, boots the emulator, installs
 the x86_64 Fenix APK, enables "Remote debugging via USB", and runs
-`tests/e2e/probe-mobile-fenix.mjs` against live `m.youtube.com`.
+`tests/e2e/android/probe-audio-hold.mjs` against live `m.youtube.com`. The probe dismisses the
+add-on/onboarding/default-browser overlays through uiautomator, foregrounds the watch URL through
+an Android VIEW intent, taps the native Play control with `adb shell input tap`, and requires cold
+`active`, `/videoplayback` re-hijack, trusted activation, decoded/unmuted playback, and an advancing
+clock for 45 seconds. A local arm64 AVD passed the exact recipe with `-no-window`, so CI keeps the
+headless emulator configuration; x86_64 remains a separate architecture caveat.
 
 ### x86_64 vs arm64 (important)
 
@@ -127,10 +132,10 @@ Both non-gating workflows were exercised once on GitHub Actions to validate them
   in ~40 s; `adb root`, JDK, and the `BENCH` XPI build all succeed. A dash-vs-bash bug was found and
   fixed here: the emulator `script:` runs under `/usr/bin/sh` (dash), which rejects `set -o pipefail`
   (now `set -u`).
-- **Fenix load + live behavior are the unsolved parts.** The pinned `fenix-130.0` x86_64 APK did not
-  register as `org.mozilla.fenix` (release builds are `org.mozilla.firefox`; the package id must
-  match what `probe-mobile-fenix.mjs` targets), and `ui.py` did not find the "Remote debugging"
-  toggle on that build, so the probe ended in `Package 'org.mozilla.fenix' not found`.
+- **Fenix package mismatch fixed; UI drift remains tuning-sensitive.** The pinned `fenix-130.0`
+  x86_64 release APK registers as `org.mozilla.firefox`, while Nightly registers as
+  `org.mozilla.fenix`. The workflow now detects either installed package and exports it to the
+  audio-hold probe. The uiautomator "Remote debugging" menu labels remain version-sensitive.
 - **Datacenter-IP limitation (fundamental).** Even once Fenix loads, the probe hits **live**
   `m.youtube.com`, and YouTube treats GitHub's datacenter IPs differently (the desktop live-canary
   confirmed this: the ANDROID_VR fetch does not hijack from CI IPs). So a **live**-YouTube mobile (or
@@ -145,15 +150,21 @@ Both non-gating workflows were exercised once on GitHub Actions to validate them
 ### Run the mobile probe locally
 
 Requires a running Android emulator/device with Fenix and remote debugging enabled, plus the
-`BENCH` XPI at `dist/youtube-audio-bench.xpi`:
+`BENCH` XPI at `dist/youtube-audio-bench.xpi`. Geckodriver is launched with
+`--android-storage internal` by the probe, avoiding the Fenix profile `fchown failed` error on
+restricted emulator storage.
 
 ```bash
 BENCH=1 npm run build
 node_modules/.bin/web-ext build --source-dir=.output/firefox-mv2 \
   --artifacts-dir=dist/bench-web-ext-artifacts --overwrite-dest
 cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
-node tests/e2e/probe-mobile-fenix.mjs
+node tests/e2e/android/probe-audio-hold.mjs dist/youtube-audio-bench.xpi
 ```
+
+Defaults are the eligible long-form VOD `zkfVxxJFPjM`, a 45-second hold, and five-second samples. Override
+with `VIDEO_ID`, `HOLD_SECONDS`, and `SAMPLE_SECONDS`. The older
+`tests/e2e/probe-mobile-fenix.mjs` remains available for the broader source/fallback matrix.
 
 ## Live YouTube Canary (non-gating, best-effort)
 
