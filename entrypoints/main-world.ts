@@ -88,6 +88,24 @@ export default defineUnlistedScript(() => {
   // reloads the wrong video at the old position.
   let currentHijackVideoId: string | null = null;
   let pendingReclaim: (PlayerReleaseRecord & { videoId: string | null }) | null = null;
+  // Set while a toggle-off reclaim's loadVideoById is still reloading the native element (which is
+  // transiently at currentTime 0 / playing). A fast re-hijack of the same video reads this intent so
+  // it resumes at the real pre-toggle-off position/paused instead of that transient. Cleared once the
+  // element settles (loadeddata) or a bounded timeout, or when consumed by a re-attach.
+  let settlingReclaim: {
+    videoId: string;
+    currentTime: number;
+    paused: boolean;
+    dispose: () => void;
+  } | null = null;
+  // Tear down the current settling arm's loadeddata listener + timeout and forget it. Every
+  // transition (re-arm, consume-on-attach, settle) routes through here, so a superseded arm's
+  // callback can never fire and clobber a newer one, and listeners/timers never accumulate.
+  const clearSettling = () => {
+    if (!settlingReclaim) return;
+    settlingReclaim.dispose();
+    settlingReclaim = null;
+  };
   player.onRelease((record, reason) => {
     pendingReclaim = { ...record, videoId: currentHijackVideoId };
     if (reason === 'circuit' || reason === 'disable') queueMicrotask(reclaimNativePlayback);
@@ -185,24 +203,46 @@ export default defineUnlistedScript(() => {
       // the load to land first, mirroring the readyState-then-event pattern PlayerHandle already
       // uses for restorePlaybackState).
       playerElement.loadVideoById?.({ videoId, startSeconds });
+      armReclaimSettling(record.element, videoId, startSeconds, record.paused);
       if (record.paused) pauseOnceLoaded(record.element, playerElement, videoId);
     } catch {
       // Fail open: leave native-playback control with YouTube.
     }
   }
 
+  // Remember the intended native position/paused while YouTube reloads the element after a reclaim,
+  // so a fast re-hijack of the same video inherits it rather than the mid-reload transient. One-shot:
+  // cleared when the element settles (loadeddata) or after a bounded timeout.
+  function armReclaimSettling(
+    element: HTMLMediaElement,
+    videoId: string,
+    currentTime: number,
+    paused: boolean
+  ): void {
+    clearSettling();
+    const onSettled = () => clearSettling();
+    const timer = window.setTimeout(onSettled, VIDEO_WAIT_MS);
+    const dispose = () => {
+      element.removeEventListener('loadeddata', onSettled);
+      window.clearTimeout(timer);
+    };
+    settlingReclaim = { videoId, currentTime, paused, dispose };
+    element.addEventListener('loadeddata', onSettled, { once: true });
+  }
+
   // Calls pauseVideo() once the element has actually attached real media after a loadVideoById()
   // reclaim, instead of racing it synchronously (which YouTube silently drops, leaving the video
   // auto-playing instead of paused). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
   // we leave YouTube's autoplay in control rather than pausing a still-loading element. Guarded by
-  // videoId so a mid-wait SPA navigation never pauses the newly-navigated (different) video.
+  // videoId (so a mid-wait SPA navigation never pauses the newly-navigated video) and by an active
+  // hijack (so a fast re-toggle-on that re-hijacks the same element is not paused by this stale call).
   function pauseOnceLoaded(
     element: HTMLMediaElement,
     playerElement: YouTubePlayerElement,
     videoId: string
   ): void {
     const tryPause = () => {
-      if (getVideoId() !== videoId) return;
+      if (getVideoId() !== videoId || player.getMediaElement() !== null) return;
       try {
         playerElement.pauseVideo?.();
       } catch {
@@ -481,7 +521,14 @@ export default defineUnlistedScript(() => {
         emitStatus('fallback', operation, 'no-direct-audio');
         return;
       }
-      if (player.attach(mediaElement, audioUrl, operationGeneration)) {
+      // If a toggle-off reclaim of THIS video is still settling, resume the hijacked audio at the
+      // real pre-toggle-off position/paused rather than the native element's mid-reload transient.
+      const intent =
+        settlingReclaim && settlingReclaim.videoId === videoId
+          ? { currentTime: settlingReclaim.currentTime, paused: settlingReclaim.paused }
+          : undefined;
+      if (player.attach(mediaElement, audioUrl, operationGeneration, intent)) {
+        clearSettling();
         currentHijackVideoId = videoId;
         if (settings.audioArtworkEnabled) {
           const overlayEpoch = artworkEpoch;

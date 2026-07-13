@@ -93,3 +93,69 @@ matrix 50/50.
 - **Post-reclaim "did it recover" check:** a bounded post-`loadVideoById` recovery check was
   considered and deferred. Real-Firefox testing showed `loadVideoById` reliably restores playback, and
   a pre-emptive fallback risks the no-retry-loop invariant.
+
+---
+
+## Addendum (2026-07-12): Follow-up P1 - rapid re-toggle position and pause intent
+
+A P1 follow-on to the reclaim above, same branch (`rebuild`, PR #65), verified on real headful
+Firefox against a real YouTube music video, logged out.
+
+### Bug
+
+Rapidly toggling audio-only OFF then back ON within ~1-2 seconds silently lost the playback position
+(reset toward 0) and the paused state (a paused video started playing). Settled (non-rapid) toggles
+were unaffected.
+
+### Root cause
+
+`PlayerHandle.attach()` snapshotted the LIVE `<video>` `currentTime`/`paused` when building its
+playback snapshot. During the OFF-toggle's still-in-flight `loadVideoById` reclaim, the native element
+is transiently at `currentTime 0` and playing (`readyState 0`), so the ON-toggle's re-hijack captured
+that mid-reload transient instead of the real pre-toggle-off state.
+
+### Fix (two parts)
+
+1. **`src/shared/player.ts`:** `attach(mediaElement, audioUrl, generation, intent?)` gains an
+   optional `intent { currentTime?, paused? }`. When supplied it is used in place of the live element
+   read when building the snapshot (`intent?.currentTime ?? mediaElement.currentTime`,
+   `intent?.paused ?? mediaElement.paused`).
+2. **`entrypoints/main-world.ts`:** a `settlingReclaim { videoId, currentTime, paused, dispose }` is
+   armed right after a toggle-off reclaim issues `loadVideoById`, carrying the pre-toggle-off
+   position/paused. It is cleared on the element's `loadeddata` or an 8s (`VIDEO_WAIT_MS`) timeout, or
+   consumed on a successful re-attach. Every transition (re-arm, consume, settle) routes through a
+   single `clearSettling`, which disposes the arm's `loadeddata` listener and timer, so a superseded
+   arm's callback can never clobber a newer one and listeners/timers never accumulate. When
+   re-hijacking the SAME `videoId` while settling, `activateEnhancements` passes that intent into
+   `attach()`, so the audio resumes at the real pre-toggle-off position/paused instead of the
+   mid-reload transient. `pauseOnceLoaded` also now bails if a hijack is already active
+   (`player.getMediaElement() !== null`), so a stale OFF-toggle pause callback can never pause a
+   freshly re-hijacked audio stream.
+
+### Tradeoff (frozen intent time)
+
+`intent.currentTime` is the position captured at the toggle-off instant, not compensated for the
+~1-2s elapsed during the reload. A rapid re-toggle therefore resumes anchored to the toggle-off
+instant (a couple of seconds of position lag), not "where it would be had it kept playing." This is
+predictable and accepted, not a regression.
+
+### Invariants preserved
+
+- `PlayerHandle` remains the sole `<video>.src` writer: the reclaim uses YouTube's player API and the
+  intent only feeds `attach()`'s own snapshot.
+- Fail-open: the settling arm is one-shot and bounded (`loadeddata` or `VIDEO_WAIT_MS`), with no retry
+  loops.
+
+### Verification
+
+Real headful Firefox, real YouTube music video, logged out:
+
+- Playing, rapid OFF then ON: resumes near the pre-toggle position and keeps playing (`readyState 4`).
+- Paused, rapid OFF then ON: resumes near the position and stays paused.
+- Settled (non-rapid) control: unchanged.
+- A ~300ms residual re-toggle honors the user's last intent without stalling.
+
+Cross-lab line-reviewed (`codex_reviewer`); findings folded in (disposal by identity through
+`clearSettling` so a stale settle callback cannot clobber a newer arm). Unit test locks
+attach-with-intent (`tests/unit/player.test.ts`). Hermetic bench 47/47, settings-permutation matrix
+50/50 unaffected.

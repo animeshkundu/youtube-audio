@@ -67,6 +67,27 @@ describe('PlayerHandle', () => {
     expect(media.play).toHaveBeenCalledOnce();
   });
 
+  it('prefers the caller intent over the transient live element on a fast re-attach', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const generation = handle.navigate();
+    const media = new FakeMedia(); // live element reports currentTime 12, paused false
+
+    expect(
+      handle.attach(
+        media as unknown as HTMLMediaElement,
+        'https://media.example/audio',
+        generation,
+        {
+          currentTime: 45,
+          paused: true,
+        }
+      )
+    ).toBe(true);
+    // Uses the intent (real pre-toggle-off state), not the element's mid-reload transient.
+    expect(media.currentTime).toBe(45);
+    expect(media.play).not.toHaveBeenCalled();
+  });
+
   it('does not restore the snapshot src before applying the page src when the circuit opens', () => {
     const srcSetter = vi.spyOn(FakeMedia.prototype, 'src', 'set');
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype, maxReassertions: 2 });

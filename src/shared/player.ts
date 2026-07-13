@@ -86,7 +86,12 @@ export class PlayerHandle {
     return this.mediaElement;
   }
 
-  attach(mediaElement: HTMLMediaElement, audioUrl: string, generation: number): boolean {
+  attach(
+    mediaElement: HTMLMediaElement,
+    audioUrl: string,
+    generation: number,
+    intent?: { currentTime?: number; paused?: boolean }
+  ): boolean {
     if (generation !== this.currentGeneration || !isSafeMediaUrl(audioUrl)) return false;
 
     try {
@@ -94,13 +99,17 @@ export class PlayerHandle {
       this.mediaElement = mediaElement;
       this.audioUrl = audioUrl;
       this.reassertions = 0;
+      // Snapshot the native element so the hijacked audio starts at the same position/volume. On a
+      // fast audio-only re-toggle the element can be transiently mid-reload (a still-in-flight
+      // toggle-off reclaim leaves it at currentTime 0 / playing), so the caller may supply an
+      // `intent` carrying the real pre-toggle-off position/paused to use instead of that transient.
       this.snapshot = {
         src: mediaElement.currentSrc || mediaElement.src,
-        currentTime: finiteOr(mediaElement.currentTime, 0),
+        currentTime: finiteOr(intent?.currentTime ?? mediaElement.currentTime, 0),
         playbackRate: finiteOr(mediaElement.playbackRate, 1),
         volume: finiteOr(mediaElement.volume, 1),
         muted: mediaElement.muted,
-        paused: mediaElement.paused,
+        paused: intent?.paused ?? mediaElement.paused,
       };
       this.installDormantGuard();
       this.writeSource(mediaElement, audioUrl);
