@@ -70,20 +70,24 @@ MUTATION_CHECK_MS = 100)` alongside `requestAnimationFrame`; `cancelMutationChec
   gemini-3.1-pro (line-level); both returned no findings.
 - **Gate green**: typecheck, lint, format, unit 247/247 (coverage ~98%), bench 50/50. CI runs the
   bench + matrix under xvfb.
+- **Real Fenix confirmation of the shipped build (`b53ed10`), PASSED**: 5/5 cold loads across two VOD
+  ids showed initial `/videoplayback`, one native `blob:` element swap, then re-hijack back to
+  `/videoplayback` held uninterrupted for the last 8 s (re-hijack ~160-204 ms after the swap, no
+  flip-flop, `readyState` 4, `srcObject` absent when settled). A production MAIN-world `yta:status`
+  listener showed `active` -> `fetching` -> `active` around the replacement on both ids, confirming
+  the re-hijack routes through the real activation path. The shipped fix holds as-is: `srcObject`
+  reset is NOT needed, so `PlayerHandle` stays untouched.
 
 ## Known issues / notes
 
-- **Fenix confirmation of the real build is the immediate next step** (not yet run at time of this
-  handoff): confirm the shipped fix (not the investigation's injected candidate) re-hijacks the
-  replacement element and holds the `/videoplayback` src on real Fenix, and determine whether
-  `PlayerHandle.attach` needs to null `srcObject` before its `.src` write on the replacement element.
-  The sacred sole-writer module was deliberately left untouched pending that evidence.
 - **Audio-decode HOLD needs a real device.** The headless emulator cannot supply the trusted user
-  gesture YouTube's player gate demands, so it can prove src-level hold but not sustained audible
-  playback. That final proof is the owner-gated real-Fenix device lane.
+  gesture YouTube's player gate demands, so the confirmation above proves src-level hold (the element
+  loads and keeps our `/videoplayback` source, `readyState` 4) but not sustained audible playback.
+  That final proof is the owner-gated real-Fenix device lane.
+- **Perf sanity (emulator, no audio decode):** Total PSS ~198 MB after install to ~249 MB after ~90 s
+  of repeated cold loads, CPU ~0% on the Fenix process at rest; no runaway. Reflects activation plus
+  the re-hijack cycle, not continuous audio decode (same gesture-gate reason).
 
 ## Next steps
 
-- Run the Fenix confirmation; if `srcObject` shadows our `.src` on the replacement element, add a
-  `srcObject = null` before the write in `PlayerHandle` (desktop-safe no-op) as a follow-up commit.
 - Stand up the owner-gated real-Fenix device lane for the audio-decode HOLD proof.
