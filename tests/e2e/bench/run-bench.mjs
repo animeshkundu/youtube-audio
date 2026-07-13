@@ -287,6 +287,7 @@ export async function runSession({
   videoId = 'FIXTURE0001',
   watchQuery,
   probeLateAutonav,
+  expectedTerminalStatus,
 }) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
   try {
@@ -366,6 +367,9 @@ export async function runSession({
       }
       terminalSnap = await waitFor(async () => {
         const snap = await driver.executeScript(snapshotScript);
+        if (expectedTerminalStatus) {
+          return snap.status === expectedTerminalStatus ? snap : null;
+        }
         return snap.status && TERMINAL_STATUSES.includes(snap.status) ? snap : null;
       }, 8000);
 
@@ -1022,6 +1026,29 @@ async function main() {
       statusActiveRun.browserActionPopup?.opened === true &&
         statusActiveRun.browserActionPopup?.actionClicked === true,
       statusActiveRun.browserActionPopup
+    );
+
+    const coldConfigRun = await runSession({
+      withAddon: true,
+      watchQuery: 'coldConfig=1',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const coldConfigEntry = statusMapEntry(coldConfigRun.statusMap);
+    record(
+      'm0:cold-config-hydration-activates',
+      coldConfigRun.status === 'active' &&
+        typeof coldConfigRun.videoSrc === 'string' &&
+        coldConfigRun.videoSrc.includes('/videoplayback') &&
+        coldConfigEntry?.entry?.status === 'active',
+      {
+        status: coldConfigRun.status,
+        videoSrc: coldConfigRun.videoSrc,
+        entry: coldConfigEntry?.entry,
+        statusMap: coldConfigRun.statusMap,
+      }
     );
 
     const spaRun = await runSession({

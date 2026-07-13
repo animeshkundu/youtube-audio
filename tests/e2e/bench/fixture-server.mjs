@@ -169,8 +169,8 @@ function fixtureSkipSegments(videoId) {
   ];
 }
 
-/** The fake YouTube watch page. Static except for the origin-derived beacon target. */
-function watchPageHtml() {
+/** The fake YouTube watch page. Static except for the requested config-hydration mode. */
+function watchPageHtml({ coldConfig = false } = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -181,7 +181,7 @@ function watchPageHtml() {
   // Minimal ytcfg stub. The extension reads INNERTUBE_API_KEY (and clientName/version) from here.
   window.ytcfg = (function () {
     var data = {
-      INNERTUBE_API_KEY: 'FIXTURE_INNERTUBE_API_KEY',
+      ${coldConfig ? '' : "INNERTUBE_API_KEY: 'FIXTURE_INNERTUBE_API_KEY',"}
       INNERTUBE_CONTEXT_CLIENT_NAME: 1,
       INNERTUBE_CLIENT_VERSION: '2.99999999.00.00',
       LOGGED_IN: false,
@@ -193,6 +193,13 @@ function watchPageHtml() {
       set: function (obj) { if (obj) Object.assign(data, obj); },
     };
   })();
+  ${
+    coldConfig
+      ? `setTimeout(function () {
+    window.ytcfg.set({ INNERTUBE_API_KEY: 'FIXTURE_INNERTUBE_API_KEY' });
+  }, 600);`
+      : ''
+  }
   window.ytInitialPlayerResponse = {
     playabilityStatus: { status: 'OK' },
     streamingData: { adaptiveFormats: [] },
@@ -497,7 +504,8 @@ export function createFixtureServer() {
 
     // --- Fake YouTube surface ---------------------------------------------
     if (path === '/' || path === '/watch' || path === '/index.html') {
-      return sendText(res, 200, watchPageHtml(), 'text/html; charset=utf-8');
+      const coldConfig = url.searchParams.get('coldConfig') === '1';
+      return sendText(res, 200, watchPageHtml({ coldConfig }), 'text/html; charset=utf-8');
     }
     if (path === '/youtubei/v1/player') {
       let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;

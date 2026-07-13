@@ -464,10 +464,46 @@ export default defineUnlistedScript(() => {
     });
   }
 
+  // Poll (bounded, generation-guarded) for the InnerTube API key to hydrate on window.ytcfg. Mobile
+  // YouTube populates it after the content script's document_start injection and gives no DOM or
+  // navigation event to signal it, so a short poll is the only reliable readiness signal there.
+  function waitForConfigReady(operationGeneration: number): Promise<string | null> {
+    return new Promise((resolve) => {
+      let elapsed = 0;
+      const step = 250;
+      const tick = () => {
+        if (operationGeneration !== player.generation) {
+          resolve(null);
+          return;
+        }
+        const key = getConfigString('INNERTUBE_API_KEY');
+        if (key) {
+          resolve(key);
+          return;
+        }
+        elapsed += step;
+        if (elapsed >= VIDEO_WAIT_MS) {
+          resolve(null);
+          return;
+        }
+        window.setTimeout(tick, step);
+      };
+      window.setTimeout(tick, step);
+    });
+  }
+
   async function activateEnhancements(operation: PlaybackOperation): Promise<void> {
     const { generation: operationGeneration, videoId } = operation;
     try {
-      const apiKey = getConfigString('INNERTUBE_API_KEY');
+      let apiKey = getConfigString('INNERTUBE_API_KEY');
+      // Mobile YouTube (ytm-app) hydrates window.ytcfg AFTER the content script's document_start
+      // injection and fires no navigation/DOM event when it does, so on a cold load the first
+      // activation would otherwise bail to not-a-watch-page and never retry (no SPA signal follows).
+      // Wait, bounded and generation-guarded, for the API key to appear before giving up.
+      if (videoId && !apiKey) {
+        apiKey = await waitForConfigReady(operationGeneration);
+        if (operationGeneration !== player.generation) return;
+      }
       if (!videoId || !apiKey) {
         emitStatus('fallback', operation, 'not-a-watch-page');
         return;
