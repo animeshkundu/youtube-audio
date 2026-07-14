@@ -26,7 +26,7 @@ download, and a PII-free local diagnostics log with a serverless issue reporter.
 | Targets         | Firefox desktop and Firefox for Android (Fenix)                         |
 | Node            | 20+                                                                     |
 
-**Distribution.** Production ships from a **single add-on ID `youtube-audio@animesh.kundus.in`**
+**Distribution.** Production ships from a **single add-on ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}`**
 on the AMO **listed** channel (AMO is the sole update authority for desktop + Android; no
 self-hosted `update_url` in production), with an **unlisted** signed **beta** on the same ID at a
 distinct pre-release version for hand-installed desktop/Android testing. Publishing to AMO is

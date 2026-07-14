@@ -61,7 +61,7 @@ Off until you ask: aggressive telemetry, force-quality cap, disable autoplay-nex
 
 ## Install
 
-> Production uses the single permanent add-on ID `youtube-audio@animesh.kundus.in` on the AMO listed channel, with AMO providing updates on Firefox desktop and Android. Beta builds use the same ID, are Mozilla-signed on the unlisted channel at distinct pre-release versions, and are installed by hand for testing. Audio download intentionally ships in the listed production build. See [ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md), [the beta workflow](.github/workflows/beta.yml), and [the on-demand AMO publishing workflow](.github/workflows/publish-amo.yml).
+> Production uses the single permanent add-on ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` on the AMO listed channel, with AMO providing updates on Firefox desktop and Android. Beta builds use the same ID, are Mozilla-signed on the unlisted channel at distinct pre-release versions, and are installed by hand for testing. Audio download intentionally ships in the listed production build. See [ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md), [the beta workflow](.github/workflows/beta.yml), and [the on-demand AMO publishing workflow](.github/workflows/publish-amo.yml).
 
 ### Desktop (build from source)
 

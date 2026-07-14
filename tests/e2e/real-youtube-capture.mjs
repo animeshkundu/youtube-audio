@@ -18,7 +18,7 @@ const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'real-web-ext-artifacts');
 const XPI = join(repoRoot, 'dist', 'youtube-audio-real.xpi');
 const OUT = join(repoRoot, 'dist', 'visual-real');
-const ADDON_ID = 'youtube-audio@animesh.kundus.in';
+const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const HEADLESS = process.env.HEADLESS === '1';

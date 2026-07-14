@@ -28,7 +28,7 @@ WXT generates manifests and bundles from `entrypoints/`. The default production 
 - permissions: `tabs`, `webRequest`, `webRequestBlocking`, `storage`, `downloads`
 - content matches: `*://*.youtube.com/*`, `*://*.youtube-nocookie.com/*`, `*://music.youtube.com/*`, `*://m.youtube.com/*`
 - host access: `*://*.googlevideo.com/*`
-- Gecko ID `youtube-audio@animesh.kundus.in` (the single permanent add-on ID, ADR-0006), minimum Firefox `128.0`, Android opt-in via `gecko_android: {}`, and `data_collection_permissions.required: ["none"]`
+- Gecko ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` (the single permanent add-on ID, ADR-0006), minimum Firefox `128.0`, Android opt-in via `gecko_android: {}`, and `data_collection_permissions.required: ["none"]`
 
 Future optional origins are documented but not granted: `https://sponsor.ajay.app/*` and `https://lrclib.net/*`.
 

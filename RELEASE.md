@@ -1,7 +1,7 @@
 # Firefox Release Guide
 
 YouTube Audio ships to Firefox (desktop and Android) from a **single permanent add-on ID**,
-`youtube-audio@animesh.kundus.in`, under the model fixed by
+`{580efa7d-66f9-474d-857a-8e2afc6b1181}`, under the model fixed by
 [ADR-0006](docs/adrs/0006-firefox-amo-distribution-and-beta-channel.md):
 
 - **Production** is the AMO **listed** channel. The listed build omits `update_url`; **AMO is the

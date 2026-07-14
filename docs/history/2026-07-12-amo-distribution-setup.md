@@ -18,7 +18,7 @@ and the decision; the formal record is ADR-0006.
   and `.github/workflows/release.yml` already consume these two names for `web-ext sign`; no new
   secret is needed for the on-demand listed-publish workflow.
 - **Distribution decision (ADR-0006).**
-  - Single permanent add-on ID for every channel: **`youtube-audio@animesh.kundus.in`**.
+  - Single permanent add-on ID for every channel: **`{580efa7d-66f9-474d-857a-8e2afc6b1181}`**.
   - **Production = AMO `listed`** (no `update_url`); AMO is the sole update authority, giving
     hands-off auto-update on Firefox desktop and Firefox for Android.
   - **Beta = AMO `unlisted`** on the same ID at a distinct pre-release version, installed by
@@ -38,7 +38,7 @@ and the ID wiring are follow-ups (see Next steps).
 
 ## Next steps (owner-gated)
 
-- Wire `youtube-audio@animesh.kundus.in` across `wxt.config.ts`, `release.yml`, and the bench
+- Wire `{580efa7d-66f9-474d-857a-8e2afc6b1181}` across `wxt.config.ts`, `release.yml`, and the bench
   `ADDON_ID` pin in lockstep, replacing the `youtube-audio@local` placeholder.
 - Add an on-demand `workflow_dispatch` workflow that builds the listed-clean variant (no
   `update_url`) and runs `web-ext sign --channel=listed` with the existing secrets; see the

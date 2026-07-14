@@ -40,7 +40,8 @@ const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 // authority, so production builds omit `update_url`. The bench pins its moz-extension UUID by this
 // exact ID (tests/e2e/bench/run-bench.mjs ADDON_ID), so keep the two in lockstep. The env override
 // exists only for local experiments.
-const FIREFOX_EXTENSION_ID = process.env.FIREFOX_EXTENSION_ID ?? 'youtube-audio@animesh.kundus.in';
+const FIREFOX_EXTENSION_ID =
+  process.env.FIREFOX_EXTENSION_ID ?? '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 // Dormant optional capability (ADR-0006): the self-hosted `update_url` path is RETIRED for
 // production and set by no workflow. AMO is the sole update authority, so listed and beta builds
 // both omit `update_url`. The flag is retained only for a hypothetical local desktop-only

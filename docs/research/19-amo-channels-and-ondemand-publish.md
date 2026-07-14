@@ -1,7 +1,7 @@
 # AMO Channels and an On-Demand Publish Flow
 
 > **Decision update:** [ADR-0006](../adrs/0006-firefox-amo-distribution-and-beta-channel.md)
-> adopted the **single permanent add-on ID** `youtube-audio@animesh.kundus.in` (shape (a) in
+> adopted the **single permanent add-on ID** `{580efa7d-66f9-474d-857a-8e2afc6b1181}` (shape (a) in
 > section 3), not the two-identity split this brief leaned toward. Production is AMO **listed**
 > and beta is the **same ID** signed **unlisted** at a distinct pre-release version; the
 > self-hosted `updates.json` path is retired for production. The channel analysis below stands as
@@ -330,7 +330,7 @@ These are ADR-level gates that must be settled before the first real listed
 publish; the workflow *design* does not remove them:
 
 1. **A permanent AMO-listed `FIREFOX_EXTENSION_ID`.** ADR-0006 finalized this as the single
-   permanent ID `youtube-audio@animesh.kundus.in` (wired in `wxt.config.ts`, the workflows, and
+   permanent ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` (wired in `wxt.config.ts`, the workflows, and
    the bench `ADDON_ID`). An installed ID is permanent (ADR-0002).
 2. **AMO policy readiness** (ADR-0003): honest `data_collection_permissions`, the
    listed-clean feature flag if adopted, and **source-code submission** for the

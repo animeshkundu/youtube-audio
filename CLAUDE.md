@@ -21,7 +21,7 @@ A credentialless **ANDROID_VR** InnerTube `POST /youtubei/v1/player` (`credentia
 
 ### Distribution
 
-Production ships from a **single permanent add-on ID `youtube-audio@animesh.kundus.in`** on the AMO **listed** channel; **AMO is the sole update authority** (no self-hosted `update_url` in production), giving hands-off auto-update on Firefox desktop and Firefox for Android. A **beta** channel uses the same ID signed **unlisted** at a distinct pre-release version, installed by hand for desktop + Android testing. Publishing to AMO is **on demand** (a manual run after testing), never automatic on a tag. See ADR-0006 (this supersedes the two-identity model in ADR-0002).
+Production ships from a **single permanent add-on ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}`** on the AMO **listed** channel; **AMO is the sole update authority** (no self-hosted `update_url` in production), giving hands-off auto-update on Firefox desktop and Firefox for Android. A **beta** channel uses the same ID signed **unlisted** at a distinct pre-release version, installed by hand for desktop + Android testing. Publishing to AMO is **on demand** (a manual run after testing), never automatic on a tag. See ADR-0006 (this supersedes the two-identity model in ADR-0002).
 
 ## Required Reading
 

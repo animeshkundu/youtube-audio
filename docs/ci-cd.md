@@ -90,7 +90,7 @@ npm run test:bench     # hermetic bench (needs a local Firefox)
 ## Beta (gating)
 
 `.github/workflows/beta.yml` signs the **unlisted** beta channel for the single add-on ID
-`youtube-audio@animesh.kundus.in` (ADR-0006). It triggers on a **pre-release** version tag whose
+`{580efa7d-66f9-474d-857a-8e2afc6b1181}` (ADR-0006). It triggers on a **pre-release** version tag whose
 name carries the suffix letter (glob `v*[a-z]*`, e.g. `v0.0.2.5b1`; a clean `v0.0.2.5` tag never
 matches), or on a manual `workflow_dispatch` with the suffix as input. It **validates before
 signing**: it derives and validates the pre-release suffix, runs `typecheck && lint && test`, then

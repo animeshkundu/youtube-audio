@@ -13,7 +13,7 @@ const binDir = join(repoRoot, 'node_modules', '.bin');
 const visualDir = join(repoRoot, 'dist', 'visual');
 const benchXpi = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
 
-const addonId = 'youtube-audio@animesh.kundus.in';
+const addonId = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 const pinnedUuid = '11111111-2222-4333-8444-555555555555';
 const optionsUrl = `moz-extension://${pinnedUuid}/options.html`;
 process.env.PATH = `${binDir}:${process.env.PATH || ''}`;

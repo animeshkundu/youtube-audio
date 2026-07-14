@@ -34,7 +34,7 @@ window.
 
 The self-hosted `update_url` / `updates.json` production path is **now being superseded** by the
 AMO-only model in ADR-0006: production moves to the AMO **listed** channel under a single ID
-(`youtube-audio@animesh.kundus.in`) with **AMO as the sole update authority** for desktop and
+(`{580efa7d-66f9-474d-857a-8e2afc6b1181}`) with **AMO as the sole update authority** for desktop and
 Android, and no `update_url` on the listed build. The single-source-version fix stays relevant;
 the self-hosted desktop update machinery is retired for production (it may still drive a
 desktop-only beta if ever wanted).
@@ -43,6 +43,6 @@ desktop-only beta if ever wanted).
 
 - Rewire the release/publish workflows to the ADR-0006 model: drop `SELF_HOSTED_UPDATE_URL` from
   the production build and add an on-demand `workflow_dispatch` AMO listed-publish job. Owner-gated.
-- Wire the permanent add-on ID `youtube-audio@animesh.kundus.in` across `wxt.config.ts`,
+- Wire the permanent add-on ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` across `wxt.config.ts`,
   `release.yml`, and the bench `ADDON_ID` pin in lockstep (currently the `youtube-audio@local`
   placeholder).

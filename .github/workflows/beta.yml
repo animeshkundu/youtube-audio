@@ -36,7 +36,7 @@ jobs:
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
       # Permanent single add-on ID (ADR-0006). Must stay in lockstep with wxt.config.ts and the
       # bench ADDON_ID (tests/e2e/bench/run-bench.mjs).
-      FIREFOX_EXTENSION_ID: youtube-audio@animesh.kundus.in
+      FIREFOX_EXTENSION_ID: '{580efa7d-66f9-474d-857a-8e2afc6b1181}'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

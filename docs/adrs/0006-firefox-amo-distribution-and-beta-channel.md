@@ -3,7 +3,7 @@
 ## Status
 
 **Accepted.** Production ships from a **single permanent add-on ID
-`youtube-audio@animesh.kundus.in`** on the AMO **listed** channel, with AMO as the sole
+`{580efa7d-66f9-474d-857a-8e2afc6b1181}`** on the AMO **listed** channel, with AMO as the sole
 update authority for Firefox desktop and Firefox for Android. A pre-release **beta** channel
 uses the **same ID** signed **unlisted** at a distinct pre-release version, installed by hand
 for desktop and Android testing. Publishing to AMO is **on demand** (a manual run after
@@ -56,7 +56,7 @@ automatically, without maintaining two permanent add-on identities.
 
 ## Decision
 
-1. **One permanent add-on ID for every channel: `youtube-audio@animesh.kundus.in`.** The
+1. **One permanent add-on ID for every channel: `{580efa7d-66f9-474d-857a-8e2afc6b1181}`.** The
    two-identity split of ADR-0002 is dropped.
 2. **Production is the AMO `listed` channel.** The listed build carries **no** `update_url`;
    **AMO is the sole update authority**, delivering hands-off auto-update on Firefox desktop

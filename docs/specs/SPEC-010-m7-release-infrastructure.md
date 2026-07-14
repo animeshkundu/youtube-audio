@@ -2,7 +2,7 @@
 
 > **Amended by ADR-0006 (2026-07-12).** The two-identity, self-hosted-desktop distribution
 > model below is superseded: production now ships from a single add-on ID
-> (`youtube-audio@animesh.kundus.in`) on the AMO **listed** channel with AMO as the sole update
+> (`{580efa7d-66f9-474d-857a-8e2afc6b1181}`) on the AMO **listed** channel with AMO as the sole update
 > authority, plus an unlisted beta on the same ID; the self-hosted `updates.json` path is
 > retired for production. The tag-triggered `release.yml` was replaced by `beta.yml` (unlisted
 > pre-release signing) and `publish-amo.yml` (manual, listed on-demand publishing). The
@@ -33,7 +33,7 @@ M7 adds reproducible Firefox release validation, Mozilla unlisted signing, GitHu
 
 ### Build variants
 
-The default WXT build emits no `browser_specific_settings.gecko.update_url` and carries the single permanent add-on ID `youtube-audio@animesh.kundus.in` (ADR-0006; the `FIREFOX_EXTENSION_ID` env is a local-experiment override only). Setting `BETA_SUFFIX` at build time appends a Firefox-toolkit pre-release suffix (e.g. `0.0.2.5b1`) for the unlisted beta. The `SELF_HOSTED_UPDATE_URL` build flag is retired for production and set by no workflow; it survives only as a dormant optional capability and must never be applied to a listed build.
+The default WXT build emits no `browser_specific_settings.gecko.update_url` and carries the single permanent add-on ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` (ADR-0006; the `FIREFOX_EXTENSION_ID` env is a local-experiment override only). Setting `BETA_SUFFIX` at build time appends a Firefox-toolkit pre-release suffix (e.g. `0.0.2.5b1`) for the unlisted beta. The `SELF_HOSTED_UPDATE_URL` build flag is retired for production and set by no workflow; it survives only as a dormant optional capability and must never be applied to a listed build.
 
 Both channels share one identity, differentiated by AMO channel and version: the **listed** production version is the clean base with no `update_url`, and the **unlisted** beta is a distinct pre-release version signed under the same ID. A single AMO submission can never be both listed and self-hosted-auto-updating (a listed version must omit `update_url`).
 
