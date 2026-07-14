@@ -1,0 +1,171 @@
+---
+import Logo from './Logo.astro';
+import Icon from './Icon.astro';
+import InstallButton from './InstallButton.astro';
+import { NAV, SITE, url } from '../consts';
+---
+
+<header class="header" id="site-header">
+  <div class="shell header__inner">
+    <a class="brand" href={url('/')} aria-label={`${SITE.name} home`}>
+      <Logo size={28} />
+      <span class="brand__name">YouTube Audio</span>
+    </a>
+
+    <nav class="nav" aria-label="Primary">
+      {NAV.map((item) => <a href={item.href}>{item.label}</a>)}
+    </nav>
+
+    <div class="header__actions">
+      <a class="iconlink" href={SITE.repo} aria-label="Source on GitHub" target="_blank" rel="noopener">
+        <Icon name="github" size={20} />
+      </a>
+      <InstallButton class="header__install" />
+      <button class="menu-btn" id="menu-btn" aria-label="Menu" aria-expanded="false" aria-controls="mobile-menu">
+        <span></span><span></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="mobile" id="mobile-menu" hidden>
+    <nav class="mobile__nav" aria-label="Mobile">
+      {NAV.map((item) => <a href={item.href}>{item.label}</a>)}
+      <a href={SITE.repo} target="_blank" rel="noopener">Source on GitHub</a>
+    </nav>
+    <InstallButton size="lg" class="mobile__install" />
+  </div>
+</header>
+
+<style>
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .header.is-scrolled {
+    border-bottom-color: var(--line);
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+  }
+  .header__inner {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    height: 66px;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 640;
+    letter-spacing: -0.02em;
+    font-size: 1.02rem;
+    color: var(--fg);
+  }
+  .nav {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: 0.5rem;
+  }
+  .nav a {
+    padding: 0.5rem 0.8rem;
+    border-radius: var(--r-sm);
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+    font-weight: 500;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .nav a:hover {
+    color: var(--fg);
+    background: var(--surface);
+  }
+  .header__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-left: auto;
+  }
+  .iconlink {
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: var(--r-sm);
+    color: var(--fg-muted);
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .iconlink:hover {
+    color: var(--fg);
+    background: var(--surface);
+  }
+  .menu-btn {
+    display: none;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    cursor: pointer;
+    padding: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .menu-btn span {
+    width: 17px;
+    height: 1.75px;
+    background: var(--fg);
+    border-radius: 2px;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .header.is-open .menu-btn span:first-child {
+    transform: translateY(3.4px) rotate(45deg);
+  }
+  .header.is-open .menu-btn span:last-child {
+    transform: translateY(-3.4px) rotate(-45deg);
+  }
+
+  .mobile {
+    display: none;
+    padding: 0.5rem var(--gutter) 1.25rem;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: blur(14px);
+  }
+  .mobile__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.9rem;
+  }
+  .mobile__nav a {
+    padding: 0.75rem 0.6rem;
+    border-radius: var(--r-sm);
+    color: var(--fg);
+    font-size: 1.02rem;
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile :global(.mobile__install) {
+    width: 100%;
+  }
+
+  @media (max-width: 860px) {
+    .nav,
+    .header :global(.header__install) {
+      display: none;
+    }
+    .menu-btn {
+      display: flex;
+    }
+    .header.is-open .mobile {
+      display: block;
+    }
+  }
+</style>

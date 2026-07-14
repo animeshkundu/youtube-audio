@@ -1,5 +1,11 @@
 # Architecture Documentation
 
+This is the map of how the extension is actually put together: the layers, the
+message paths, and the boundaries that keep a page-world script from being
+trusted further than it should be. If the [homepage's three-step
+picture](../index.md#how-it-works-in-one-picture) is the elevator pitch, this
+is the engineering behind it.
+
 ## M0 Architecture
 
 YouTube Audio is a Firefox-first WebExtension built from one strict-TypeScript source tree. Firefox Manifest V2 is the shipping target; Firefox Manifest V3 is emitted as a capability artifact.

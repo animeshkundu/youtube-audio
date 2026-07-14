@@ -15,6 +15,7 @@ copyright: Made by Animesh Kundu. GPL-3.0 licensed.
 theme:
   name: material
   language: en
+  custom_dir: docs/overrides
   logo: assets/logo.png
   favicon: assets/favicon.png
   font:
@@ -51,6 +52,7 @@ theme:
 
 extra_css:
   - assets/brand.css
+  - assets/site.css
 
 extra:
   social:
@@ -99,6 +101,17 @@ plugins:
 
 nav:
   - Home: index.md
+  - Guide:
+      - Install: guide/install.md
+      - The audio-only experience: guide/audio.md
+      - No ads, no tracking: guide/blocking.md
+      - YouTube Music, leveled up: guide/music.md
+      - Download a track: guide/download.md
+      - A tidier YouTube: guide/cleaner.md
+      - Settings reference: guide/settings.md
+      - On your phone: guide/mobile.md
+      - Privacy: guide/privacy.md
+      - FAQ: guide/faq.md
   - Architecture: architecture/README.md
   - CI/CD: ci-cd.md
   - Testing:
@@ -136,6 +149,7 @@ nav:
       - In-Player Controls UX Review: design/ux-in-player-controls.md
       - Audio-Mode Artwork: design/audio-mode-artwork.md
   - Research:
+      - Overview: research/README.md
       - 01 Audio-Only Playback: research/01-disable-video-audio-only.md
       - 02 YouTube Ad Blocking: research/02-youtube-ad-blocking.md
       - 03 Firefox Mobile Support: research/03-firefox-mobile-support.md

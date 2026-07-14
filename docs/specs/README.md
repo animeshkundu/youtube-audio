@@ -2,7 +2,10 @@
 
 ## Purpose
 
-This folder contains technical specifications that **MUST** be written before any code implementation.
+Every milestone in this project was scoped in writing before a line of it was
+built. This folder is that paper trail: what each milestone was meant to do,
+where its edges were, and what "done" looked like before anyone started
+coding.
 
 ## The Specification-First Workflow
 

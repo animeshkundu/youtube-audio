@@ -1,0 +1,42 @@
+---
+// Coral audio-waveform mark. Trademark-safe: deliberately not YouTube's red
+// play badge. The five bars also nod to the product's 5-band equalizer.
+interface Props {
+  size?: number;
+  class?: string;
+}
+const { size = 30, class: cls = '' } = Astro.props;
+const bars = [
+  { x: 8, h: 8 },
+  { x: 11.6, h: 15 },
+  { x: 15.2, h: 21 },
+  { x: 18.8, h: 13 },
+  { x: 22.4, h: 9 },
+];
+---
+
+<svg
+  class={cls}
+  width={size}
+  height={size}
+  viewBox="0 0 32 32"
+  fill="none"
+  role="img"
+  aria-label="YouTube Audio"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <defs>
+    <linearGradient id="ytaMark" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff7d5c"></stop>
+      <stop offset="1" stop-color="#f04e28"></stop>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="28" height="28" rx="8.5" fill="url(#ytaMark)"></rect>
+  <g fill="#fff4ee">
+    {
+      bars.map((b) => (
+        <rect x={b.x} y={16 - b.h / 2} width="2.5" height={b.h} rx="1.25" opacity="0.96" />
+      ))
+    }
+  </g>
+</svg>

@@ -1,0 +1,130 @@
+---
+import Doc from '../layouts/Doc.astro';
+---
+
+<Doc
+  title="Privacy"
+  description="YouTube Audio has no account, no analytics, and no server of ours in the loop. Here is exactly what it does and does not send, in plain terms."
+  intro="No account, no analytics, and no server of ours. Here is exactly what leaves your browser, and what never does."
+>
+  <h2>The short version</h2>
+  <p>
+    YouTube Audio is built for signed-out use. It does not need, read, or attach your YouTube login. Requests
+    made by the add-on omit credentials, so your YouTube cookies are not sent on the wire with its audio
+    lookups, media requests, downloads, or optional segment lookups.
+  </p>
+  <p>
+    The developer and this project receive no browsing or playback data. The add-on has no analytics, no
+    account system, and no server of ours for your activity to pass through. YouTube and Google's media host
+    still receive the requests needed to provide audio, and can see the request IP address. Optional segment
+    skipping contacts SponsorBlock with a short hash. The complete flow is below.
+  </p>
+
+  <h2>Exactly what goes where</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>What</th>
+        <th>Where it goes</th>
+        <th>What is sent</th>
+        <th>Can you turn it off</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Audio lookup</td>
+        <td>YouTube / InnerTube</td>
+        <td>Credentialless request with the video ID and client metadata. Your IP address is visible to YouTube.</td>
+        <td>No. This is the core audio-only lookup.</td>
+      </tr>
+      <tr>
+        <td>Media stream</td>
+        <td>googlevideo</td>
+        <td>Credentialless request for the selected audio stream. Your IP address is visible to Google's media host.</td>
+        <td>No. The media must be requested to play audio.</td>
+      </tr>
+      <tr>
+        <td>Segment skipping</td>
+        <td><a href="https://sponsor.ajay.app/">SponsorBlock / sponsor.ajay.app</a></td>
+        <td>Only a short four-character hash prefix, with no cookies or referrer. Exact matching happens on your device.</td>
+        <td>Yes. Turn off segment skipping in options.</td>
+      </tr>
+      <tr>
+        <td>Add-on updates</td>
+        <td>Mozilla AMO</td>
+        <td>A standard update check controlled by Firefox and the platform.</td>
+        <td>Platform-controlled through Firefox's add-on update settings.</td>
+      </tr>
+      <tr>
+        <td>Settings</td>
+        <td>Local Firefox storage</td>
+        <td>Your feature choices. They never leave your device through the add-on.</td>
+        <td>Yes. Reset to defaults, clear extension data, or remove the add-on.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Logged out only</h2>
+  <p>
+    Signed-out playback is the only supported use case. The extension does not inspect your YouTube account,
+    borrow its permissions, or attach its cookies to extension requests. If a video requires an account, the
+    audio-only path is not used and normal YouTube playback remains in control.
+  </p>
+
+  <h2>What credentialless means</h2>
+  <p>
+    The audio lookup asks YouTube's own player service for a direct stream with credentials omitted. Media from
+    googlevideo is requested the same way. This means <strong>no YouTube cookies are attached to those add-on
+    requests</strong>. It does not make the requests invisible to the destination. YouTube and Google still
+    receive the technical request, including the video ID or media URL, required client information, and the IP
+    address used to connect.
+  </p>
+  <p>
+    The same credentialless rule applies when the optional download feature requests a fresh audio stream.
+    Read <a href="/youtube-audio/how-it-works/">How it works</a> for the playback sequence.
+  </p>
+
+  <h2>What “collects nothing about you” means here</h2>
+  <p>
+    It means the developer and project receive no record of your browsing, playback, searches, or settings.
+    There is no project analytics script, project account, telemetry collector, or project-operated backend.
+    No server of ours is in the playback path, because this project does not run one.
+  </p>
+  <p>
+    A local diagnostics tool can assemble settings states, limited counts, general browser and device details,
+    and recent extension events. It is designed not to record what you watched, searched for, or typed. You can
+    read the preview before copying it or choosing to open a GitHub issue, and you can clear it from your device.
+  </p>
+
+  <h2>The one optional exception, SponsorBlock</h2>
+  <p>
+    If segment skipping is enabled, the add-on hashes the video ID and sends only the first four characters of
+    that hash to <a href="https://sponsor.ajay.app/">SponsorBlock</a>. A four-character prefix is shared by many
+    videos, so the service returns a bucket of possible matches. The extension finds the exact video locally.
+    The lookup omits credentials and a referrer.
+  </p>
+  <p>
+    This request is optional. Turn off segment skipping in the options page to stop it. See
+    <a href="/youtube-audio/guide/blocking/">blocking and skipping</a> for the related controls.
+  </p>
+
+  <h2>Fail open</h2>
+  <p>
+    Audio lookup, blocking, skipping, loudness, EQ, and download features are designed to get out of the way
+    when a request fails or a response is unfamiliar. Live and DVR streams, age-restricted videos, members-only
+    uploads, and content made for kids use normal YouTube playback instead of the direct audio path. That avoids
+    sticky retries and risky workarounds, but it also means YouTube's ordinary page and playback requests apply
+    during fallback.
+  </p>
+
+  <blockquote>
+    The privacy promise has a defined subject: the project receives no browsing or playback data. The services
+    you directly ask for audio, updates, or optional skip data receive the limited requests listed in the table.
+  </blockquote>
+
+  <p>
+    You can review the <a href="https://github.com/animeshkundu/youtube-audio">open source code on GitHub</a>,
+    manage every optional feature in the <a href="/youtube-audio/guide/settings/">settings guide</a>, or remove
+    the add-on at any time through Firefox.
+  </p>
+</Doc>

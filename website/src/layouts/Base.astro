@@ -1,0 +1,91 @@
+---
+import '../styles/global.css';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import { SITE, url } from '../consts';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+const { title, description = SITE.description } = Astro.props;
+const fullTitle = title ? `${title} · ${SITE.name}` : `${SITE.name} · ${SITE.tagline}`;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={url('/favicon.svg')} />
+    <meta name="theme-color" content="#141110" />
+    <meta name="color-scheme" content="dark" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader />
+    <main id="main">
+      <slot />
+    </main>
+    <SiteFooter />
+
+    <style>
+      .skip-link {
+        position: absolute;
+        left: -999px;
+        top: 0.5rem;
+        z-index: 100;
+        background: var(--surface-2);
+        color: var(--fg);
+        padding: 0.6rem 1rem;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--line-strong);
+      }
+      .skip-link:focus {
+        left: 0.75rem;
+      }
+    </style>
+
+    <script>
+      // Scroll-aware header border.
+      const header = document.getElementById('site-header');
+      const onScroll = () => header?.classList.toggle('is-scrolled', window.scrollY > 8);
+      onScroll();
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // Mobile menu.
+      const btn = document.getElementById('menu-btn');
+      const panel = document.getElementById('mobile-menu');
+      btn?.addEventListener('click', () => {
+        const open = header?.classList.toggle('is-open');
+        btn.setAttribute('aria-expanded', String(!!open));
+        if (panel) panel.hidden = !open;
+      });
+
+      // Platform-aware install labels.
+      const ua = navigator.userAgent || '';
+      const isFirefox = /\bFirefox\/\d/.test(ua) && !/Seamonkey/i.test(ua);
+      const isAndroid = /Android/i.test(ua);
+      document.querySelectorAll<HTMLElement>('.js-install').forEach((el) => {
+        const label = el.querySelector('.js-install-label');
+        if (!label) return;
+        if (isFirefox && isAndroid) label.textContent = 'Add to Firefox for Android';
+        else if (isFirefox) label.textContent = 'Add to Firefox';
+        else {
+          label.textContent = 'Get it on Firefox';
+        }
+      });
+    </script>
+  </body>
+</html>

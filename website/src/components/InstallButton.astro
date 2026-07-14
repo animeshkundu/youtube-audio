@@ -1,0 +1,21 @@
+---
+import Icon from './Icon.astro';
+import { url } from '../consts';
+// Platform-aware Install CTA. The label + href are tuned client-side by the
+// script in Base.astro (Firefox / Firefox for Android / Firefox required).
+interface Props {
+  variant?: 'primary' | 'ghost';
+  size?: 'md' | 'lg';
+  class?: string;
+}
+const { variant = 'primary', size = 'md', class: cls = '' } = Astro.props;
+---
+
+<a
+  href={url('/guide/install/')}
+  class:list={['btn', `btn--${variant}`, size === 'lg' && 'btn--lg', 'js-install', cls]}
+  data-install
+>
+  <Icon name="download" size={18} stroke={2} />
+  <span class="js-install-label">Add to Firefox</span>
+</a>

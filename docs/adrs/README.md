@@ -2,7 +2,10 @@
 
 ## Purpose
 
-This folder contains Architecture Decision Records (ADRs) that document significant technical decisions made in the project.
+Some choices are worth remembering the reasoning behind, not just the
+outcome. This folder holds the ones that mattered: what we chose, what we
+weighed against it, and why, so a future change does not accidentally undo a
+decision nobody remembers making.
 
 ## What is an ADR?
 

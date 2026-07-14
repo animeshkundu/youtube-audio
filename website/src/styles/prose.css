@@ -1,0 +1,134 @@
+/* Typography for Markdown-rendered content (guide, how-it-works, privacy).
+   Scoped under .prose so it never leaks into bespoke pages. */
+.prose {
+  color: var(--fg-muted);
+  font-size: 1.06rem;
+  line-height: 1.72;
+  max-width: 44rem;
+}
+.prose > :first-child {
+  margin-top: 0;
+}
+.prose h1 {
+  font-size: clamp(2rem, 4vw, 2.7rem);
+  color: var(--fg);
+  letter-spacing: -0.03em;
+  margin: 0 0 0.6rem;
+}
+.prose h2 {
+  font-size: clamp(1.4rem, 2.4vw, 1.7rem);
+  color: var(--fg);
+  margin: 2.6rem 0 0.9rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--line);
+  letter-spacing: -0.02em;
+}
+.prose h3 {
+  font-size: 1.2rem;
+  color: var(--fg);
+  margin: 2rem 0 0.6rem;
+}
+.prose h4 {
+  font-size: 1.02rem;
+  color: var(--fg);
+  margin: 1.6rem 0 0.5rem;
+}
+.prose p {
+  margin: 0 0 1.15rem;
+}
+.prose a {
+  color: var(--coral);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 106, 69, 0.35);
+  transition: border-color 0.15s ease;
+}
+.prose a:hover {
+  border-bottom-color: var(--coral);
+}
+.prose strong {
+  color: var(--fg);
+  font-weight: 620;
+}
+.prose ul,
+.prose ol {
+  margin: 0 0 1.2rem;
+  padding-left: 1.3rem;
+}
+.prose li {
+  margin: 0.4rem 0;
+}
+.prose li::marker {
+  color: var(--coral);
+}
+.prose blockquote {
+  margin: 1.5rem 0;
+  padding: 0.2rem 0 0.2rem 1.2rem;
+  border-left: 3px solid var(--coral);
+  color: var(--fg-muted);
+  font-style: normal;
+}
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  color: var(--fg);
+}
+.prose pre {
+  background: #0f0c0a;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 1.1rem 1.25rem;
+  overflow-x: auto;
+  margin: 0 0 1.4rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.prose pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.prose img {
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  margin: 1.5rem 0;
+}
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 2.5rem 0;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.5rem;
+  font-size: 0.96rem;
+}
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.prose th {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--line-strong);
+}
+
+/* Callout for MDX/HTML notes if content uses <aside class="note"> */
+.prose .note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--coral);
+  border-radius: var(--r-md);
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+}
+.prose .note p:last-child {
+  margin-bottom: 0;
+}
