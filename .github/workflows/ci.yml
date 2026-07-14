@@ -7,9 +7,11 @@ on:
     branches: [main, master, rebuild]
   workflow_dispatch:
 
-# Cancel superseded runs for ordinary refs. Every master merge gets its own gate run.
+# Cancel superseded runs for ordinary refs. Every master push gets its own gate run (keyed by the
+# commit SHA, which is unique and reliably available in the concurrency context, unlike run_id) so a
+# later merge never cancels an in-flight release job.
 concurrency:
-  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && format('{0}-{1}', github.workflow, github.run_id) || format('{0}-{1}', github.workflow, github.ref) }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
