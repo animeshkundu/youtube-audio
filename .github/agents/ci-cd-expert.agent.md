@@ -33,10 +33,11 @@ via `AMO_JWT_*` secrets), verifies the tag matches `package.json` version, build
 Uses `SELF_HOSTED_UPDATE_URL` (must be HTTPS) for the desktop auto-update channel. See
 [`RELEASE.md`](../../RELEASE.md) and [`scripts/release.sh`](../../scripts/release.sh).
 
-### `pages.yml` - docs site
+### `pages.yml` - website (Astro)
 
-Builds the MkDocs (Material) site from `docs/` with `mkdocs build --strict` and deploys to
-GitHub Pages. Do not repurpose it to publish the `website/` folder.
+Builds the bespoke Astro site in `website/` (`npm run build`) and deploys its `website/dist`
+output to GitHub Pages. Triggers on pushes that touch `website/**`. The former MkDocs docs site
+is retired; the engineering docs under `docs/` stay in the repo, not on the published site.
 
 ## Standards
 
