@@ -212,8 +212,8 @@ jobs:
           const path = 'package.json';
           const packageJson = JSON.parse(fs.readFileSync(path, 'utf8'));
           const parts = packageJson.version.split('.');
-          if (parts.length !== 4 || !parts.every((part) => /^\d+$/.test(part))) {
-            throw new Error(`Expected a four-segment numeric version, got ${packageJson.version}`);
+          if (parts.length < 2 || !parts.every((part) => /^\d+$/.test(part))) {
+            throw new Error(`Expected a dot-separated numeric version, got ${packageJson.version}`);
           }
           parts[parts.length - 1] = String(Number(parts.at(-1)) + 1);
           packageJson.version = parts.join('.');
