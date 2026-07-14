@@ -1,6 +1,6 @@
 {
   "name": "youtube-audio",
-  "version": "0.0.2.5",
+  "version": "0.0.2.6",
   "description": "Firefox browser extension to stream only audio from YouTube videos",
   "private": true,
   "keywords": [
