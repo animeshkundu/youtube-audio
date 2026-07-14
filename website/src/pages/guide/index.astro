@@ -1,0 +1,155 @@
+---
+import Base from '../../layouts/Base.astro';
+import Icon from '../../components/Icon.astro';
+import InstallButton from '../../components/InstallButton.astro';
+import { getCollection } from 'astro:content';
+import { url } from '../../consts';
+
+const iconFor: Record<string, string> = {
+  install: 'plus',
+  audio: 'volume',
+  blocking: 'shield',
+  music: 'sliders',
+  download: 'download',
+  cleaner: 'sparkles',
+  mobile: 'smartphone',
+  settings: 'gear',
+  faq: 'question',
+};
+
+const entries = (await getCollection('guide')).sort(
+  (a, b) => (a.data.order ?? 99) - (b.data.order ?? 99)
+);
+---
+
+<Base title="Guide" description="Set up YouTube Audio and get the most out of every feature: audio-only, blocking, YouTube Music, download, and more.">
+  <section class="ghead">
+    <div class="shell">
+      <span class="eyebrow"><Icon name="book" size={15} stroke={2} /> The guide</span>
+      <h1 class="ghead__title">Everything, one page at a time</h1>
+      <p class="lead ghead__lead">
+        Install it in a minute, then dig into whatever you like. Every feature is simple by default and waits
+        until you ask for more.
+      </p>
+      <div class="cluster ghead__cta">
+        <InstallButton />
+        <a class="btn btn--ghost" href={url('/how-it-works/')}>How it works <Icon name="arrow" size={17} /></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="glist-sec">
+    <div class="shell">
+      <ul class="glist">
+        {
+          entries.map((e, idx) => (
+            <li class="gcard-wrap">
+              <a class="gcard" href={url(`/guide/${e.id}/`)}>
+                <span class="gcard__num">{String(idx + 1).padStart(2, '0')}</span>
+                <span class="gcard__icon"><Icon name={iconFor[e.id] ?? 'book'} size={20} /></span>
+                <span class="gcard__body">
+                  <span class="gcard__title">{e.data.title}</span>
+                  <span class="gcard__sum">{e.data.summary}</span>
+                </span>
+                <span class="gcard__arrow"><Icon name="arrow" size={18} /></span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .ghead {
+    padding-top: clamp(2.5rem, 6vw, 4.5rem);
+    padding-bottom: clamp(1.5rem, 3vw, 2.5rem);
+  }
+  .ghead__title {
+    font-size: clamp(2.3rem, 5vw, 3.4rem);
+    letter-spacing: -0.035em;
+    margin-top: 1rem;
+  }
+  .ghead__lead {
+    margin-top: 1.2rem;
+    max-width: 38rem;
+  }
+  .ghead__cta {
+    margin-top: 1.8rem;
+    gap: 0.75rem;
+  }
+
+  .glist-sec {
+    padding-block: clamp(1rem, 2vw, 1.75rem) clamp(3.5rem, 7vw, 5.5rem);
+  }
+  .glist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+  .gcard {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.35rem 1.4rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  }
+  .gcard:hover {
+    border-color: var(--line-strong);
+    background: var(--surface-2);
+    transform: translateY(-2px);
+  }
+  .gcard__num {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--fg-faint);
+  }
+  .gcard__icon {
+    display: inline-grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--r-md);
+    color: var(--coral);
+    background: var(--coral-soft);
+    border: 1px solid rgba(255, 106, 69, 0.16);
+  }
+  .gcard__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+  .gcard__title {
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 1.06rem;
+    letter-spacing: -0.01em;
+  }
+  .gcard__sum {
+    color: var(--fg-dim);
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+  .gcard__arrow {
+    color: var(--fg-faint);
+    transition: color 0.18s ease, transform 0.18s ease;
+  }
+  .gcard:hover .gcard__arrow {
+    color: var(--coral);
+    transform: translateX(3px);
+  }
+  @media (max-width: 720px) {
+    .glist {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

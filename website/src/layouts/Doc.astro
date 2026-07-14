@@ -1,0 +1,153 @@
+---
+import { getCollection } from 'astro:content';
+import Base from './Base.astro';
+import { url } from '../consts';
+import '../styles/prose.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  section?: 'guide' | 'page';
+  slug?: string;
+  intro?: string;
+}
+const { title, description, section = 'page', slug, intro } = Astro.props;
+
+let guideNav: { slug: string; title: string; href: string }[] = [];
+if (section === 'guide') {
+  const entries = await getCollection('guide');
+  guideNav = entries
+    .sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99))
+    .map((e) => ({ slug: e.id, title: e.data.title, href: url(`/guide/${e.id}/`) }));
+}
+---
+
+<Base title={title} description={description}>
+  <div class:list={['doc', section === 'guide' && 'doc--guide']}>
+    <div class="shell doc__inner">
+      {
+        section === 'guide' && (
+          <aside class="doc__side">
+            <a class="doc__side-home" href={url('/guide/')}>All guides</a>
+            <nav aria-label="Guide">
+              {guideNav.map((item) => (
+                <a href={item.href} class:list={['doc__link', slug === item.slug && 'is-active']}>
+                  {item.title}
+                </a>
+              ))}
+            </nav>
+          </aside>
+        )
+      }
+      <article class="doc__article">
+        <header class="doc__head">
+          <h1>{title}</h1>
+          {intro && <p class="doc__intro">{intro}</p>}
+        </header>
+        <div class="prose">
+          <slot />
+        </div>
+      </article>
+    </div>
+  </div>
+</Base>
+
+<style>
+  .doc {
+    padding-block: clamp(2.5rem, 5vw, 4rem) clamp(3rem, 6vw, 5rem);
+  }
+  .doc__inner {
+    display: block;
+  }
+  .doc:not(.doc--guide) .doc__article {
+    margin-inline: auto;
+  }
+  .doc--guide .doc__inner {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+  .doc__side {
+    position: sticky;
+    top: 90px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .doc__side-home {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--coral);
+    margin-bottom: 0.9rem;
+  }
+  .doc__side nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    border-left: 1px solid var(--line);
+  }
+  .doc__link {
+    padding: 0.5rem 0.9rem;
+    margin-left: -1px;
+    border-left: 2px solid transparent;
+    color: var(--fg-dim);
+    font-size: 0.94rem;
+    line-height: 1.35;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .doc__link:hover {
+    color: var(--fg);
+  }
+  .doc__link.is-active {
+    color: var(--fg);
+    border-left-color: var(--coral);
+    font-weight: 550;
+  }
+  .doc__article {
+    min-width: 0;
+    max-width: 46rem;
+  }
+  .doc__head {
+    margin-bottom: 2rem;
+  }
+  .doc__head h1 {
+    font-size: clamp(2.1rem, 4.4vw, 3rem);
+    letter-spacing: -0.03em;
+  }
+  .doc__intro {
+    margin-top: 1rem;
+    color: var(--fg-muted);
+    font-size: clamp(1.08rem, 1.6vw, 1.25rem);
+    line-height: 1.55;
+    max-width: 40rem;
+  }
+  @media (max-width: 860px) {
+    .doc--guide .doc__inner {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    .doc__side {
+      position: static;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .doc__side nav {
+      flex-flow: row wrap;
+      border-left: 0;
+      gap: 0.4rem;
+    }
+    .doc__link {
+      border: 1px solid var(--line);
+      border-radius: var(--r-pill);
+      margin-left: 0;
+      padding: 0.4rem 0.85rem;
+    }
+    .doc__link.is-active {
+      border-color: var(--coral);
+      border-left-color: var(--coral);
+    }
+  }
+</style>

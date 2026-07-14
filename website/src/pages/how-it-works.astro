@@ -1,0 +1,131 @@
+---
+import Doc from '../layouts/Doc.astro';
+---
+
+<Doc
+  title="How it works"
+  description="How YouTube Audio turns YouTube into audio only: a credentialless request for a direct stream, a single player swap, and a layer that gets out of the way the moment it cannot help."
+  intro="No magic, and no server of ours. Here is the whole mechanism, in plain terms."
+>
+  <h2>Audio first, by changing one source</h2>
+  <p>
+    A normal YouTube player can keep downloading video even when the tab is hidden and you only want
+    the sound. YouTube Audio asks YouTube for a direct audio stream, then gives that stream to the page's
+    existing player. The picture goes away, the familiar controls stay, and ongoing video transfer stops.
+    On long listens, that can reduce data use and battery drain.
+  </p>
+
+  <h2>The three steps</h2>
+  <ol>
+    <li>
+      <strong>Ask YouTube for audio.</strong> The add-on sends YouTube's InnerTube player service a POST
+      request to <strong>/youtubei/v1/player</strong>, using the <strong>ANDROID_VR</strong> client profile.
+      The request contains the video ID and client metadata needed for a player response.
+    </li>
+    <li>
+      <strong>Check before changing anything.</strong> The response must be playable, supported, and include
+      a suitable direct audio format. If it does not pass those checks, the add-on leaves normal YouTube
+      playback alone.
+    </li>
+    <li>
+      <strong>Make one player swap.</strong> One component, called PlayerHandle, is the only part of the
+      extension allowed to write the video element's source. It points that source at the direct audio URL,
+      so the native player keeps its timeline and controls while video bytes stop downloading.
+    </li>
+  </ol>
+
+  <blockquote>
+    There is no server of ours between your browser and the audio. The lookup goes to YouTube, and the
+    media comes from Google's own media servers.
+  </blockquote>
+
+  <h2>Credentialless means no YouTube cookies</h2>
+  <p>
+    The audio lookup is made with <strong>credentials omitted</strong>. In plain terms, the add-on does not
+    attach your YouTube cookies or login to that request. It is built for signed-out use only. YouTube still
+    receives the video ID and client metadata, and can see the request's IP address, just as the Google media
+    host can see the request for the selected stream. The project receives neither request.
+  </p>
+  <p>
+    Direct media URLs and full player responses stay inside the page-side playback layer. Other parts of the
+    extension receive only limited status information, such as whether audio-only is active or why playback
+    fell back. For the complete network picture, read <a href="/youtube-audio/privacy/">Privacy</a>.
+  </p>
+
+  <h2>One owner prevents competing swaps</h2>
+  <p>
+    YouTube is a changing web app, and its mobile player can replace its own media element. Letting several
+    features rewrite the source would invite races, resets, and double playback. PlayerHandle is the sole
+    source writer, while a coordinator watches navigation and settings changes. Stale work is discarded before
+    it can attach to a new video.
+  </p>
+  <p>
+    When you switch audio-only off, the add-on asks YouTube's own player to resume the same video at the live
+    position and preserves whether it was playing or paused. It does not try to restore an expired captured
+    source. This keeps one player in charge from start to finish.
+  </p>
+
+  <h2>Fallback is part of the design</h2>
+  <p>
+    Some content cannot be safely replaced with a direct progressive audio source. The add-on deliberately
+    keeps normal YouTube playback for:
+  </p>
+  <ul>
+    <li>live and DVR streams,</li>
+    <li>age-restricted videos,</li>
+    <li>members-only uploads,</li>
+    <li>content made for kids, and</li>
+    <li>any unavailable, failed, or unsupported audio response.</li>
+  </ul>
+  <p>
+    This is called <strong>failing open</strong>. A feature that is uncertain stops interfering instead of
+    risking a broken player. The popup reports the current video's actual state, so a fallback is visible rather
+    than hidden behind an enabled setting.
+  </p>
+
+  <h2>Small optional layers, not a rebuilt player</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Layer</th>
+        <th>What it does</th>
+        <th>If it cannot help</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Blocking</td>
+        <td>Blocks selected telemetry requests and removes known ad descriptions from player responses.</td>
+        <td>The request or original response continues unchanged.</td>
+      </tr>
+      <tr>
+        <td>Segment skipping</td>
+        <td>Looks up community timings using only a four-character hash prefix, then matches locally.</td>
+        <td>No segment is skipped.</td>
+      </tr>
+      <tr>
+        <td>Loudness and EQ</td>
+        <td>Uses one local audio graph on YouTube Music to level tracks and apply five EQ bands.</td>
+        <td>Audio plays without that adjustment.</td>
+      </tr>
+      <tr>
+        <td>Cleaner controls</td>
+        <td>Uses bounded page rules and YouTube's own controls to hide clutter, cap quality, or stop autoplay.</td>
+        <td>The normal page remains.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    These layers do not replace YouTube's player and do not depend on a remote configuration service. They are
+    local, limited, and designed to become no-ops when the page does not match what they expect.
+  </p>
+
+  <h2>Open to inspection</h2>
+  <p>
+    YouTube Audio is free software under the GPL-3.0 license. You can inspect the
+    <a href="https://github.com/animeshkundu/youtube-audio">source on GitHub</a>, review the privacy details,
+    or start with <a href="/youtube-audio/guide/audio/">the audio-only guide</a>. The important boundary is
+    simple: your browser talks directly to the services needed for playback, and no server run by this project
+    sits in the middle.
+  </p>
+</Doc>

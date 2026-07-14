@@ -1,0 +1,76 @@
+---
+import { url } from '../consts';
+// Frames a real (light-themed) product screenshot as a clean card floating on
+// the dark canvas: warm hairline border, soft layered shadow, and a subtle
+// glow so it reads as a real app, not a pasted white rectangle. `crop` caps the
+// height and fades the bottom for tall captures. Each screenshot already
+// carries its own app header, so no fake browser chrome is added.
+interface Props {
+  src: string;
+  alt: string;
+  glow?: 'coral' | 'teal' | 'none';
+  crop?: boolean;
+  eager?: boolean;
+  class?: string;
+}
+const { src, alt, glow = 'coral', crop = false, eager = false, class: cls = '' } = Astro.props;
+---
+
+<figure class:list={['frame', `frame--glow-${glow}`, cls]}>
+  <div class:list={['frame__body', crop && 'is-crop']}>
+    <img src={url(src)} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" />
+  </div>
+</figure>
+
+<style>
+  .frame {
+    position: relative;
+    margin: 0;
+    border-radius: var(--r-lg);
+    padding: 6px;
+    background: linear-gradient(180deg, rgba(255, 240, 230, 0.08), rgba(255, 240, 230, 0.02));
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow-float);
+    isolation: isolate;
+  }
+  /* Soft glow behind the frame so it sits in space, not on a hard edge. */
+  .frame::after {
+    content: '';
+    position: absolute;
+    inset: -16% -12% -24%;
+    z-index: -1;
+    border-radius: inherit;
+    filter: blur(50px);
+    opacity: 0.8;
+  }
+  .frame--glow-coral::after {
+    background: radial-gradient(58% 58% at 50% 34%, var(--coral-glow), transparent 72%);
+  }
+  .frame--glow-teal::after {
+    background: radial-gradient(58% 58% at 50% 34%, var(--teal-glow), transparent 72%);
+  }
+  .frame--glow-none::after {
+    display: none;
+  }
+
+  .frame__body {
+    border-radius: calc(var(--r-lg) - 5px);
+    overflow: hidden;
+    background: #f4f2ef;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  }
+  .frame__body img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .frame__body.is-crop {
+    max-height: 470px;
+    -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 80%, transparent 100%);
+  }
+  .frame__body.is-crop img {
+    object-fit: cover;
+    object-position: top center;
+  }
+</style>

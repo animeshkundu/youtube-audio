@@ -1,0 +1,120 @@
+---
+import Logo from './Logo.astro';
+import { FOOTER_LINKS, DISCLAIMER, SITE, url } from '../consts';
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="shell footer__inner">
+    <div class="footer__brand">
+      <a class="brand" href={url('/')}>
+        <Logo size={26} />
+        <span class="brand__name">YouTube Audio</span>
+      </a>
+      <p class="footer__tag">
+        YouTube and YouTube Music as audio only, on Firefox for desktop and Android. Free and open source.
+      </p>
+    </div>
+
+    <div class="footer__cols">
+      {
+        FOOTER_LINKS.map((col) => (
+          <nav class="footer__col" aria-label={col.heading}>
+            <h4>{col.heading}</h4>
+            {col.links.map((l) => (
+              <a href={l.href} {...(l.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}>
+                {l.label}
+              </a>
+            ))}
+          </nav>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="shell footer__base">
+    <p class="footer__disclaimer">{DISCLAIMER}</p>
+    <p class="footer__legal">© {year} Animesh Kundu · GPL-3.0 · Firefox {SITE.minFirefox}+</p>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    border-top: 1px solid var(--line);
+    background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.25));
+    margin-top: 2rem;
+  }
+  .footer__inner {
+    display: grid;
+    grid-template-columns: 1.3fr 2fr;
+    gap: clamp(2rem, 6vw, 5rem);
+    padding-block: clamp(3rem, 6vw, 4.5rem) 2.5rem;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 640;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .footer__tag {
+    margin-top: 1rem;
+    color: var(--fg-dim);
+    font-size: 0.92rem;
+    max-width: 34ch;
+    line-height: 1.6;
+  }
+  .footer__cols {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+  .footer__col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .footer__col h4 {
+    font-size: 0.76rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    margin-bottom: 0.15rem;
+  }
+  .footer__col a {
+    color: var(--fg-muted);
+    font-size: 0.94rem;
+    transition: color 0.15s ease;
+    width: fit-content;
+  }
+  .footer__col a:hover {
+    color: var(--coral);
+  }
+  .footer__base {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.6rem 1.5rem;
+    padding-block: 1.6rem;
+    border-top: 1px solid var(--line);
+  }
+  .footer__disclaimer {
+    color: var(--fg-dim);
+    font-size: 0.82rem;
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+  .footer__legal {
+    color: var(--fg-faint);
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    .footer__inner {
+      grid-template-columns: 1fr;
+      gap: 2.25rem;
+    }
+  }
+</style>

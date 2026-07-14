@@ -1,0 +1,22 @@
+{
+  "name": "youtube-audio-website",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Marketing and guide website for the YouTube Audio Firefox extension",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.2.0",
+    "@astrojs/sitemap": "^3.2.1",
+    "@fontsource-variable/inter": "^5.1.1",
+    "astro": "^5.5.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

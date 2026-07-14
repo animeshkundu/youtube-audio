@@ -1,0 +1,55 @@
+---
+// Alternating feature row: a copy column and a media column that swap sides.
+// Both columns carry real mass so the composition never leaves dead space.
+interface Props {
+  reversed?: boolean;
+  align?: 'center' | 'start';
+  class?: string;
+}
+const { reversed = false, align = 'center', class: cls = '' } = Astro.props;
+---
+
+<div class:list={['frow', reversed && 'is-reversed', `is-${align}`, cls]}>
+  <div class="frow__copy">
+    <slot name="copy" />
+  </div>
+  <div class="frow__media">
+    <slot name="media" />
+  </div>
+</div>
+
+<style>
+  .frow {
+    display: grid;
+    grid-template-columns: 1fr 1.05fr;
+    gap: clamp(2rem, 6vw, 5rem);
+    align-items: center;
+  }
+  .frow.is-start {
+    align-items: start;
+  }
+  .frow.is-reversed .frow__copy {
+    order: 2;
+  }
+  .frow.is-reversed .frow__media {
+    order: 1;
+  }
+  .frow__copy {
+    max-width: 30rem;
+  }
+  @media (max-width: 820px) {
+    .frow {
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+    .frow.is-reversed .frow__copy {
+      order: 1;
+    }
+    .frow.is-reversed .frow__media {
+      order: 2;
+    }
+    .frow__copy {
+      max-width: 34rem;
+    }
+  }
+</style>
