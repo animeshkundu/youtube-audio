@@ -1,12 +1,21 @@
 {
+  "name": {
+    "en-US": "YouTube Audio"
+  },
   "summary": {
     "en-US": "Listen to YouTube and YouTube Music without downloading video. Audio-only playback saves battery and data, with background and lock-screen play, ad and telemetry blocking, segment skipping, loudness normalization, EQ, and audio download."
   },
-  "categories": ["other"],
+  "description": {
+    "en-US": "YouTube Audio is a major overhaul and refresh, rebuilt from the ground up to do one thing beautifully: play YouTube and YouTube Music as audio only. It points the player at a direct audio stream and stops the video download at its source, so your battery and mobile data last far longer while the sound keeps playing. The native player and its controls stay exactly where you expect them.\n\nWhat you get:\n- Audio only, video bytes gone. Same controls, far less battery and data.\n- Background and lock-screen play. Lock the phone or switch tabs and the audio carries on, with your usual OS media controls.\n- Ghost mode. Ads and tracking pings are blocked before they leave your browser, quietly, by default.\n- Skip the boring bits. SponsorBlock-style auto-skip past sponsor reads and off-topic intros. Only a tiny hash ever leaves your machine to look them up.\n- YouTube Music, leveled up. Even out loud-and-quiet tracks with loudness normalization and shape the sound with a 5-band equalizer.\n- Save a track. Download the current audio as a single, tidy .m4a.\n- Tidy up the page. Optionally hide Shorts, recommendations, or comments, cap the quality, or switch off autoplay-next.\n\nBuilt for you, not for data:\n- Logged out, always. It never needs, reads, or touches your YouTube account.\n- Collects nothing. No analytics, no phone-home. The media it fetches is requested without your cookies.\n- Falls back gracefully. Live streams, made-for-kids, age-restricted, or members-only videos simply hand you back to normal YouTube. No broken playback, ever.\n\nFirefox 128 and up, on desktop and Android. The essentials are on out of the box; the rest waits until you ask."
+  },
+  "homepage": {
+    "en-US": "https://animesh.kundus.in/youtube-audio"
+  },
+  "categories": ["photos-music-videos", "privacy-security"],
   "version": {
     "license": "GPL-3.0-only",
     "release_notes": {
-      "en-US": "Listen to YouTube and YouTube Music as audio only. The extension points the player at a direct audio stream and stops the video download at its source, so your battery and mobile data last far longer while the sound keeps playing. Native controls stay intact.\n\nHighlights:\n- Audio-only playback with background and lock-screen play.\n- Ad and telemetry blocking, on by default and quiet.\n- SponsorBlock-style skipping of sponsor reads and off-topic intros; only a tiny hash ever leaves your machine to look them up.\n- YouTube Music loudness normalization and a 5-band equalizer.\n- Save the current track as a single .m4a file.\n- Optional tidy-ups: hide Shorts, recommendations, or comments; cap quality; stop autoplay-next.\n\nLogged out only, and it collects nothing: no analytics, no phone-home, and the media it fetches is requested without your cookies. When a video cannot play as audio only (live, made-for-kids, age-restricted, or members-only) it hands you back to normal YouTube. Firefox 128 and up, desktop and Android."
+      "en-US": "A major overhaul and refresh. YouTube Audio has been rebuilt from the ground up around one job: clean, reliable audio-only playback on YouTube and YouTube Music, on Firefox desktop and Android.\n\nWhat is new and better:\n- Rock-solid audio-only. Toggle it off and you land back on the video at the exact spot you were listening to, playing or paused, even if you flip it on and off in a hurry.\n- Reliable on Android. Audio-only holds through YouTube's player changes on Firefox for Android, including a fix for a mid-playback position reset.\n- Honest status. The popup shows the real state of the current video, so you always know when something has fallen back to normal YouTube.\n- Lighter and smoother. A rare case that could make YouTube feel sluggish was tracked down and fixed.\n- Nicer in the player. The audio-only button matches YouTube's own controls, and audio mode shows the track artwork instead of a black rectangle.\n- Cleaner downloads. One track, one well-behaved .m4a.\n- Hiding recommendations leaves your comments alone.\n\nGhost mode (ad and telemetry blocking), SponsorBlock-style skipping, loudness normalization, and the equalizer are all here, on by default where it makes sense. Everything stays logged out and collects nothing."
     }
   }
 }
