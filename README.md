@@ -180,9 +180,9 @@ youtube-audio/
 ├── tests/
 │   ├── unit/             # Vitest unit + UI tests
 │   └── e2e/              # bench, live probes, Android driver
-├── docs/                 # MkDocs (Material) site source: architecture, specs, ADRs, research, history
+├── docs/                 # Engineering docs in-repo: architecture, specs, ADRs, research, history
 ├── scripts/              # build, sign, validate
-├── mkdocs.yml            # docs site config
+├── website/              # Public site: bespoke Astro (marketing + guide)
 └── wxt.config.ts         # build + manifest config
 ```
 

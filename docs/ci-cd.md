@@ -40,8 +40,9 @@ test:bench`. The bench builds its own `BENCH=1` XPI and drives it against the lo
 4. **matrix**: drives the real extension through the deterministic settings-permutation matrix in
    Firefox against the same hermetic fixture.
 
-The independent **docs** job runs `mkdocs build --strict`. It validates navigation and links, but it
-is not a dependency of release publishing.
+The public website is a bespoke Astro project in `website/`, deployed to GitHub Pages by `pages.yml`
+on changes under `website/**` (see below). The engineering docs under `docs/` (specs, ADRs,
+architecture, research, history) live in the repo and are not built into the published site.
 
 ### GitHub Release after a merge to master
 
