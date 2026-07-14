@@ -1,0 +1,635 @@
+/* ==========================================================================
+   YouTube Audio - marketing + walkthrough components for Material for MkDocs.
+   Loaded after brand.css (which owns the palette). Everything here is layout:
+   the bespoke home shell, hero, screenshot frames, feature rows, the 3-step
+   graphic, and shared bits used by both the home page and the Guide.
+
+   Design language: dark-first, one accent (brand red, sampled from the
+   product glyph), generous whitespace, soft two-layer shadows, and real
+   screenshots framed in browser / popup / phone chrome so the product does
+   the talking. Restraint is the whole game: red shows up for calls to
+   action, the glyph, one highlighted word, and small interactive details.
+   Nothing else is tinted.
+   ========================================================================== */
+
+:root {
+  --yta-red: #e1251b;
+  --yta-red-bright: #ff4a3d;
+  --yta-red-deep: #b3160e;
+  --yta-red-glow: rgba(225, 37, 27, 0.35);
+  --yta-radius: 16px;
+  --yta-lift: 0 1px 3px rgba(0, 0, 0, 0.45), 0 16px 32px -20px rgba(0, 0, 0, 0.55);
+  --yta-lift-strong: 0 2px 10px -2px rgba(0, 0, 0, 0.55), 0 36px 70px -26px var(--yta-red-glow);
+}
+[data-md-color-scheme='default'] {
+  --yta-red: #c01a12;
+  --yta-red-bright: #e1251b;
+  --yta-red-glow: rgba(192, 26, 18, 0.2);
+  --yta-lift: 0 1px 3px rgba(15, 15, 18, 0.1), 0 16px 32px -22px rgba(15, 15, 18, 0.22);
+  --yta-lift-strong: 0 2px 10px -2px rgba(15, 15, 18, 0.16), 0 36px 70px -28px var(--yta-red-glow);
+}
+
+/* ==========================================================================
+   Bespoke home shell: full-bleed page, no doc sidebars/tabs, custom
+   top bar + footer. Scoped to html.yta-home-page, set by an inline script
+   in overrides/home.html so the rest of the site is completely unaffected.
+   ========================================================================== */
+html.yta-home-page,
+html.yta-home-page body {
+  background: #0b0b0d;
+}
+html.yta-home-page .md-grid {
+  max-width: none;
+}
+html.yta-home-page .md-main__inner {
+  margin-top: 0;
+}
+html.yta-home-page .md-content__inner {
+  margin: 0;
+  padding: 0;
+}
+html.yta-home-page .md-content__inner::before {
+  display: none;
+}
+html.yta-home-page [data-md-component='top'],
+html.yta-home-page [data-md-component='announce'] {
+  display: none;
+}
+/* The home page is dark-first, full stop, regardless of a light-mode
+   preference saved while browsing the docs. */
+html.yta-home-page [data-md-color-scheme] {
+  --md-default-bg-color: #0b0b0d;
+  --md-typeset-color: rgba(245, 245, 247, 0.92);
+  --yta-red: #e1251b;
+  --yta-red-bright: #ff4a3d;
+  --yta-red-glow: rgba(225, 37, 27, 0.35);
+}
+
+/* Centered max-width shell used inside every full-bleed section. */
+.yta-shell {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: clamp(1.25rem, 5vw, 3rem);
+}
+
+/* ---- Custom top bar ------------------------------------------------------ */
+.yta-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(11, 11, 13, 0.82);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.yta-topbar__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-block: 1rem;
+}
+.yta-topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+  color: #f5f5f7 !important;
+  text-decoration: none;
+}
+.yta-topbar__brand img {
+  border-radius: 7px;
+  display: block;
+}
+.yta-topbar__nav {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+}
+.yta-topbar__nav a {
+  color: rgba(245, 245, 247, 0.75);
+  text-decoration: none;
+  font-size: 0.92rem;
+  font-weight: 500;
+  transition: color 150ms ease;
+}
+.yta-topbar__nav a:hover {
+  color: #f5f5f7;
+}
+.yta-topbar__cta {
+  padding: 0.5rem 1.05rem !important;
+  border-radius: 8px;
+  background: var(--yta-red);
+  color: #fff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 10px 24px -12px var(--yta-red-glow);
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+.yta-topbar__cta:hover {
+  background: var(--yta-red-bright);
+  transform: translateY(-1px);
+}
+
+/* ---- Custom footer -------------------------------------------------------- */
+.yta-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-block: 3rem;
+  margin-top: 6rem;
+}
+.yta-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+.yta-footer__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+.yta-footer__brand img {
+  border-radius: 6px;
+  display: block;
+}
+.yta-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+}
+.yta-footer__links a {
+  color: rgba(245, 245, 247, 0.65);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.yta-footer__links a:hover {
+  color: var(--yta-red-bright);
+}
+.yta-footer__meta {
+  width: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(245, 245, 247, 0.4);
+}
+
+/* ==========================================================================
+   Section rhythm + shared bits (home page)
+   ========================================================================== */
+.yta-section {
+  margin: 7rem 0;
+}
+.yta-section--tight {
+  margin: 4rem 0;
+}
+
+.yta-eyebrow {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--yta-red-bright);
+  margin-bottom: 0.75rem;
+}
+
+.md-typeset .yta-center {
+  text-align: center;
+}
+.yta-lede {
+  max-width: 40rem;
+  margin-inline: auto;
+  font-size: 1.1rem;
+  line-height: 1.65;
+  opacity: 0.82;
+}
+
+/* ==========================================================================
+   Hero
+   ========================================================================== */
+.yta-hero {
+  position: relative;
+  padding: 6rem 0 4rem;
+  text-align: center;
+  overflow: hidden;
+}
+.yta-hero::before {
+  content: '';
+  position: absolute;
+  inset: -10% -10% auto -10%;
+  height: 32rem;
+  background: radial-gradient(
+    620px 420px at 50% 0%,
+    rgba(225, 37, 27, 0.22),
+    rgba(225, 37, 27, 0.05) 55%,
+    transparent 75%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+.yta-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.yta-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.32rem 0.9rem;
+  border-radius: 2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(245, 245, 247, 0.75);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.md-typeset .yta-hero__title {
+  margin: 1.4rem 0 1rem;
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
+  line-height: 1.03;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: #f5f5f7;
+}
+.yta-hero__title .accent {
+  color: var(--yta-red-bright);
+}
+.yta-hero__subtitle {
+  max-width: 38rem;
+  margin: 0 auto;
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: rgba(245, 245, 247, 0.72);
+}
+
+.yta-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: center;
+  margin-top: 2.2rem;
+}
+.md-typeset .yta-cta .md-button {
+  margin: 0;
+  border-radius: 10px;
+  font-weight: 600;
+  padding: 0.7rem 1.4rem;
+  border-width: 1px;
+}
+.md-typeset .yta-cta .md-button--primary {
+  background: var(--yta-red);
+  border-color: var(--yta-red);
+  box-shadow: 0 16px 34px -14px var(--yta-red-glow);
+}
+.md-typeset .yta-cta .md-button--primary:hover {
+  background: var(--yta-red-bright);
+  border-color: var(--yta-red-bright);
+}
+.md-typeset .yta-cta .md-button:not(.md-button--primary) {
+  color: #f5f5f7;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.md-typeset .yta-cta .md-button:not(.md-button--primary):hover {
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.04);
+}
+.yta-hero__note {
+  margin-top: 1.1rem;
+  font-size: 0.82rem;
+  color: rgba(245, 245, 247, 0.45);
+}
+
+/* Hero showcase image (the floating popup panel), with a soft red glow. */
+.yta-hero__showcase {
+  position: relative;
+  margin: 3.2rem auto 0;
+  max-width: 320px;
+}
+.yta-hero__showcase::before {
+  content: '';
+  position: absolute;
+  inset: -18% -30%;
+  background: radial-gradient(circle, var(--yta-red-glow), transparent 70%);
+  filter: blur(6px);
+  z-index: -1;
+}
+
+/* ==========================================================================
+   Screenshot frames - the biggest polish lever. Floating cards with a
+   crisp hairline, a two-layer shadow, and a consistent radius so every
+   screenshot feels part of one system.
+   ========================================================================== */
+
+/* Generic soft-lifted screenshot card. */
+.md-typeset .shot {
+  margin: 0;
+  border-radius: var(--yta-radius);
+  overflow: hidden;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-default-bg-color);
+  box-shadow: var(--yta-lift);
+}
+.md-typeset .shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+}
+.md-typeset .shot figcaption,
+.md-typeset figure.shot > figcaption {
+  padding: 0.6rem 0.95rem;
+  font-size: 0.78rem;
+  opacity: 0.62;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Browser chrome: a header strip with three traffic-light dots. */
+.md-typeset .frame-browser {
+  border-radius: var(--yta-radius);
+  overflow: hidden;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: var(--yta-lift);
+  background: var(--md-default-bg-color);
+}
+.md-typeset .frame-browser::before {
+  content: '';
+  display: block;
+  height: 34px;
+  background-color: var(--md-default-fg-color--lightest);
+  background-image:
+    radial-gradient(circle 5px at 18px 17px, #ff5f57 96%, transparent),
+    radial-gradient(circle 5px at 38px 17px, #febc2e 96%, transparent),
+    radial-gradient(circle 5px at 58px 17px, #28c840 96%, transparent);
+  background-repeat: no-repeat;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+.md-typeset .frame-browser img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Popup panel: a small floating card, tuned to the real 320px popup width. */
+.md-typeset .frame-popup {
+  max-width: 320px;
+  margin-inline: auto;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: var(--yta-lift-strong);
+}
+.md-typeset .frame-popup img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Thin-bezel phone frame for the mobile shot. */
+.md-typeset .frame-phone {
+  max-width: 280px;
+  margin-inline: auto;
+  padding: 10px;
+  border-radius: 32px;
+  background: linear-gradient(160deg, #232326, #131315);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--yta-lift-strong);
+}
+.md-typeset .frame-phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 22px;
+}
+
+/* ==========================================================================
+   Feature rows (alternating image / copy)
+   ========================================================================== */
+.yta-feature {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3.5rem;
+  align-items: center;
+  margin: 5rem 0;
+}
+.yta-feature.is-reversed .yta-feature__media {
+  order: 2;
+}
+.md-typeset .yta-feature__copy h2,
+.md-typeset .yta-feature__copy h3 {
+  margin-top: 0.2rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+}
+.yta-feature__copy p {
+  color: rgba(245, 245, 247, 0.72);
+  font-size: 1.02rem;
+}
+
+@media screen and (max-width: 59.9375em) {
+  .yta-feature {
+    grid-template-columns: 1fr;
+    gap: 1.6rem;
+  }
+  .yta-feature.is-reversed .yta-feature__media {
+    order: 0;
+  }
+}
+
+/* ==========================================================================
+   3-step "how it works" graphic - a small, beautiful HTML/CSS diagram.
+   Replaces the mermaid flowchart on the consumer homepage.
+   ========================================================================== */
+.yta-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  margin: 2.5rem 0 1rem;
+}
+.yta-step {
+  flex: 1;
+  text-align: center;
+  padding-inline: 0.5rem;
+}
+.yta-step__num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 1.1rem;
+  border-radius: 50%;
+  background: rgba(225, 37, 27, 0.12);
+  border: 1px solid rgba(225, 37, 27, 0.4);
+  color: var(--yta-red-bright);
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+.md-typeset .yta-step h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+.yta-step p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: rgba(245, 245, 247, 0.62);
+  line-height: 1.55;
+}
+.yta-step__connector {
+  flex: 0 0 auto;
+  width: 4.5rem;
+  height: 1px;
+  margin-top: 22px;
+  background: linear-gradient(90deg, rgba(225, 37, 27, 0.5), rgba(255, 255, 255, 0.08));
+}
+
+@media screen and (max-width: 44rem) {
+  .yta-steps {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.75rem;
+  }
+  .yta-step__connector {
+    width: 1px;
+    height: 1.75rem;
+    margin: 0 auto;
+    background: linear-gradient(180deg, rgba(225, 37, 27, 0.5), rgba(255, 255, 255, 0.08));
+  }
+}
+
+/* ==========================================================================
+   Promise list (bold lead-in, no icons) + pull quote
+   ========================================================================== */
+.md-typeset .yta-promise {
+  list-style: none;
+  margin: 1.2rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.md-typeset .yta-promise > li {
+  position: relative;
+  padding-left: 1.6rem;
+  color: rgba(245, 245, 247, 0.75);
+}
+.md-typeset .yta-promise > li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yta-red-bright);
+}
+
+.md-typeset .yta-quote {
+  margin: 2rem auto 0;
+  max-width: 42rem;
+  text-align: center;
+  font-size: 1.4rem;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: #f5f5f7;
+}
+.md-typeset .yta-quote .accent {
+  color: var(--yta-red-bright);
+}
+
+/* ==========================================================================
+   Install band
+   ========================================================================== */
+.yta-band {
+  margin: 7rem 0 2rem;
+  padding-block: 4.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.yta-band::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(680px 260px at 50% 0%, rgba(225, 37, 27, 0.14), transparent 70%);
+  pointer-events: none;
+}
+.yta-band > * {
+  position: relative;
+}
+.md-typeset .yta-band h2 {
+  margin-top: 0;
+}
+
+/* ==========================================================================
+   "Everything else" feature cards (Material .grid.cards) - brand hover
+   ========================================================================== */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border-radius: var(--yta-radius);
+  border-color: var(--md-default-fg-color--lightest);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: rgba(225, 37, 27, 0.45);
+  box-shadow: var(--yta-lift);
+  transform: translateY(-2px);
+}
+.md-typeset .grid.cards .twemoji svg,
+.md-typeset .grid.cards .lg svg {
+  fill: var(--yta-red-bright);
+}
+
+/* ==========================================================================
+   FAQ accordion polish (pymdownx.details / admonition "question" blocks).
+   Material ships a lime-green "question" admonition colour by default;
+   these overrides retarget it to the brand red everywhere it appears (the
+   homepage FAQ and the Guide FAQ page alike) so the accordion never
+   introduces a second, off-brand accent colour.
+   ========================================================================== */
+.md-typeset .admonition.question,
+.md-typeset details.question {
+  border-radius: 12px;
+  border-color: var(--md-default-fg-color--lightest);
+  box-shadow: none;
+}
+.md-typeset .admonition.question:focus-within,
+.md-typeset details.question:focus-within {
+  box-shadow: 0 0 0 0.2rem rgba(225, 37, 27, 0.1);
+}
+.md-typeset .question > .admonition-title,
+.md-typeset .question > summary {
+  background-color: rgba(225, 37, 27, 0.06);
+  font-weight: 600;
+}
+.md-typeset .question > .admonition-title::before,
+.md-typeset .question > summary::before {
+  background-color: var(--yta-red-bright);
+}
+.md-typeset .question > .admonition-title::after,
+.md-typeset .question > summary::after {
+  color: var(--yta-red-bright);
+}
+
+/* ==========================================================================
+   Mermaid (docs pages only, e.g. Architecture): center, and keep the
+   brand-red accent class used by retheme-d diagrams.
+   ========================================================================== */
+.md-typeset .mermaid {
+  margin: 1.6rem 0;
+  text-align: center;
+}
