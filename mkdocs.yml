@@ -182,6 +182,7 @@ nav:
       - Disable Synced Lyrics: history/2026-07-13-disable-lyrics.md
       - Mobile Cold-Load Config Wait: history/2026-07-13-mobile-cold-load-config-wait.md
       - Mobile Element-Swap Re-Hijack: history/2026-07-13-mobile-element-swap-rehijack.md
+      - Release-on-Merge Automation: history/2026-07-13-release-on-merge.md
   - Agent Instructions:
       - Overview: agent-instructions/README.md
       - 00 Core Philosophy: agent-instructions/00-core-philosophy.md

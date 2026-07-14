@@ -8,32 +8,68 @@ nightly canaries that never block a merge.
 
 | Workflow            | File                                | Trigger                                       | Gating?                    |
 | ------------------- | ----------------------------------- | --------------------------------------------- | -------------------------- |
-| CI                  | `.github/workflows/ci.yml`          | push + PR (`main`/`master`/`rebuild`), manual | Gating (all 3 jobs)        |
+| CI                  | `.github/workflows/ci.yml`          | push + PR (`main`/`master`/`rebuild`), manual | Gating + master release    |
 | Beta                | `.github/workflows/beta.yml`        | pre-release tag `v*[a-z]*` + manual           | Gating (blocks the sign)   |
 | Publish to AMO      | `.github/workflows/publish-amo.yml` | manual `workflow_dispatch` only               | Gating (blocks the submit) |
 | Mobile E2E          | `.github/workflows/mobile-e2e.yml`  | nightly 04:17 UTC + manual                    | Non-gating (best-effort)   |
 | Live YouTube Canary | `.github/workflows/live-canary.yml` | nightly 05:42 UTC + manual                    | Non-gating (best-effort)   |
 | Pages               | `.github/workflows/pages.yml`       | (owned by another workflow)                   | n/a                        |
 
-All workflows use least-privilege `permissions: contents: read` (beta needs `contents: write` to
-publish the prerelease asset; publish-amo needs only read). The beta and publish-amo workflows share
-a single `concurrency` group (`amo-submit`, `cancel-in-progress: false`) so every AMO submission for
-the one add-on ID is serialized and an in-flight submission always finishes. CI and the canaries use
-a `${{ github.workflow }}-${{ github.ref }}` group and cancel superseded runs per ref.
+All workflows use least privilege: `contents: read` by default, while beta and CI's
+`release-on-merge` job use `contents: write` only to publish their Release assets or push the next
+version. The beta and publish-amo workflows share a single `concurrency` group (`amo-submit`,
+`cancel-in-progress: false`) so every AMO submission for the one add-on ID is serialized and an
+in-flight submission always finishes. Canaries and ordinary CI refs cancel superseded runs.
+Each `master` push gets a run-ID-scoped CI concurrency group so every merge completes its own gates;
+the release job then uses a shared non-cancelling `release-on-merge` group so two merges cannot
+publish or bump concurrently.
 
 ## CI (gating)
 
-Three parallel jobs, each an independent required check:
+Four parallel executable gate jobs must pass:
 
-1. **validate** — `npm ci` then `typecheck`, `lint` (eslint 0/0), `format:check`, `test` (vitest,
+1. **validate**: `npm ci` then `typecheck`, `lint` (eslint 0/0), `format:check`, `test` (vitest,
    90%+ coverage), `build` (MV2), and `web-ext lint` on `.output/firefox-mv2` (0 errors).
-2. **build-mv3** — `npm run build:mv3`. Proves the MV3 capability build stays buildable.
-3. **bench** — the hermetic Selenium/Firefox integration bench. It installs a real (non-snap)
+2. **build-mv3**: `npm run build:mv3`. Proves the MV3 capability build stays buildable.
+3. **bench**: the hermetic Selenium/Firefox integration bench. It installs a real (non-snap)
    Firefox via `browser-actions/setup-firefox` (the ubuntu snap Firefox cannot be driven by
    geckodriver), passes its path as `FIREFOX_BIN`, and runs `xvfb-run --auto-servernum npm run
 test:bench`. The bench builds its own `BENCH=1` XPI and drives it against the local hermetic
-   fixture (`tests/e2e/bench/fixture-server.mjs`) — no network, 21 deterministic cases — which is
-   why it is safe to gate on.
+   fixture (`tests/e2e/bench/fixture-server.mjs`), with no live network, which is why it is safe to
+   gate on.
+4. **matrix**: drives the real extension through the deterministic settings-permutation matrix in
+   Firefox against the same hermetic fixture.
+
+The independent **docs** job runs `mkdocs build --strict`. It validates navigation and links, but it
+is not a dependency of release publishing.
+
+### GitHub Release after a merge to master
+
+On a `push` to `master` only, **release-on-merge** waits for `validate`, `build-mv3`, `bench`, and
+`matrix`. Once all four succeed it checks out the exact gated merge commit with full history, runs
+`npm ci` and `npm run build:ext`, copies the packaged artifact to
+`dist/youtube-audio-<version>.xpi`, and creates
+latest GitHub Release `v<version>`. It uses `docs/release-notes/NEXT.md` when present and generated
+notes otherwise. If either the Release or its tag already exists, publishing is skipped cleanly. This
+makes the initial run safe when `v0.0.2.5` already exists.
+
+The GitHub Release XPI is **unsigned**. It is suitable for archival and manual or temporary
+installation only. It is not the signed, auto-updating production channel. AMO remains the sole
+signed and auto-updating channel, and the listed AMO publish remains manual and on demand.
+
+After publishing or safely skipping an existing version, the job increments only the last numeric
+segment in `package.json` (`0.0.2.9` becomes `0.0.2.10`), commits as `github-actions[bot]` with
+`[skip ci]`, and pushes to `master`. The skip directive prevents the bump push from starting CI and
+looping; pushes made with the workflow's `GITHUB_TOKEN` are also not used to create new workflow runs.
+The serialized release concurrency group prevents two successful merge runs from racing the release
+or version bump. Before pushing, each queued run rebases its one-file bump commit onto current
+`origin/master`, preserving newer merge commits. Note the edge case: if several merges land inside
+one version window, only the first claims the release tag `v<version>`; a later queued run finds that
+tag already present, skips creating a duplicate, and its identical increment is absorbed by the
+rebase rather than producing a further distinct version. No code is lost (every merge is on
+`master` and ships in the next release), but a distinct release tag per merge is not guaranteed under
+rapid concurrent merges. The condition is a push to `master` (a merge in the normal PR flow, but a
+direct push to `master` triggers it too).
 
 ### Run CI checks locally
 

@@ -7,9 +7,9 @@ on:
     branches: [main, master, rebuild]
   workflow_dispatch:
 
-# Cancel superseded runs for the same ref so only the newest commit's checks run.
+# Cancel superseded runs for ordinary refs. Every master merge gets its own gate run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && format('{0}-{1}', github.workflow, github.run_id) || format('{0}-{1}', github.workflow, github.ref) }}
   cancel-in-progress: true
 
 permissions:
@@ -128,6 +128,111 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:matrix
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  release-on-merge:
+    name: Publish GitHub Release and bump version
+    needs: [validate, build-mv3, bench, matrix]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-on-merge
+      cancel-in-progress: false
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          # Pin the release bytes to the exact master merge commit whose gates passed.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packaged Firefox XPI
+        run: npm run build:ext
+
+      - name: Read version and name asset
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          cp dist/youtube-audio.xpi "dist/youtube-audio-${version}.xpi"
+          echo "current=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release if new
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.current }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1 || \
+            git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release or tag $TAG already exists; skipping GitHub Release creation."
+            exit 0
+          fi
+
+          asset="dist/youtube-audio-${VERSION}.xpi"
+          if [[ -f docs/release-notes/NEXT.md ]]; then
+            gh release create "$TAG" "$asset" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes-file docs/release-notes/NEXT.md \
+              --latest
+          else
+            gh release create "$TAG" "$asset" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
+
+      - name: Bump final version segment
+        id: bump
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'package.json';
+          const packageJson = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const parts = packageJson.version.split('.');
+          if (parts.length !== 4 || !parts.every((part) => /^\d+$/.test(part))) {
+            throw new Error(`Expected a four-segment numeric version, got ${packageJson.version}`);
+          }
+          parts[parts.length - 1] = String(Number(parts.at(-1)) + 1);
+          packageJson.version = parts.join('.');
+          fs.writeFileSync(path, `${JSON.stringify(packageJson, null, 2)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `next=${packageJson.version}\n`);
+          NODE
+
+      - name: Commit and push version bump
+        shell: bash
+        env:
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+          NEXT_VERSION: ${{ steps.bump.outputs.next }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): v${CURRENT_VERSION}, bump to v${NEXT_VERSION} [skip ci]"
+          git fetch origin master
+          git rebase origin/master
+          git push origin HEAD:master
 
   docs:
     name: MkDocs strict build (nav + links)

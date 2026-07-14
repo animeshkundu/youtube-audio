@@ -43,9 +43,11 @@ Both channels share one identity, differentiated by AMO channel and version: the
 
 ### CI and tagged releases
 
-CI runs strict typecheck, zero-warning lint, unit tests, Firefox MV2/MV3 builds, and `web-ext lint`. The Selenium Firefox bench remains a non-gating manual workflow job because it requires a browser stack.
+CI runs strict typecheck, zero-warning lint, unit tests, Firefox MV2/MV3 builds, `web-ext lint`, the hermetic Firefox bench, and the settings-permutation matrix. After every push merge to `master`, a final `release-on-merge` job waits for all four executable gate jobs, packages the current Firefox MV2 version, and publishes the unsigned XPI as the latest GitHub Release. If either the release or its `v<version>` tag already exists, publishing is skipped cleanly. The job then increments only the final dot-separated integer in `package.json`, commits the next version with `[skip ci]`, and pushes it to `master`. A non-cancelling release concurrency group serializes merges, and master push runs are not cancelled by the workflow-level supersession policy while a release is in progress.
 
-A **pre-release** version tag (e.g. `v0.0.2.5b1`) runs `beta.yml`: it validates before signing, builds with `BETA_SUFFIX`, signs the unlisted MV2 XPI through AMO, re-checks the signed bytes, and attaches the XPI to a GitHub prerelease. Promotion to the AMO listed channel is a separate, manual `publish-amo.yml` (`workflow_dispatch` only) that signs `--channel=listed` with a reviewer source archive; AMO hosts the listed XPI, so there is no Release asset and no self-hosted update manifest.
+The GitHub Release asset is unsigned. It is for archival and manual or temporary installation only; it is not a production update channel. Each `master` merge gets its own gate run, while a shared non-cancelling release concurrency group serializes publishing and bumps. The release job checks out the exact gated merge commit rather than a moving branch head. The `[skip ci]` bump commit does not start another push workflow, preventing a release loop. GitHub's normal `GITHUB_TOKEN` push suppression is a second guard.
+
+A **pre-release** version tag (e.g. `v0.0.2.5b1`) runs `beta.yml`: it validates before signing, builds with `BETA_SUFFIX`, signs the unlisted MV2 XPI through AMO, re-checks the signed bytes, and attaches the XPI to a GitHub prerelease. Promotion to the AMO listed channel is a separate, manual `publish-amo.yml` (`workflow_dispatch` only) that signs `--channel=listed` with a reviewer source archive; AMO hosts the listed XPI, so there is no GitHub Release asset on the listed path and no self-hosted update manifest.
 
 ## Error Handling
 

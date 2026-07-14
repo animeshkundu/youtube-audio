@@ -42,3 +42,7 @@ npm-debug.log*
 
 # Ad-hoc scratch validation probes (never committed)
 tests/e2e/scratch-*.mjs
+
+# Local docs virtualenv and agent worktrees (never committed / formatted)
+.docs-venv/
+.claude/worktrees/

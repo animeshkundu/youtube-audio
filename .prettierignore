@@ -11,3 +11,6 @@ tests/e2e/
 *.zip
 .env
 .env.local
+
+.docs-venv/
+.claude/

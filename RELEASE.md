@@ -40,6 +40,14 @@ rejects hyphens, so the suffix attaches directly (no `-`); valid forms are `a`/`
 number. The toolkit comparator sorts `0.0.2.5b1` **below** the clean `0.0.2.5`, so the beta never
 collides with or supersedes the listed version under the shared ID.
 
+After the executable CI gates pass for every merge push to `master`, CI publishes latest GitHub
+Release `v<current version>` with `youtube-audio-<current version>.xpi`, then increments the final
+numeric segment in `package.json` and pushes the bump with `[skip ci]`. Existing releases or tags are
+skipped cleanly before the bump, so the first run is safe if `v0.0.2.5` already exists. The GitHub
+Release XPI is **unsigned** and is only for archival and manual or temporary installation. It does
+not replace either Mozilla-signed path below: AMO remains the signed, auto-updating production
+channel, and listed publishing remains manual and on demand.
+
 ## Beta channel (unlisted, hand-installed)
 
 `.github/workflows/beta.yml` signs the unlisted beta. It triggers on a **pre-release** version tag
