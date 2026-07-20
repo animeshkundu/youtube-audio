@@ -74,7 +74,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@preact/signals": "2.9.3",
+    "@preact/signals": "2.9.4",
     "preact": "10.29.7"
   }
 }
