@@ -6,6 +6,8 @@ import {
   initializeSettings,
   resetSettings,
   setEnabled,
+  setDownloadFormat,
+  setDownloadQuality,
   setEqualizerBand,
   setForceQualityMax,
   setSegmentSkipCategory,
@@ -29,6 +31,8 @@ describe('resetSettings', () => {
     const set = vi.fn(async (_value: unknown) => undefined);
     stubBrowser(set);
     await setEnabled(false);
+    await setDownloadFormat('opus');
+    await setDownloadQuality('high');
     await setForceQualityMax('720p');
     await setEqualizerBand(2, 8);
     await setSegmentSkipCategory('sponsor', false);
@@ -49,6 +53,8 @@ describe('resetSettings', () => {
     const set = vi.fn(async (_value: unknown) => undefined);
     stubBrowser(set);
     await setEnabled(false);
+    await setDownloadFormat('m4a');
+    await setDownloadQuality('low');
     await setForceQualityMax('480p');
     await setEqualizerBand(0, -7);
     await setSegmentSkipCategory('music_offtopic', false);
@@ -84,5 +90,32 @@ describe('lyrics kill switch', () => {
     // Lyrics were retired (YouTube Music has native lyrics). normalizeSettings coerces the setting
     // off regardless of what is persisted, so a stale stored `true` can never run the feature.
     expect(getSettings().lyricsEnabled).toBe(false);
+  });
+});
+
+describe('download settings normalization', () => {
+  it('keeps valid selections and restores safe defaults for malformed values', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({
+        settings: { downloadFormat: 'opus', downloadQuality: 'medium' },
+      })
+      .mockResolvedValueOnce({
+        settings: { downloadFormat: 'mp3', downloadQuality: 320 },
+      });
+    vi.stubGlobal('browser', {
+      storage: {
+        local: { get, set: vi.fn(async () => undefined) },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+
+    await initializeSettings();
+    expect(getSettings().downloadFormat).toBe('opus');
+    expect(getSettings().downloadQuality).toBe('medium');
+
+    await initializeSettings();
+    expect(getSettings().downloadFormat).toBe(DEFAULT_SETTINGS.downloadFormat);
+    expect(getSettings().downloadQuality).toBe(DEFAULT_SETTINGS.downloadQuality);
   });
 });

@@ -9,6 +9,9 @@ import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
+  downloadEnabledSignal,
+  downloadFormatSignal,
+  downloadQualitySignal,
   equalizerEnabledSignal,
   segmentSkipEnabledSignal,
 } from '../../../src/shared/settings-signals';
@@ -27,6 +30,8 @@ function actions(): OptionsActions {
     setEqualizerBand: vi.fn(async () => undefined),
     setForceQualityMax: vi.fn(async () => undefined),
     setDownloadEnabled: vi.fn(async () => undefined),
+    setDownloadFormat: vi.fn(async () => undefined),
+    setDownloadQuality: vi.fn(async () => undefined),
     setAggressiveTelemetry: vi.fn(async () => undefined),
     resetSettings: vi.fn(async () => undefined),
     markOnboardingSeen: vi.fn(async () => undefined),
@@ -69,6 +74,9 @@ afterEach(() => {
   audioOnlyEnabledSignal.value = true;
   segmentSkipEnabledSignal.value = true;
   equalizerEnabledSignal.value = false;
+  downloadEnabledSignal.value = false;
+  downloadFormatSignal.value = 'auto';
+  downloadQualitySignal.value = 'auto';
 });
 
 describe('Options', () => {
@@ -123,6 +131,30 @@ describe('Options', () => {
     expect(
       container.querySelectorAll('[role="switch"][aria-label="Background & lock-screen play"]')
     ).toHaveLength(0);
+  });
+
+  it('shows download format and quality selectors only when downloads are enabled', () => {
+    const container = mount(<Options actions={actions()} />);
+    expect(container.querySelector('[aria-label="Download format"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Download quality"]')).toBeNull();
+
+    act(() => {
+      downloadEnabledSignal.value = true;
+    });
+
+    const format = container.querySelector<HTMLSelectElement>('[aria-label="Download format"]');
+    const quality = container.querySelector<HTMLSelectElement>('[aria-label="Download quality"]');
+    expect(Array.from(format?.options ?? []).map((option) => option.textContent)).toEqual([
+      'Auto (compatible M4A)',
+      'M4A (AAC)',
+      'Opus (WebM)',
+    ]);
+    expect(Array.from(quality?.options ?? []).map((option) => option.textContent)).toEqual([
+      'Auto',
+      'High (best available)',
+      'Medium (~70-130 kbps)',
+      'Low (~48-64 kbps)',
+    ]);
   });
 
   it('marks Block ads and Aggressive telemetry as high impact with text chips', () => {

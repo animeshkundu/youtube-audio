@@ -205,6 +205,11 @@ npm test
 # The 90% floor is enforced by thresholds in vitest.config.ts.
 ```
 
+Passing explicit unit-test paths after `npm test --` still emits coverage, but does not apply the
+repository-wide threshold to core modules that the selected files did not collect. The unfiltered
+`npm test` command remains the required coverage gate and enforces the 90% floor across the complete
+configured source set.
+
 ### Interpreting Reports
 
 - 🟢 Green: Covered lines

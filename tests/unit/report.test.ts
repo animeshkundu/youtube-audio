@@ -49,6 +49,8 @@ describe('sanitizeSettingsSnapshot', () => {
       enabled: true,
       audioOnlyEnabled: false,
       forceQualityMax: '720p',
+      downloadFormat: 'opus',
+      downloadQuality: 'medium',
       equalizerBands: [20, -20, 3, 'x', 1, 9],
       segmentSkipCategories: ['sponsor', 'evil', 'music_offtopic'],
       secretField: 'my-search-history',
@@ -56,6 +58,8 @@ describe('sanitizeSettingsSnapshot', () => {
     expect(snapshot.toggles.enabled).toBe(true);
     expect(snapshot.toggles.audioOnlyEnabled).toBe(false);
     expect(snapshot.forceQualityMax).toBe('720p');
+    expect(snapshot.downloadFormat).toBe('opus');
+    expect(snapshot.downloadQuality).toBe('medium');
     expect(snapshot.equalizerBands).toEqual([12, -12, 3, 0, 1]);
     expect(snapshot.segmentSkipCategories).toEqual(['sponsor', 'music_offtopic']);
     expect(JSON.stringify(snapshot)).not.toContain('my-search-history');
@@ -64,6 +68,15 @@ describe('sanitizeSettingsSnapshot', () => {
   it('defaults an invalid quality cap to off', () => {
     expect(sanitizeSettingsSnapshot({ forceQualityMax: '9000p' }).forceQualityMax).toBe('off');
     expect(sanitizeSettingsSnapshot(null).forceQualityMax).toBe('off');
+  });
+
+  it('defaults malformed download preferences to the compatible automatic source', () => {
+    const snapshot = sanitizeSettingsSnapshot({
+      downloadFormat: 'mp3',
+      downloadQuality: 320,
+    });
+    expect(snapshot.downloadFormat).toBe('auto');
+    expect(snapshot.downloadQuality).toBe('auto');
   });
 });
 

@@ -2,14 +2,21 @@ import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
 import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
 import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
+import {
+  isDownloadFormat,
+  isDownloadQuality,
+  type DownloadFormat,
+  type DownloadQuality,
+} from '../src/shared/config';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
-import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
+import { buildAudioFilename, isAllowedAudioUrl, isDownloadRequestId } from '../src/shared/download';
 import {
   buildAndroidVrPlayerRequest,
   getPlayability,
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  pickDownloadAudioFormat,
   type PlayerResponse,
 } from '../src/shared/innertube';
 import { PlayerHandle, type PlayerReleaseRecord } from '../src/shared/player';
@@ -49,6 +56,8 @@ interface PageSettings {
   equalizerBands: EqualizerBands;
   lyricsEnabled: boolean;
   downloadEnabled: boolean;
+  downloadFormat: DownloadFormat;
+  downloadQuality: DownloadQuality;
 }
 
 interface YouTubeConfig {
@@ -135,6 +144,8 @@ export default defineUnlistedScript(() => {
     equalizerBands: [],
     lyricsEnabled: false,
     downloadEnabled: false,
+    downloadFormat: 'auto',
+    downloadQuality: 'auto',
   };
   player.navigate();
   let visibilityCleanup: () => void = () => undefined;
@@ -328,11 +339,7 @@ export default defineUnlistedScript(() => {
       const parsed: unknown = JSON.parse(detail);
       if (typeof parsed !== 'object' || parsed === null) return;
       const candidate = parsed as { nonce?: unknown; requestId?: unknown };
-      if (
-        candidate.nonce !== bridgeNonce ||
-        typeof candidate.requestId !== 'string' ||
-        candidate.requestId.length > 64
-      ) {
+      if (candidate.nonce !== bridgeNonce || !isDownloadRequestId(candidate.requestId)) {
         return;
       }
       requestId = candidate.requestId;
@@ -386,7 +393,11 @@ export default defineUnlistedScript(() => {
         respond({ ok: false, reason: 'live' });
         return;
       }
-      const format = pickBestAudioFormat(playerResponse, true);
+      const format = pickDownloadAudioFormat(
+        playerResponse,
+        settings.downloadFormat,
+        settings.downloadQuality
+      );
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
       const benchOrigin = __BENCH__ ? location.origin : undefined;
@@ -980,7 +991,9 @@ function parseSettings(value: unknown): PageSettings | null {
       (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
     ) ||
     typeof candidate.lyricsEnabled !== 'boolean' ||
-    typeof candidate.downloadEnabled !== 'boolean'
+    typeof candidate.downloadEnabled !== 'boolean' ||
+    !isDownloadFormat(candidate.downloadFormat) ||
+    !isDownloadQuality(candidate.downloadQuality)
   ) {
     return null;
   }
@@ -999,6 +1012,8 @@ function parseSettings(value: unknown): PageSettings | null {
     equalizerBands: candidate.equalizerBands,
     lyricsEnabled: candidate.lyricsEnabled,
     downloadEnabled: candidate.downloadEnabled,
+    downloadFormat: candidate.downloadFormat,
+    downloadQuality: candidate.downloadQuality,
   };
 }
 

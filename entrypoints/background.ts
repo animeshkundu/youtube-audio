@@ -3,6 +3,7 @@ import { defineBackground } from 'wxt/utils/define-background';
 import {
   assembleAudioMedia,
   isAllowedAudioUrl,
+  isDownloadRequestId,
   isSafeDownloadFilename,
 } from '../src/shared/download';
 import {
@@ -325,15 +326,20 @@ async function lrclibGet(
 
 function parseDownloadRequest(
   value: unknown
-): { url: string; filename: string; benchOrigin?: string } | null {
+): { requestId: string; url: string; filename: string; benchOrigin?: string } | null {
   if (typeof value !== 'object' || value === null) return null;
   const candidate = value as {
     type?: unknown;
+    requestId?: unknown;
     url?: unknown;
     filename?: unknown;
     benchOrigin?: unknown;
   };
-  if (candidate.type !== DOWNLOAD_MESSAGE || !isSafeDownloadFilename(candidate.filename))
+  if (
+    candidate.type !== DOWNLOAD_MESSAGE ||
+    !isDownloadRequestId(candidate.requestId) ||
+    !isSafeDownloadFilename(candidate.filename)
+  )
     return null;
   let benchOrigin: string | undefined;
   if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
@@ -351,6 +357,7 @@ function parseDownloadRequest(
   }
   if (!isAllowedAudioUrl(candidate.url, benchOrigin)) return null;
   return {
+    requestId: candidate.requestId,
     url: candidate.url,
     filename: candidate.filename,
     ...(benchOrigin ? { benchOrigin } : {}),
@@ -358,11 +365,25 @@ function parseDownloadRequest(
 }
 
 async function downloadAudio(
-  request: NonNullable<ReturnType<typeof parseDownloadRequest>>
+  request: NonNullable<ReturnType<typeof parseDownloadRequest>>,
+  tabId: number
 ): Promise<{ ok: boolean }> {
   let objectUrl: string | null = null;
   try {
-    const media = await assembleAudioMedia(request.url);
+    const media = await assembleAudioMedia(request.url, fetch, {
+      onProgress: async (loaded, total) => {
+        try {
+          await browser.tabs.sendMessage(tabId, {
+            type: 'yta:download-progress',
+            requestId: request.requestId,
+            loaded,
+            total,
+          });
+        } catch {
+          // The originating tab can close while background assembly is still active.
+        }
+      },
+    });
     objectUrl = URL.createObjectURL(new Blob([media.bytes], { type: media.mimeType }));
     const downloadId = await browser.downloads.download({
       url: objectUrl,
@@ -566,7 +587,10 @@ export default defineBackground({
           const lyricsRequest = parseLyricsRequest(message);
           if (lyricsRequest) return fetchLyrics(lyricsRequest);
           const downloadRequest = parseDownloadRequest(message);
-          return downloadRequest ? downloadAudio(downloadRequest) : undefined;
+          const tabId = sender.tab?.id;
+          return downloadRequest && typeof tabId === 'number'
+            ? downloadAudio(downloadRequest, tabId)
+            : undefined;
         }
       );
       installStatusChannel();

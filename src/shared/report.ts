@@ -24,6 +24,8 @@ export interface DiagnosticsStats {
 export interface SettingsSnapshot {
   toggles: Record<string, boolean>;
   forceQualityMax: string;
+  downloadFormat: string;
+  downloadQuality: string;
   equalizerBands: number[];
   segmentSkipCategories: string[];
 }
@@ -50,6 +52,8 @@ export const ISSUE_BASE_URL = 'https://github.com/animeshkundu/youtube-audio/iss
 const OS_VALUES = ['android', 'win', 'mac', 'linux', 'openbsd', 'cros', 'fuchsia'] as const;
 const QUALITY_VALUES = ['off', '144p', '240p', '360p', '480p', '720p', '1080p'] as const;
 const CATEGORY_VALUES = ['sponsor', 'music_offtopic'] as const;
+const DOWNLOAD_FORMAT_VALUES = ['auto', 'm4a', 'opus'] as const;
+const DOWNLOAD_QUALITY_VALUES = ['auto', 'high', 'medium', 'low'] as const;
 const BOOLEAN_SETTING_KEYS = [
   'enabled',
   'audioOnlyEnabled',
@@ -105,6 +109,16 @@ export function sanitizeSettingsSnapshot(raw: unknown): SettingsSnapshot {
       typeof quality === 'string' && (QUALITY_VALUES as readonly string[]).includes(quality)
         ? quality
         : 'off',
+    downloadFormat:
+      typeof source.downloadFormat === 'string' &&
+      (DOWNLOAD_FORMAT_VALUES as readonly string[]).includes(source.downloadFormat)
+        ? source.downloadFormat
+        : 'auto',
+    downloadQuality:
+      typeof source.downloadQuality === 'string' &&
+      (DOWNLOAD_QUALITY_VALUES as readonly string[]).includes(source.downloadQuality)
+        ? source.downloadQuality
+        : 'auto',
     equalizerBands: bands
       .slice(0, 5)
       .map((band) =>
@@ -194,6 +208,8 @@ export function assembleReport(input: ReportInput): ReportBundle {
     lines.push(`- ${key}: ${value ? 'on' : 'off'}`);
   }
   lines.push(`- forceQualityMax: ${settings.forceQualityMax}`);
+  lines.push(`- downloadFormat: ${settings.downloadFormat}`);
+  lines.push(`- downloadQuality: ${settings.downloadQuality}`);
   lines.push(`- equalizerBands: ${settings.equalizerBands.join(', ') || 'flat'}`);
   lines.push(`- segmentSkipCategories: ${settings.segmentSkipCategories.join(', ') || 'none'}`);
   lines.push('');

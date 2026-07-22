@@ -50,6 +50,16 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
   const finite = (bytes) => (live ? {} : { contentLength: String(bytes) });
   return [
     {
+      itag: 139,
+      mimeType: 'audio/mp4; codecs="mp4a.40.5"',
+      bitrate: 48_000,
+      audioQuality: 'AUDIO_QUALITY_LOW',
+      audioSampleRate: '22050',
+      approxDurationMs: '215000',
+      url: media(139, 'audio/mp4'),
+      ...finite(1_300_000),
+    },
+    {
       itag: 140,
       mimeType: 'audio/mp4; codecs="mp4a.40.2"',
       bitrate: 131072,
@@ -58,6 +68,36 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
       approxDurationMs: '215000',
       url: media(140, 'audio/mp4'),
       ...finite(3_500_000),
+    },
+    {
+      itag: 141,
+      mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+      bitrate: 256_000,
+      audioQuality: 'AUDIO_QUALITY_HIGH',
+      audioSampleRate: '44100',
+      approxDurationMs: '215000',
+      url: media(141, 'audio/mp4'),
+      ...finite(6_800_000),
+    },
+    {
+      itag: 249,
+      mimeType: 'audio/webm; codecs="opus"',
+      bitrate: 50_000,
+      audioQuality: 'AUDIO_QUALITY_LOW',
+      audioSampleRate: '48000',
+      approxDurationMs: '215000',
+      url: media(249, 'audio/webm'),
+      ...finite(1_400_000),
+    },
+    {
+      itag: 250,
+      mimeType: 'audio/webm; codecs="opus"',
+      bitrate: 70_000,
+      audioQuality: 'AUDIO_QUALITY_LOW',
+      audioSampleRate: '48000',
+      approxDurationMs: '215000',
+      url: media(250, 'audio/webm'),
+      ...finite(2_000_000),
     },
     {
       itag: 251,

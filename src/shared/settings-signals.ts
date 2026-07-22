@@ -13,7 +13,12 @@
 import { signal } from '@preact/signals';
 
 import type { EqualizerBands } from './audiograph';
-import { DEFAULT_SETTINGS, subscribeSettings } from './config';
+import {
+  DEFAULT_SETTINGS,
+  subscribeSettings,
+  type DownloadFormat,
+  type DownloadQuality,
+} from './config';
 import type { QualityCap } from './quality-of-life';
 import type { SponsorCategory } from './sponsorblock';
 
@@ -38,6 +43,8 @@ export const equalizerEnabledSignal = signal(DEFAULT_SETTINGS.equalizerEnabled);
 export const equalizerBandsSignal = signal<EqualizerBands>(DEFAULT_SETTINGS.equalizerBands);
 export const lyricsEnabledSignal = signal(DEFAULT_SETTINGS.lyricsEnabled);
 export const downloadEnabledSignal = signal(DEFAULT_SETTINGS.downloadEnabled);
+export const downloadFormatSignal = signal<DownloadFormat>(DEFAULT_SETTINGS.downloadFormat);
+export const downloadQualitySignal = signal<DownloadQuality>(DEFAULT_SETTINGS.downloadQuality);
 
 // Mirror the store into the signals. `subscribeSettings` invokes this immediately with the current
 // settings and again on every change, so the signals are correct from module load onward.
@@ -61,4 +68,6 @@ subscribeSettings((settings) => {
   equalizerBandsSignal.value = settings.equalizerBands;
   lyricsEnabledSignal.value = settings.lyricsEnabled;
   downloadEnabledSignal.value = settings.downloadEnabled;
+  downloadFormatSignal.value = settings.downloadFormat;
+  downloadQualitySignal.value = settings.downloadQuality;
 });

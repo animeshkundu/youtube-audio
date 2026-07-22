@@ -82,6 +82,8 @@ const BASE = Object.freeze({
   equalizerBands: [0, 0, 0, 0, 0],
   lyricsEnabled: false,
   downloadEnabled: false,
+  downloadFormat: 'auto',
+  downloadQuality: 'auto',
 });
 
 const settings = (overrides) => ({ ...BASE, ...overrides });
@@ -475,6 +477,33 @@ async function main() {
         rangeRequests: ranges.length,
         total,
         covered,
+      });
+    }
+
+    {
+      const s = settings({
+        downloadEnabled: true,
+        downloadFormat: 'opus',
+        downloadQuality: 'medium',
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        probeDownload: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const download = r.download ? JSON.parse(r.download) : null;
+      const failures = [];
+      if (!download?.url?.includes('/videoplayback?itag=250'))
+        failures.push(`download: expected Opus medium itag 250 (${download?.url ?? 'none'})`);
+      if (download?.filename !== 'Fixture Watch Page.webm')
+        failures.push(`download: expected .webm filename (${download?.filename ?? 'none'})`);
+      if (r.downloadProgress !== '100')
+        failures.push(`download: expected determinate 100% progress (${r.downloadProgress ?? 'none'})`);
+      record('download:opus-medium-selection-and-progress', failures, {
+        download,
+        progress: r.downloadProgress,
       });
     }
 

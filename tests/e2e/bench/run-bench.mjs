@@ -101,9 +101,6 @@ export function buildBenchExtension() {
 function makeOptions() {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
-  // Permit Marionette's chrome context (openBrowserActionPopup drives the toolbar via it). This is
-  // a WebDriver capability flag only; it does not change content-page or extension behavior.
-  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   // Pin the extension's internal UUID so the options page has a stable moz-extension origin.
   options.setPreference(
@@ -117,6 +114,11 @@ function makeOptions() {
   options.setPreference('datareporting.policy.dataSubmissionEnabled', false);
   options.setPreference('browser.shell.checkDefaultBrowser', false);
   return options;
+}
+
+function makeService() {
+  // Firefox 138+ requires UI-system access on geckodriver itself, not browser capabilities.
+  return new firefox.ServiceBuilder().addArguments('--allow-system-access');
 }
 
 /** Poll an async predicate until it returns truthy or the deadline passes. */
@@ -285,6 +287,7 @@ function snapshotScript() {
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
     lyrics: document.documentElement.dataset.ytaLyrics || null,
     download: document.documentElement.dataset.ytaDownload || null,
+    downloadProgress: document.documentElement.dataset.ytaDownloadProgress || null,
     downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
     audioOnlyTogglePresent: !!audioOnlyToggle,
     audioOnlyToggleAriaPressed: audioOnlyToggle?.getAttribute('aria-pressed') || null,
@@ -355,7 +358,11 @@ export async function runSession({
   probeLateAutonav,
   expectedTerminalStatus,
 }) {
-  const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
+  const driver = await new Builder()
+    .forBrowser('firefox')
+    .setFirefoxOptions(makeOptions())
+    .setFirefoxService(makeService())
+    .build();
   try {
     let addonId = null;
     if (withAddon) {
@@ -891,6 +898,7 @@ export async function runSession({
       audioGraph: snap.audioGraph,
       lyrics: snap.lyrics,
       download: snap.download,
+      downloadProgress: snap.downloadProgress,
       downloadButtonVisible: snap.downloadButtonVisible,
       audioOnlyTogglePresent: snap.audioOnlyTogglePresent,
       audioOnlyToggleAriaPressed: snap.audioOnlyToggleAriaPressed,
@@ -1672,6 +1680,29 @@ async function main() {
         typeof downloadData?.url === 'string' &&
         downloadData.url.includes('/videoplayback?itag=140'),
       { visible: downloadEnabled.downloadButtonVisible, download: downloadData }
+    );
+
+    const opusMediumDownload = await runSession({
+      withAddon: true,
+      seedSettings: {
+        downloadEnabled: true,
+        downloadFormat: 'opus',
+        downloadQuality: 'medium',
+      },
+      probeDownload: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const opusMediumData = opusMediumDownload.download
+      ? JSON.parse(opusMediumDownload.download)
+      : null;
+    record(
+      'm5:download-selects-opus-webm-medium-with-progress',
+      opusMediumData?.filename === 'Fixture Watch Page.webm' &&
+        typeof opusMediumData?.url === 'string' &&
+        opusMediumData.url.includes('/videoplayback?itag=250') &&
+        opusMediumDownload.downloadProgress === '100',
+      { download: opusMediumData, progress: opusMediumDownload.downloadProgress }
     );
 
     // --- ad-block disabled (all other features on) ----------------------------
