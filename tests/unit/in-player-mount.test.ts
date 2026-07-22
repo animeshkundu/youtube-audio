@@ -444,17 +444,31 @@ describe('in-player contextual feedback', () => {
     expect(controller.getState()).toEqual({ kind: 'idle' });
     expect(button.dataset.downloadState).toBe('idle');
 
-    expect(controller.transition({ type: 'start' })).toEqual({ kind: 'progress' });
+    expect(controller.transition({ type: 'start' })).toEqual({ kind: 'progress', ratio: null });
     expect(button.dataset.downloadState).toBe('progress');
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-busy')).toBe('true');
     expect(button.querySelector('.yta-download-progress-indicator')).not.toBeNull();
     expect(status.textContent).toBe('Preparing audio download');
 
+    expect(controller.transition({ type: 'progress', loaded: 4, total: 10 })).toEqual({
+      kind: 'progress',
+      ratio: 0.4,
+    });
+    expect(button.dataset.downloadProgress).toBe('40');
+    expect(button.querySelector('.yta-download-progress-value')?.textContent).toBe('40');
+    expect(status.textContent).toBe('Audio download 40%');
+
+    controller.transition({ type: 'progress', loaded: 41, total: 100 });
+    expect(status.textContent).toBe('Audio download 40%');
+    controller.transition({ type: 'progress', loaded: 50, total: 100 });
+    expect(status.textContent).toBe('Audio download 50%');
+
     expect(controller.transition({ type: 'succeed' })).toEqual({ kind: 'success' });
     expect(button.dataset.downloadState).toBe('success');
     expect(button.disabled).toBe(false);
     expect(button.hasAttribute('aria-busy')).toBe(false);
+    expect(button.dataset.downloadProgress).toBeUndefined();
     expect(button.querySelector('.yta-download-success')).not.toBeNull();
     expect(status.textContent).toBe('Audio download started');
 

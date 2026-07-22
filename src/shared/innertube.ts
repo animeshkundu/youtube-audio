@@ -1,3 +1,5 @@
+import type { DownloadFormat, DownloadQuality } from './config';
+
 export const ANDROID_VR_CLIENT = Object.freeze({
   clientName: 'ANDROID_VR',
   clientVersion: '1.65.10',
@@ -140,6 +142,63 @@ export function pickBestAudioFormat(
       preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
   );
   return audio[0] ?? null;
+}
+
+/**
+ * Selects a direct YouTube audio rendition for a bounded format and bitrate preference.
+ * Missing requested renditions fall back to the compatible AAC-first selection.
+ */
+export function pickDownloadAudioFormat(
+  playerResponse: unknown,
+  format: DownloadFormat,
+  quality: DownloadQuality
+): AudioFormat | null {
+  if (typeof playerResponse !== 'object' || playerResponse === null) return null;
+  const formats = (playerResponse as PlayerResponse).streamingData?.adaptiveFormats;
+  if (!Array.isArray(formats)) return null;
+
+  const mimePrefix = format === 'opus' ? 'audio/webm' : 'audio/mp4';
+  const candidates = formats.filter(
+    (candidate) =>
+      typeof candidate.url === 'string' &&
+      candidate.url.length > 0 &&
+      typeof candidate.mimeType === 'string' &&
+      candidate.mimeType.startsWith(mimePrefix)
+  );
+  if (candidates.length === 0) return pickBestAudioFormat(playerResponse, true);
+  const candidatesWithBitrate = candidates.filter(
+    (candidate) =>
+      typeof candidate.bitrate === 'number' &&
+      Number.isFinite(candidate.bitrate) &&
+      candidate.bitrate > 0
+  );
+  const bitrateCandidates = candidatesWithBitrate.length > 0 ? candidatesWithBitrate : candidates;
+
+  if (quality === 'auto') {
+    const preferredItag = format === 'opus' ? 251 : 140;
+    return (
+      candidates.find((candidate) => candidate.itag === preferredItag) ??
+      [...bitrateCandidates].sort((left, right) => (right.bitrate ?? 0) - (left.bitrate ?? 0))[0] ??
+      null
+    );
+  }
+
+  if (quality === 'high' || quality === 'low') {
+    const direction = quality === 'high' ? -1 : 1;
+    return (
+      [...bitrateCandidates].sort(
+        (left, right) => direction * ((left.bitrate ?? 0) - (right.bitrate ?? 0))
+      )[0] ?? null
+    );
+  }
+
+  const mediumTarget = format === 'opus' ? 70_000 : 128_000;
+  return (
+    [...bitrateCandidates].sort(
+      (left, right) =>
+        Math.abs((left.bitrate ?? 0) - mediumTarget) - Math.abs((right.bitrate ?? 0) - mediumTarget)
+    )[0] ?? null
+  );
 }
 
 export function pickBestAudioUrl(playerResponse: unknown): string | null {

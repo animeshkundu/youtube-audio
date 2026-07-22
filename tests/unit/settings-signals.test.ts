@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_SETTINGS, setEnabled, setForceQualityMax } from '../../src/shared/config';
+import {
+  DEFAULT_SETTINGS,
+  setDownloadFormat,
+  setEnabled,
+  setForceQualityMax,
+} from '../../src/shared/config';
 import * as signals from '../../src/shared/settings-signals';
 
 /**
@@ -44,9 +49,12 @@ describe('settings-signals bridge', () => {
     // A non-boolean field, to catch a bridge that only copies booleans.
     await setForceQualityMax('720p');
     expect(signals.forceQualityMaxSignal.value).toBe('720p');
+    await setDownloadFormat('opus');
+    expect(signals.downloadFormatSignal.value).toBe('opus');
 
     // Restore so the import-time mirror test stays order-independent.
     await setEnabled(initialEnabled);
     await setForceQualityMax(DEFAULT_SETTINGS.forceQualityMax);
+    await setDownloadFormat(DEFAULT_SETTINGS.downloadFormat);
   });
 });

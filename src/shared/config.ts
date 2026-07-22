@@ -2,6 +2,11 @@ import { FLAT_EQUALIZER, type EqualizerBands } from './audiograph';
 import { isQualityCap, type QualityCap } from './quality-of-life';
 import { isSponsorCategory, SPONSOR_CATEGORIES, type SponsorCategory } from './sponsorblock';
 
+export const DOWNLOAD_FORMATS = ['auto', 'm4a', 'opus'] as const;
+export const DOWNLOAD_QUALITIES = ['auto', 'high', 'medium', 'low'] as const;
+export type DownloadFormat = (typeof DOWNLOAD_FORMATS)[number];
+export type DownloadQuality = (typeof DOWNLOAD_QUALITIES)[number];
+
 export interface ExtensionSettings {
   enabled: boolean;
   audioOnlyEnabled: boolean;
@@ -22,6 +27,8 @@ export interface ExtensionSettings {
   equalizerBands: EqualizerBands;
   lyricsEnabled: boolean;
   downloadEnabled: boolean;
+  downloadFormat: DownloadFormat;
+  downloadQuality: DownloadQuality;
 }
 
 export type PlaybackSetting = 'audioOnlyEnabled' | 'audioArtworkEnabled' | 'backgroundPlayEnabled';
@@ -55,6 +62,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   equalizerBands: FLAT_EQUALIZER,
   lyricsEnabled: false,
   downloadEnabled: false,
+  downloadFormat: 'auto',
+  downloadQuality: 'auto',
 };
 
 let currentSettings = cloneSettings(DEFAULT_SETTINGS);
@@ -134,6 +143,14 @@ export async function setMusicSetting(setting: MusicSetting, enabled: boolean): 
 
 export async function setDownloadEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, downloadEnabled: enabled });
+}
+
+export async function setDownloadFormat(downloadFormat: DownloadFormat): Promise<void> {
+  await persistSettings({ ...currentSettings, downloadFormat });
+}
+
+export async function setDownloadQuality(downloadQuality: DownloadQuality): Promise<void> {
+  await persistSettings({ ...currentSettings, downloadQuality });
 }
 
 export async function resetSettings(): Promise<void> {
@@ -273,7 +290,21 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.downloadEnabled === 'boolean'
         ? candidate.downloadEnabled
         : DEFAULT_SETTINGS.downloadEnabled,
+    downloadFormat: isDownloadFormat(candidate.downloadFormat)
+      ? candidate.downloadFormat
+      : DEFAULT_SETTINGS.downloadFormat,
+    downloadQuality: isDownloadQuality(candidate.downloadQuality)
+      ? candidate.downloadQuality
+      : DEFAULT_SETTINGS.downloadQuality,
   };
+}
+
+export function isDownloadFormat(value: unknown): value is DownloadFormat {
+  return DOWNLOAD_FORMATS.includes(value as DownloadFormat);
+}
+
+export function isDownloadQuality(value: unknown): value is DownloadQuality {
+  return DOWNLOAD_QUALITIES.includes(value as DownloadQuality);
 }
 
 function normalizeEqualizerBands(value: unknown): number[] {

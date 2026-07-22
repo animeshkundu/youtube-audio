@@ -14,7 +14,11 @@ import {
   installGlobalErrorCapture,
   logFromContent,
 } from '../src/shared/diagnostics';
-import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
+import {
+  isAllowedAudioUrl,
+  isSafeDownloadFilename,
+  parseDownloadProgress,
+} from '../src/shared/download';
 import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
@@ -109,6 +113,7 @@ export default defineContentScript({
       installGlobalErrorCapture('content.uncaught', logFromContent);
       await initializeSettings();
       watchSettings();
+      browser.runtime.onMessage.addListener(handleDownloadProgressMessage);
       subscribeSettings((settings) => {
         window.postMessage(
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
@@ -860,12 +865,13 @@ export function installAudioOnlyTooltip(button: HTMLButtonElement): void {
 
 export type DownloadFeedbackState =
   | { kind: 'idle' }
-  | { kind: 'progress' }
+  | { kind: 'progress'; ratio: number | null }
   | { kind: 'success' }
   | { kind: 'failure'; reason: string };
 
 export type DownloadFeedbackEvent =
   | { type: 'start' }
+  | { type: 'progress'; loaded: number; total: number }
   | { type: 'succeed' }
   | { type: 'fail'; reason: string }
   | { type: 'reset' };
@@ -874,9 +880,21 @@ export function reduceDownloadFeedbackState(
   state: DownloadFeedbackState,
   event: DownloadFeedbackEvent
 ): DownloadFeedbackState {
-  if (event.type === 'start') return { kind: 'progress' };
+  if (event.type === 'start') return { kind: 'progress', ratio: null };
   if (event.type === 'reset') return { kind: 'idle' };
   if (state.kind !== 'progress') return state;
+  if (event.type === 'progress') {
+    if (
+      !Number.isSafeInteger(event.loaded) ||
+      !Number.isSafeInteger(event.total) ||
+      event.loaded < 0 ||
+      event.total <= 0 ||
+      event.loaded > event.total
+    ) {
+      return state;
+    }
+    return { kind: 'progress', ratio: event.loaded / event.total };
+  }
   if (event.type === 'succeed') return { kind: 'success' };
   if (event.type === 'fail') {
     const reason = event.reason.trim().slice(0, 120) || 'Could not download audio';
@@ -918,6 +936,7 @@ export function createDownloadFeedbackController(
   let statusRegion = initialStatusRegion;
   let state: DownloadFeedbackState = { kind: 'idle' };
   let resetTimer: number | null = null;
+  let announcedProgressBucket = -1;
 
   const prepareButton = (target: HTMLButtonElement) => {
     const documentRef = target.ownerDocument;
@@ -939,7 +958,12 @@ export function createDownloadFeedbackController(
       indicator.setAttribute('cx', '12');
       indicator.setAttribute('cy', '12');
       indicator.setAttribute('r', '8');
-      progress.append(track, indicator);
+      const value = documentRef.createElementNS('http://www.w3.org/2000/svg', 'text');
+      value.classList.add('yta-download-progress-value');
+      value.setAttribute('x', '12');
+      value.setAttribute('y', '14');
+      value.setAttribute('text-anchor', 'middle');
+      progress.append(track, indicator, value);
       target.append(progress);
     }
     if (!target.querySelector('.yta-download-success')) {
@@ -981,10 +1005,31 @@ export function createDownloadFeedbackController(
       else button.removeAttribute('aria-busy');
       const reason = button.querySelector<HTMLElement>('.yta-download-reason');
       if (reason) reason.textContent = state.kind === 'failure' ? state.reason : '';
+      const indicator = button.querySelector<SVGCircleElement>('.yta-download-progress-indicator');
+      const value = button.querySelector<SVGTextElement>('.yta-download-progress-value');
+      if (state.kind === 'progress' && state.ratio !== null) {
+        const percent = Math.min(100, Math.max(0, Math.floor(state.ratio * 100)));
+        button.dataset.downloadProgress = String(percent);
+        if (indicator) indicator.style.strokeDashoffset = String(50.27 * (1 - state.ratio));
+        if (value) value.textContent = String(percent);
+      } else {
+        delete button.dataset.downloadProgress;
+        if (indicator) indicator.style.strokeDashoffset = '';
+        if (value) value.textContent = '';
+      }
 
       if (!shouldAnnounce) return;
-      if (state.kind === 'progress') announce('Preparing audio download');
-      else if (state.kind === 'success') announce('Audio download started');
+      if (state.kind === 'progress' && state.ratio === null) {
+        announcedProgressBucket = -1;
+        announce('Preparing audio download');
+      } else if (state.kind === 'progress' && state.ratio !== null) {
+        const percent = Math.min(100, Math.max(0, Math.floor(state.ratio * 100)));
+        const bucket = Math.floor(percent / 10) * 10;
+        if (bucket > announcedProgressBucket) {
+          announcedProgressBucket = bucket;
+          announce(`Audio download ${bucket}%`);
+        }
+      } else if (state.kind === 'success') announce('Audio download started');
       else if (state.kind === 'failure') announce(`Audio download failed: ${state.reason}`);
     } catch {
       // Visual feedback must never interfere with downloading or player controls.
@@ -1224,9 +1269,18 @@ function installPlayerControlStyles(): void {
     .yta-download-progress-indicator {
       stroke: #22d3b4;
       stroke-linecap: round;
-      stroke-dasharray: 34 17;
+      stroke-dasharray: 25.13 25.13;
       transform-origin: 12px 12px;
+      transform: rotate(-90deg);
       animation: yta-download-spin 800ms linear infinite;
+    }
+    .yta-player-button[data-download-progress] .yta-download-progress-indicator {
+      stroke-dasharray: 50.27;
+      animation: none;
+    }
+    .yta-download-progress-value {
+      fill: currentColor;
+      font: 600 6px/1 Roboto, Arial, Helvetica, sans-serif;
     }
     .yta-download-success { color: #22d3b4; }
     .yta-download-failure { color: #ff5b57; }
@@ -1248,7 +1302,7 @@ function installPlayerControlStyles(): void {
       pointer-events: none;
     }
     .yta-player-button[data-download-state="failure"] .yta-download-reason { display: block; }
-    @keyframes yta-download-spin { to { transform: rotate(360deg); } }
+    @keyframes yta-download-spin { to { transform: rotate(270deg); } }
     @keyframes yta-download-shake {
       0%, 100% { transform: translateX(0); }
       25% { transform: translateX(-2px); }
@@ -1365,6 +1419,21 @@ function announcePlayerStatus(message: string): void {
 }
 
 const downloadFeedbackControllers = new WeakMap<HTMLButtonElement, DownloadFeedbackController>();
+const activeDownloadFeedback = new Map<string, DownloadFeedbackController>();
+
+function handleDownloadProgressMessage(message: unknown): undefined {
+  const progress = parseDownloadProgress(message);
+  if (!progress) return undefined;
+  const feedback = activeDownloadFeedback.get(progress.requestId);
+  if (!feedback) return undefined;
+  feedback.transition({ type: 'progress', loaded: progress.loaded, total: progress.total });
+  if (__BENCH__) {
+    document.documentElement.dataset.ytaDownloadProgress = String(
+      Math.floor((progress.loaded / progress.total) * 100)
+    );
+  }
+  return undefined;
+}
 
 function getDownloadFeedbackController(button: HTMLButtonElement): DownloadFeedbackController {
   const existing = downloadFeedbackControllers.get(button);
@@ -1396,6 +1465,7 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     announcePlayerStatus('Preparing audio download');
   }
   const requestId = crypto.randomUUID();
+  if (feedback) activeDownloadFeedback.set(requestId, feedback);
   try {
     const payload = await new Promise<{ url: string; filename: string }>((resolve, reject) => {
       const finish = () => {
@@ -1444,6 +1514,7 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     });
     const response: unknown = await browser.runtime.sendMessage({
       type: DOWNLOAD_MESSAGE,
+      requestId,
       ...payload,
       ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
     });
@@ -1462,6 +1533,7 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     if (feedback) feedback.transition({ type: 'fail', reason });
     else announcePlayerStatus(`Audio download failed: ${reason}`);
   } finally {
+    activeDownloadFeedback.delete(requestId);
     if (!feedback) button.disabled = false;
   }
 }

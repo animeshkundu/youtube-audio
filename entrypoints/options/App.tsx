@@ -7,6 +7,8 @@ import {
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setDownloadEnabled,
+  setDownloadFormat,
+  setDownloadQuality,
   setEnabled,
   setEqualizerBand,
   setForceQualityMax,
@@ -15,6 +17,8 @@ import {
   setQualityOfLifeSetting,
   setSegmentSkipCategory,
   setSegmentSkipEnabled,
+  type DownloadFormat,
+  type DownloadQuality,
 } from '../../src/shared/config';
 import {
   adBlockEnabledSignal,
@@ -23,6 +27,8 @@ import {
   backgroundPlayEnabledSignal,
   disableAutoplayNextSignal,
   downloadEnabledSignal,
+  downloadFormatSignal,
+  downloadQualitySignal,
   enabledSignal,
   equalizerBandsSignal,
   equalizerEnabledSignal,
@@ -63,6 +69,8 @@ const OPTION_LABELS = {
   loudness: 'Normalize loudness',
   equalizer: 'Equalizer',
   download: 'Download audio',
+  downloadFormat: 'Download format',
+  downloadQuality: 'Download quality',
   reset: 'Reset to defaults',
 } as const;
 
@@ -79,6 +87,8 @@ export type OptionsActions = {
   setEqualizerBand: typeof setEqualizerBand;
   setForceQualityMax: typeof setForceQualityMax;
   setDownloadEnabled: typeof setDownloadEnabled;
+  setDownloadFormat: typeof setDownloadFormat;
+  setDownloadQuality: typeof setDownloadQuality;
   setAggressiveTelemetry: typeof setAggressiveTelemetry;
   resetSettings: typeof resetSettings;
   markOnboardingSeen: () => Promise<void>;
@@ -98,6 +108,8 @@ export const defaultOptionsActions: OptionsActions = {
   setEqualizerBand,
   setForceQualityMax,
   setDownloadEnabled,
+  setDownloadFormat,
+  setDownloadQuality,
   setAggressiveTelemetry,
   resetSettings,
   markOnboardingSeen: async () => browser.storage.local.set({ [SEEN_ONBOARDING_KEY]: true }),
@@ -326,11 +338,18 @@ export function Options({
     OPTION_LABELS.equalizer,
     equalizerDescription
   );
-  const downloadVisible = matchesSearch(
-    normalizedQuery,
-    OPTION_LABELS.download,
-    downloadDescription
-  );
+  const downloadVisible =
+    matchesSearch(normalizedQuery, OPTION_LABELS.download, downloadDescription) ||
+    matchesSearch(
+      normalizedQuery,
+      OPTION_LABELS.downloadFormat,
+      'Choose a direct YouTube audio source without transcoding.'
+    ) ||
+    matchesSearch(
+      normalizedQuery,
+      OPTION_LABELS.downloadQuality,
+      'Pick the closest available source bitrate.'
+    );
   const resetVisible = matchesSearch(normalizedQuery, OPTION_LABELS.reset, resetDescription);
   const helpVisible = matchesSearch(normalizedQuery, 'Help and feedback', helpDescription);
 
@@ -745,6 +764,79 @@ export function Options({
                     apply('download', () => actions.setDownloadEnabled(checked))
                   }
                 />
+                {downloadEnabledSignal.value && (
+                  <>
+                    <label class="select-row">
+                      <span>
+                        <strong>{OPTION_LABELS.downloadFormat}</strong>
+                        <small id="option-download-format-description">
+                          Choose a direct YouTube audio source without transcoding.
+                        </small>
+                        {errors.downloadFormat && (
+                          <small
+                            class="setting-error"
+                            id="option-download-format-error"
+                            role="alert"
+                          >
+                            {errors.downloadFormat}
+                          </small>
+                        )}
+                      </span>
+                      <select
+                        aria-label={OPTION_LABELS.downloadFormat}
+                        aria-describedby={
+                          errors.downloadFormat
+                            ? 'option-download-format-description option-download-format-error'
+                            : 'option-download-format-description'
+                        }
+                        value={downloadFormatSignal.value}
+                        onChange={(event) => {
+                          const format = event.currentTarget.value as DownloadFormat;
+                          apply('downloadFormat', () => actions.setDownloadFormat(format));
+                        }}
+                      >
+                        <option value="auto">Auto (compatible M4A)</option>
+                        <option value="m4a">M4A (AAC)</option>
+                        <option value="opus">Opus (WebM)</option>
+                      </select>
+                    </label>
+                    <label class="select-row">
+                      <span>
+                        <strong>{OPTION_LABELS.downloadQuality}</strong>
+                        <small id="option-download-quality-description">
+                          Pick the closest available source bitrate.
+                        </small>
+                        {errors.downloadQuality && (
+                          <small
+                            class="setting-error"
+                            id="option-download-quality-error"
+                            role="alert"
+                          >
+                            {errors.downloadQuality}
+                          </small>
+                        )}
+                      </span>
+                      <select
+                        aria-label={OPTION_LABELS.downloadQuality}
+                        aria-describedby={
+                          errors.downloadQuality
+                            ? 'option-download-quality-description option-download-quality-error'
+                            : 'option-download-quality-description'
+                        }
+                        value={downloadQualitySignal.value}
+                        onChange={(event) => {
+                          const quality = event.currentTarget.value as DownloadQuality;
+                          apply('downloadQuality', () => actions.setDownloadQuality(quality));
+                        }}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="high">High (best available)</option>
+                        <option value="medium">Medium (~70-130 kbps)</option>
+                        <option value="low">Low (~48-64 kbps)</option>
+                      </select>
+                    </label>
+                  </>
+                )}
               </div>
             </section>
           )}

@@ -19,6 +19,12 @@ export interface AssembledAudioMedia {
   mimeType: string;
 }
 
+export interface DownloadProgress {
+  requestId: string;
+  loaded: number;
+  total: number;
+}
+
 export function parseContentRange(value: string | null): ContentRange | null {
   if (!value) return null;
   const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(value.trim());
@@ -78,7 +84,11 @@ async function readCompleteResponse(
 export async function assembleAudioMedia(
   url: string,
   fetcher: AudioFetch = fetch,
-  options: { chunkSize?: number; maxBytes?: number } = {}
+  options: {
+    chunkSize?: number;
+    maxBytes?: number;
+    onProgress?: (loaded: number, total: number) => void | Promise<void>;
+  } = {}
 ): Promise<AssembledAudioMedia> {
   const chunkSize = options.chunkSize ?? AUDIO_RANGE_CHUNK_SIZE;
   const maxBytes = options.maxBytes ?? MAX_ASSEMBLED_AUDIO_BYTES;
@@ -120,6 +130,7 @@ export async function assembleAudioMedia(
     const expectedLength = contentRange.end - contentRange.start + 1;
     chunks.push(await readExactResponseBytes(response, expectedLength));
     start = contentRange.end + 1;
+    await options.onProgress?.(start, total);
   }
 
   const bytes = new Uint8Array(total);
@@ -132,7 +143,41 @@ export async function assembleAudioMedia(
 }
 
 export function audioExtensionForItag(itag: number | undefined): '.m4a' | '.webm' {
-  return itag === 251 ? '.webm' : '.m4a';
+  return itag === 249 || itag === 250 || itag === 251 ? '.webm' : '.m4a';
+}
+
+export function isDownloadRequestId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
+export function parseDownloadProgress(value: unknown): DownloadProgress | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as {
+    type?: unknown;
+    requestId?: unknown;
+    loaded?: unknown;
+    total?: unknown;
+  };
+  if (
+    candidate.type !== 'yta:download-progress' ||
+    !isDownloadRequestId(candidate.requestId) ||
+    !Number.isSafeInteger(candidate.loaded) ||
+    !Number.isSafeInteger(candidate.total) ||
+    (candidate.loaded as number) < 0 ||
+    (candidate.total as number) <= 0 ||
+    (candidate.loaded as number) > (candidate.total as number) ||
+    (candidate.total as number) > MAX_ASSEMBLED_AUDIO_BYTES
+  ) {
+    return null;
+  }
+  return {
+    requestId: candidate.requestId,
+    loaded: candidate.loaded as number,
+    total: candidate.total as number,
+  };
 }
 
 function replaceUnsafeFilenameCharacters(value: string): string {

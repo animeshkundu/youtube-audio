@@ -31,8 +31,10 @@ describe('audio media assembly', () => {
       });
     });
 
+    const onProgress = vi.fn();
     const result = await assembleAudioMedia('https://r.googlevideo.com/videoplayback', fetcher, {
       chunkSize: 4,
+      onProgress,
     });
 
     expect(Array.from(result.bytes)).toEqual(Array.from(source));
@@ -44,6 +46,11 @@ describe('audio media assembly', () => {
       'bytes=8-10',
     ]);
     for (const call of fetcher.mock.calls) expect(call[1]?.credentials).toBe('omit');
+    expect(onProgress.mock.calls).toEqual([
+      [4, 11],
+      [8, 11],
+      [11, 11],
+    ]);
   });
 
   it('uses one complete response when the server ignores Range', async () => {
@@ -55,13 +62,16 @@ describe('audio media assembly', () => {
       })
     );
 
+    const onProgress = vi.fn();
     const result = await assembleAudioMedia('https://r.googlevideo.com/videoplayback', fetcher, {
       chunkSize: 2,
+      onProgress,
     });
 
     expect(Array.from(result.bytes)).toEqual(Array.from(source));
     expect(result.mimeType).toBe('audio/mp4');
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(onProgress).not.toHaveBeenCalled();
   });
 
   it('retries without Range when partial delivery omits Content-Range', async () => {

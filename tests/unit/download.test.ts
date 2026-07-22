@@ -5,14 +5,48 @@ import {
   buildAudioFilename,
   isAllowedAudioUrl,
   isSafeDownloadFilename,
+  parseDownloadProgress,
   sanitizeDownloadTitle,
 } from '../../src/shared/download';
 
 describe('audio download helpers', () => {
   it('maps supported itags to their playable container extension', () => {
     expect(audioExtensionForItag(140)).toBe('.m4a');
+    expect(audioExtensionForItag(249)).toBe('.webm');
+    expect(audioExtensionForItag(250)).toBe('.webm');
     expect(audioExtensionForItag(251)).toBe('.webm');
     expect(audioExtensionForItag(999)).toBe('.m4a');
+  });
+
+  it('accepts only bounded, internally consistent progress messages', () => {
+    expect(
+      parseDownloadProgress({
+        type: 'yta:download-progress',
+        requestId: '123e4567-e89b-42d3-a456-426614174000',
+        loaded: 4,
+        total: 10,
+      })
+    ).toEqual({
+      requestId: '123e4567-e89b-42d3-a456-426614174000',
+      loaded: 4,
+      total: 10,
+    });
+    expect(
+      parseDownloadProgress({
+        type: 'yta:download-progress',
+        requestId: 'bad',
+        loaded: 4,
+        total: 10,
+      })
+    ).toBeNull();
+    expect(
+      parseDownloadProgress({
+        type: 'yta:download-progress',
+        requestId: '123e4567-e89b-42d3-a456-426614174000',
+        loaded: 11,
+        total: 10,
+      })
+    ).toBeNull();
   });
 
   it('sanitizes path separators, controls, reserved characters, and empty titles', () => {

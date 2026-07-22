@@ -225,7 +225,12 @@ Any graph, metadata, bridge, remote, parse, or DOM failure is a no-op. Scrobblin
 
 ## M5 Audio Download Flow
 
-An off-by-default in-player control initiates a fresh credentialless ANDROID_VR request in MAIN world. MAIN selects the preferred direct audio format and sends a nonce-authenticated JSON-string payload through isolated content. The background independently validates the Googlevideo URL and bounded canonical filename, then uses the downloads API directly. A credentialless Blob fallback is used only when the direct handoff fails.
+An off-by-default in-player control initiates a fresh credentialless ANDROID_VR request in MAIN
+world. MAIN applies the bounded source-container and bitrate-tier settings to the direct audio
+formats, preserving AAC itag 140 by default, and sends a nonce-authenticated JSON-string payload
+through isolated content. The background independently validates the Googlevideo URL, bounded
+canonical filename, and content-generated request ID before credentiallessly assembling one Blob.
+Validated range totals flow back only to the originating tab, correlated by that request ID.
 
 ```mermaid
 sequenceDiagram
@@ -239,14 +244,21 @@ sequenceDiagram
     User->>Content: Click Download audio
     Content->>Main: Nonce + request ID (JSON detail)
     Main->>API: Credentialless ANDROID_VR player POST
-    API-->>Main: Direct audio format + title
+    API-->>Main: Direct audio formats + title
+    Main->>Main: Select bounded format + bitrate tier
     Main-->>Content: Validated URL + sanitized filename
-    Content->>Background: Fixed download operation
-    Background->>Background: Revalidate Googlevideo URL + filename
-    Background->>Downloads: Direct downloads.download
+    Content->>Background: Fixed operation + request ID
+    Background->>Background: Revalidate URL, filename, and request ID
+    loop Validated range chunks
+        Background-->>Content: Tab-scoped loaded / total
+        Content->>Content: Determinate ring + throttled percent
+    end
+    Background->>Downloads: One Blob downloads.download
 ```
 
-Acquisition, bridge, validation, direct-download, and fallback failures return a bounded failure result and never alter playback.
+Acquisition, selection, bridge, validation, assembly, progress-delivery, and downloads API failures
+never alter playback. Progress-delivery failures do not fail the download; unknown totals stay
+indeterminate.
 
 ## Release and Distribution
 

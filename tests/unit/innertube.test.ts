@@ -7,6 +7,7 @@ import {
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  pickDownloadAudioFormat,
 } from '../../src/shared/innertube';
 
 describe('buildAndroidVrPlayerRequest', () => {
@@ -94,6 +95,54 @@ describe('player response helpers', () => {
         },
       })
     ).toBe('https://media/high');
+  });
+
+  it('selects bounded download codecs and bitrate tiers while preserving the default', () => {
+    const response = {
+      streamingData: {
+        adaptiveFormats: [
+          { itag: 139, mimeType: 'audio/mp4', bitrate: 48000, url: 'https://media/139' },
+          { itag: 140, mimeType: 'audio/mp4', bitrate: 128000, url: 'https://media/140' },
+          { itag: 141, mimeType: 'audio/mp4', bitrate: 256000, url: 'https://media/141' },
+          { itag: 249, mimeType: 'audio/webm', bitrate: 50000, url: 'https://media/249' },
+          { itag: 250, mimeType: 'audio/webm', bitrate: 70000, url: 'https://media/250' },
+          { itag: 251, mimeType: 'audio/webm', bitrate: 160000, url: 'https://media/251' },
+        ],
+      },
+    };
+
+    expect(pickDownloadAudioFormat(response, 'auto', 'auto')?.itag).toBe(140);
+    expect(pickDownloadAudioFormat(response, 'm4a', 'high')?.itag).toBe(141);
+    expect(pickDownloadAudioFormat(response, 'm4a', 'low')?.itag).toBe(139);
+    expect(pickDownloadAudioFormat(response, 'opus', 'auto')?.itag).toBe(251);
+    expect(pickDownloadAudioFormat(response, 'opus', 'medium')?.itag).toBe(250);
+    expect(pickDownloadAudioFormat(response, 'opus', 'low')?.itag).toBe(249);
+  });
+
+  it('falls back to compatible direct audio when the requested codec is unavailable', () => {
+    const response = {
+      streamingData: {
+        adaptiveFormats: [
+          { itag: 140, mimeType: 'audio/mp4', bitrate: 128000, url: 'https://media/140' },
+        ],
+      },
+    };
+
+    expect(pickDownloadAudioFormat(response, 'opus', 'low')?.itag).toBe(140);
+    expect(pickDownloadAudioFormat(null, 'auto', 'auto')).toBeNull();
+  });
+
+  it('does not treat a missing bitrate as the lowest source quality', () => {
+    const response = {
+      streamingData: {
+        adaptiveFormats: [
+          { itag: 249, mimeType: 'audio/webm', url: 'https://media/unknown' },
+          { itag: 250, mimeType: 'audio/webm', bitrate: 70000, url: 'https://media/250' },
+        ],
+      },
+    };
+
+    expect(pickDownloadAudioFormat(response, 'opus', 'low')?.itag).toBe(250);
   });
 
   it('ignores video, cipher-only, and malformed formats', () => {
