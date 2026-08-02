@@ -37,11 +37,12 @@
 import { Builder, By, until } from 'selenium-webdriver';
 import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 import { execFileSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 
-import { registerBenchContentScript, seedDataConsent } from '../consent-helper.mjs';
+import { seedDataConsent } from '../consent-helper.mjs';
 import { createFixtureServer } from './fixture-server.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,8 @@ const GECKODRIVER_BIN = process.env.GECKODRIVER_BIN || join(binDir, 'geckodriver
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
+const DESKTOP_FIXTURE_HOST = process.env.BENCH_FIXTURE_HOST ?? '127.0.0.1';
+const YOUTUBE_FIXTURE_HOST = 'yta-fixture.youtube.com';
 
 // The extension's gecko id (wxt.config.ts) and a pinned internal UUID. Pinning the
 // moz-extension UUID lets the bench open the extension's own options page deterministically
@@ -77,7 +80,9 @@ function log(...a) {
 }
 
 /** Build the BENCH extension and package it into a temporary-installable XPI. */
-export function buildBenchExtension({ staticFixtureMatches = false } = {}) {
+export function buildBenchExtension({
+  staticFixtureMatches = DESKTOP_FIXTURE_HOST !== YOUTUBE_FIXTURE_HOST,
+} = {}) {
   log('building bench extension (BENCH=1 wxt build -b firefox --mv2)...');
   execFileSync(join(binDir, 'wxt'), ['build', '-b', 'firefox', '--mv2'], {
     cwd: repoRoot,
@@ -105,6 +110,27 @@ export function buildBenchExtension({ staticFixtureMatches = false } = {}) {
   log('bench XPI ready:', BENCH_XPI);
 }
 
+/** Refuse a virtual YouTube fixture unless it resolves only to loopback. */
+export async function assertBenchFixtureHost() {
+  const addresses = await lookup(DESKTOP_FIXTURE_HOST, { all: true, verbatim: true });
+  if (
+    addresses.length === 0 ||
+    addresses.some((address) => address.family !== 4 || address.address !== '127.0.0.1')
+  ) {
+    throw new Error(
+      `BENCH_FIXTURE_HOST must resolve only to 127.0.0.1: ${JSON.stringify(addresses)}`
+    );
+  }
+}
+
+/** Return the bind and public host pair for the desktop hermetic fixture. */
+export function benchFixtureServerOptions() {
+  return {
+    hostname: '127.0.0.1',
+    publicHostname: DESKTOP_FIXTURE_HOST,
+  };
+}
+
 function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
@@ -119,6 +145,12 @@ function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
   options.setPreference('datareporting.policy.dataSubmissionEnabled', false);
+  // The CI fixture's loopback-resolved YouTube hostname is HTTP. These disposable test profiles
+  // must not upgrade it through the real YouTube HSTS preload.
+  options.setPreference('network.stricttransportsecurity.enabled', false);
+  options.setPreference('network.stricttransportsecurity.preloadlist', false);
+  options.setPreference('dom.security.https_first', false);
+  options.setPreference('dom.security.https_first_pbm', false);
   // The named fresh-profile case deliberately suppresses Firefox's automatic grant for a required
   // category. Every treatment session leaves the pref at its real default and asserts that the
   // seeded state resolves granted.
@@ -423,24 +455,9 @@ export async function runSession({
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(
-      `${origin}/watch?v=${videoId}&yta-bench-hold=1${watchQuery ? `&${watchQuery}` : ''}`
-    );
+    await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
     await driver.wait(until.elementLocated(By.css('video')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
-    if (withAddon) {
-      const registration = await registerBenchContentScript(driver, OPTIONS_URL, origin);
-      log('executed BENCH content script:', JSON.stringify(registration));
-      // The extension-page injector briefly backgrounds the fixture tab. Its content script starts
-      // while hidden, so re-run its existing pageshow visibility path after the tab is foregrounded.
-      await driver.executeScript(() => window.dispatchEvent(new Event('pageshow')));
-      const marker = await waitFor(async () => {
-        const snap = await driver.executeScript(snapshotScript);
-        return snap.marker === '1' ? snap : null;
-      }, 4000);
-      if (!marker) throw new Error('BENCH content script did not mark the fixture document');
-    }
-    await driver.executeScript(() => window.dispatchEvent(new Event('yta-bench-start')));
     // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
     // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
     // rejected). Waiting for it here means the request log is quiescent before any telemetry
@@ -966,6 +983,7 @@ function statusMapEntry(statusMap) {
 }
 
 async function main() {
+  await assertBenchFixtureHost();
   if (!SKIP_BUILD) {
     buildBenchExtension();
   } else if (!existsSync(BENCH_XPI)) {
@@ -973,7 +991,7 @@ async function main() {
   }
 
   const fixture = createFixtureServer();
-  const { origin, port } = await fixture.start();
+  const { origin, port } = await fixture.start(benchFixtureServerOptions());
   log('fixture server listening on', origin);
 
   const tests = [];

@@ -67,7 +67,7 @@ describe('PlayerHandle', () => {
     expect(media.play).toHaveBeenCalledOnce();
   });
 
-  it('allows the Android emulator fixture host only in a BENCH build', () => {
+  it('allows the Android and loopback-resolved YouTube fixture hosts only in a BENCH build', () => {
     vi.stubGlobal('__BENCH__', true);
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
     const generation = handle.navigate();
@@ -81,6 +81,17 @@ describe('PlayerHandle', () => {
       )
     ).toBe(true);
     expect(media.src).toBe('http://10.0.2.2:8080/videoplayback');
+
+    const virtualHostHandle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const virtualHostMedia = new FakeMedia();
+    expect(
+      virtualHostHandle.attach(
+        virtualHostMedia as unknown as HTMLMediaElement,
+        'http://yta-fixture.youtube.com:8080/videoplayback',
+        virtualHostHandle.navigate()
+      )
+    ).toBe(true);
+    expect(virtualHostMedia.src).toBe('http://yta-fixture.youtube.com:8080/videoplayback');
   });
 
   it('prefers the caller intent over the transient live element on a fast re-attach', () => {

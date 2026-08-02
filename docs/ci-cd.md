@@ -175,17 +175,16 @@ release APKs at the pinned archive URLs for all five versions. Legs run independ
 `fail-fast: false`, and the Fenix version appears in each job name.
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
-Only `BENCH=1` builds grant that alias as a host permission. Temporary add-ons can suppress both
-static local HTTP matches and dynamic registrations tied to an extension page. The fixture therefore
-holds its telemetry until the harness uses an extension page to execute the real packaged isolated
-content script into the exact watch tab, then replays the script's normal `pageshow` visibility path.
-This retains every feature, consent, telemetry, and egress assertion while production retains exactly
-the four YouTube content-script matches. Before emulator launch the workflow starts the host adb
-daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
-parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
-checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
-share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
-the action.
+Only `BENCH=1` builds grant that alias as a host permission. On desktop, the harness resolves
+`yta-fixture.youtube.com` exclusively to `127.0.0.1`, serves the fixture through that virtual YouTube
+origin, disables HSTS/HTTPS-first only in the disposable test profile, and refuses to start if DNS
+does not return loopback. This exercises the normal production `*.youtube.com` declarative
+content-script path without changing the four production matches or allowing fixture traffic to leave
+the runner. Before emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb
+startup race seen in the first matrix run. The upstream action parses multiline `script:` input into
+separate `sh -c` invocations, so the workflow invokes one checked-in portable shell script; its
+computed APK URL, detected package, exports, and `set -eu` now share one process. The KVM udev rule
+remains before emulator launch, and JDK 17 setup remains before the action.
 
 Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The runner dismisses the
 Android default-browser dialog by assigning the Fenix package the disposable emulator's browser role

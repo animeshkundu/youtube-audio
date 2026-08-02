@@ -2,13 +2,11 @@ const CONSENT_STORAGE_KEY = 'dataTransmissionConsent';
 const CONSENT_VERSION = 1;
 
 /**
- * Executes the real packaged content script in the already-loaded BENCH fixture tab.
+ * Executes the real packaged content script in the already-loaded Android BENCH fixture tab.
  *
- * Firefox 139-142 and supported Fenix versions can accept a temporary XPI but not activate its
- * static local-HTTP content-script match, including when a dynamically registered script is removed
- * with its extension-page owner. The production static declaration remains limited to YouTube; this
- * BENCH-only host-permitted execution invokes the same packaged isolated-world code without broadening
- * production matches.
+ * Android uses the emulator-only 10.0.2.2 host, which is never part of production's YouTube static
+ * declaration. This BENCH-only host-permitted execution invokes the same packaged isolated-world code
+ * without broadening production matches.
  */
 export async function registerBenchContentScript(driver, extensionPageUrl, fixtureOrigin) {
   const fixturePrefix = `${fixtureOrigin}/watch`;

@@ -76,14 +76,13 @@ A “Data & consent” section remains visible in settings. It summarizes the sa
 - On actual Firefox 128-139, the temporary-install E2E harnesses seed the same versioned local consent record through an extension-owned page before testing playback or visuals. SponsorBlock cases additionally seed its independent opt-in.
 - On modern Firefox, temporary installation bypasses the native UI but reports a manifest required category through `permissions.getAll().data_collection`. Treatment harnesses leave that Firefox capability enabled and fail loudly unless the required category or legacy custom record makes consent resolve granted.
 - Blocking desktop CI runs both the hermetic bench and settings-permutation suite on Firefox 128 ESR, representative custom-consent versions, both sides of the desktop 139/140 boundary, a post-boundary release, and current mainline. Every seeded session reports its resolved source and throws before feature assertions if consent remains denied. Firefox 128-133 use geckodriver 0.36.0 through the harness's explicit `GECKODRIVER_BIN`; current geckodriver's add-on-install request is incompatible with those releases, while Firefox 134+ uses the current npm-provided driver.
-- The hermetic fixture harness programmatically executes the real packaged content script in the
-  exact BENCH fixture watch tab after navigation. Firefox 139-142 and current Fenix releases can
-  install a temporary add-on while not activating its static HTTP localhost content-script match, and
-  Firefox unloads a dynamically registered script with its extension-page owner. The fixture holds
-  telemetry until that execution completes, then the harness runs the script's normal `pageshow`
-  visibility path before it releases telemetry. BENCH therefore retains the local host permissions but
-  does not add local origins to the static content-script declaration, avoiding double injection on
-  browsers that activate both forms. The content script itself, its background consent request, and its
+- The desktop hermetic fixture uses the virtual `yta-fixture.youtube.com` host, which CI resolves only
+  to `127.0.0.1` before it starts Firefox. That host is already covered by the normal
+  `*.youtube.com` static content-script declaration, avoiding the Firefox 139-142 temporary-add-on
+  local-origin injection gap without changing production matches. The disposable Firefox test profile
+  disables HSTS and HTTPS-first behavior only so the loopback fixture can remain HTTP; the harness
+  fails before browser startup if DNS resolves the host outside loopback. Android retains its
+  BENCH-only `10.0.2.2` handling. The content script itself, its background consent request, and its
   fail-closed behavior are unchanged.
   The persistent-profile upgrade qualification builds a separate BENCH artifact with static fixture
   matches at installation time; this is limited to that non-temporary profile test. The named

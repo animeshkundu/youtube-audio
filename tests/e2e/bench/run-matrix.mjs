@@ -16,7 +16,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 import { createFixtureServer } from './fixture-server.mjs';
-import { runSession, buildBenchExtension } from './run-bench.mjs';
+import {
+  assertBenchFixtureHost,
+  benchFixtureServerOptions,
+  buildBenchExtension,
+  runSession,
+} from './run-bench.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..', '..');
@@ -282,6 +287,7 @@ function coveringArray(names) {
 }
 
 async function main() {
+  await assertBenchFixtureHost();
   if (!SKIP_BUILD) buildBenchExtension();
   else if (!existsSync(BENCH_XPI)) throw new Error(`SKIP_BUILD set but ${BENCH_XPI} missing`);
 
@@ -301,7 +307,7 @@ async function main() {
   }
 
   const fixture = createFixtureServer();
-  const { origin } = await fixture.start();
+  const { origin } = await fixture.start(benchFixtureServerOptions());
   const ctx = { fixture: { ...fixture, origin } };
 
   try {

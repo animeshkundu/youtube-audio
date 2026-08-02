@@ -29,13 +29,12 @@ const YOUTUBE_MATCHES = [
   '*://m.youtube.com/*',
 ];
 
-// Integration-bench flag. When BENCH=1, the extension receives host permission for the local
-// fixture. The harness registers the packaged content script for that exact origin before
-// navigation because Firefox 139-142 and Fenix can install a temporary add-on without activating a
-// static local HTTP match. Production builds (BENCH unset) never include these hosts.
+// Integration-bench flag. When BENCH=1, the extension receives host permission for local fixtures.
+// Desktop CI resolves its virtual YouTube fixture through the existing production match; Android uses
+// 10.0.2.2 and the local fallback needs these BENCH-only hosts. Production builds never include them.
 const BENCH = process.env.BENCH === '1';
-// Persistent-profile upgrade qualification needs the fixture declaration at install time. Ordinary
-// BENCH runs leave this false and register the script dynamically after temporary installation.
+// The persistent-profile upgrade qualification and loopback local runs need the fixture declaration
+// at installation time. Desktop CI uses the existing static YouTube match instead.
 const BENCH_STATIC_FIXTURE_MATCHES = BENCH && process.env.BENCH_STATIC_FIXTURE_MATCHES === '1';
 const BENCH_MATCHES = [
   'http://127.0.0.1/*',
@@ -145,9 +144,8 @@ export default defineConfig({
         entry.matches?.some((match) => YOUTUBE_MATCHES.includes(match))
       );
       if (contentScript) {
-        // Temporary BENCH runs register the fixture script dynamically, avoiding duplicate execution
-        // where Firefox honors static local matches. The persistent-profile upgrade qualification uses
-        // a dedicated BENCH artifact with local static matches at installation time.
+        // Desktop CI uses the ordinary YouTube match. Local loopback and persistent-profile
+        // qualification builds opt into static fixture matches at installation time.
         contentScript.matches = BENCH_STATIC_FIXTURE_MATCHES
           ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES]
           : YOUTUBE_MATCHES;
