@@ -22,11 +22,12 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 # browser chooser over Fenix's own Remote debugging via USB setting.
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "${FENIX_PACKAGE}"
 adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\r' | grep -Fx "${FENIX_PACKAGE}"
-adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
+adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
 sleep 8
 
 sudo mkdir -p /opt/homebrew/share
 sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
+python3 tests/e2e/android/ui.py list
 
 tap_when_present() {
   label="$1"
@@ -60,7 +61,7 @@ test "${remote_debugging_enabled}" = true
 # Fenix applies the setting to GeckoView during startup. Restart after the toggle so the RDP socket is
 # created before the RDP add-ons actor is used.
 adb shell am force-stop "${FENIX_PACKAGE}"
-adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
+adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   if adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"; then
