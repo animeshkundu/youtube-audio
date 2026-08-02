@@ -161,6 +161,9 @@ def scroll_down():
 def remote_debugging_nodes():
     for _ in range(12):
         nodes = dump_nodes()
+        if dismiss_pixel_launcher_anr(nodes):
+            time.sleep(POLL_SECONDS)
+            continue
         found = matching_nodes(nodes, ("Remote debugging via USB",))
         try:
             label = select_control(found, ("Remote debugging via USB",))
@@ -190,7 +193,11 @@ def remote_debugging_nodes():
 def scroll_to_label(label):
     labels = (label,) if isinstance(label, str) else label
     for _ in range(12):
-        found = matching_nodes(dump_nodes(), labels)
+        nodes = dump_nodes()
+        if dismiss_pixel_launcher_anr(nodes):
+            time.sleep(POLL_SECONDS)
+            continue
+        found = matching_nodes(nodes, labels)
         try:
             return select_control(found, labels)
         except RuntimeError:
@@ -205,6 +212,9 @@ def firefox_wordmark():
     last = []
     while time.monotonic() < deadline:
         nodes = dump_nodes()
+        if dismiss_pixel_launcher_anr(nodes):
+            time.sleep(POLL_SECONDS)
+            continue
         candidates = [
             node
             for node in nodes
@@ -235,7 +245,8 @@ def main():
     adb("shell", "input", "keyevent", "BACK")
     remote_label, remote_switch = remote_debugging_nodes()
     if remote_switch.attrib.get("checked") != "true":
-        tap(remote_label)
+        print(f"Enabling Remote debugging via USB with {remote_switch.attrib}")
+        tap(remote_switch)
     deadline = time.monotonic() + TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         remote_label, remote_switch = remote_debugging_nodes()
@@ -257,6 +268,7 @@ def ui_diagnostics():
             "clickable",
             "checkable",
             "checked",
+            "enabled",
             "bounds",
         )
         return [
