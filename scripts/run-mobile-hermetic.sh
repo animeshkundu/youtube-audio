@@ -21,9 +21,47 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1 || true
 sleep 8
 
-# Fenix's first-run default-browser chooser is Android system UI. Dismiss it before WebDriver starts
-# Firefox with its explicit Remote Debugging Protocol preferences.
+# Fenix's first-run default-browser chooser is Android system UI. Dismiss it before navigating the
+# Fenix developer-tools UI, then require the package-owned RDP socket rather than waiting blindly in
+# the Node probe.
 adb shell input keyevent 4
 sleep 2
+sudo mkdir -p /opt/homebrew/share
+sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
+
+tap_when_present() {
+  label="$1"
+  attempts="$2"
+  attempt=1
+  while [ "${attempt}" -le "${attempts}" ]; do
+    if python3 tests/e2e/android/ui.py tap "${label}" | grep -q '^TAPPED'; then
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+tap_when_present "more options" 15 || tap_when_present "menu" 15
+tap_when_present "settings" 15
+remote_debugging_enabled=false
+for _ in 1 2 3 4 5 6 7 8; do
+  if tap_when_present "remote debugging" 3; then
+    remote_debugging_enabled=true
+    break
+  fi
+  python3 tests/e2e/android/ui.py scroll down
+  sleep 1
+done
+test "${remote_debugging_enabled}" = true
+
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  if adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"; then
+    break
+  fi
+  sleep 1
+done
+adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

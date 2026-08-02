@@ -184,15 +184,16 @@ separate `sh -c` invocations, so the workflow invokes one checked-in portable sh
 computed APK URL, detected package, exports, and `set -eu` now share one process. The KVM udev rule
 remains before emulator launch, and JDK 17 setup remains before the action.
 
-Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The probe instead stages
-the XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's
-Remote Debugging Protocol add-ons actor after WebDriver starts it with remote debugging enabled, and
-loads a temporary add-on through that actor on every Fenix version. It then seeds consent through the
-extension-owned options page and fails loudly if the resolved source remains denied. The fixture watch
-page must reach `active`, hold a `/videoplayback` source, and record a credentialless player request.
-No live YouTube traffic participates in this blocking check. This emulator-only gate cannot be
-executed on the local Apple Silicon host because its x86_64 guest has no hardware-virtualization path;
-GitHub Actions/KVM is the qualification surface.
+Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The runner first
+dismisses the Android default-browser dialog, enables Fenix's Remote Debugging via USB setting through
+the developer-tools UI, and verifies the package-owned debugger socket. The probe then stages the XPI
+in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's Remote
+Debugging Protocol add-ons actor, and loads a temporary add-on through that actor on every Fenix
+version. It then seeds consent through the extension-owned options page and fails loudly if the
+resolved source remains denied. The fixture watch page must reach `active`, hold a `/videoplayback`
+source, and record a credentialless player request. No live YouTube traffic participates in this
+blocking check. This emulator-only gate cannot be executed on the local Apple Silicon host because its
+x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is the qualification surface.
 
 ## Mobile Live E2E (non-gating, best-effort)
 

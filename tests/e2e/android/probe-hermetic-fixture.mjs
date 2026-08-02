@@ -28,8 +28,6 @@ function firefoxOptions() {
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
-  options.setPreference('devtools.debugger.remote-enabled', true);
-  options.setPreference('devtools.debugger.prompt-connection', false);
   return options;
 }
 
