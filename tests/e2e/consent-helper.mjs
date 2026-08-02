@@ -57,5 +57,8 @@ export async function seedDataConsent(
       `consent seed did not resolve granted: ${JSON.stringify(result.resolved ?? result)}`
     );
   }
-  return result.consent;
+  // Return the resolved state alongside the stored record. A seed that stores `granted` while the
+  // extension resolves denied is the failure mode that hid a cross-version regression, so callers
+  // log what the background actually decided rather than what we asked for.
+  return { ...result.consent, resolved: result.resolved };
 }
