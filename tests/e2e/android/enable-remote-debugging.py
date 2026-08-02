@@ -14,6 +14,7 @@ ADB = os.environ.get("ADB_BIN", "adb")
 PACKAGE = os.environ.get("FENIX_PACKAGE", "org.mozilla.firefox")
 TIMEOUT_SECONDS = 90
 POLL_SECONDS = 0.5
+FORCE_TOGGLE = "--force" in sys.argv
 
 
 def adb(*args):
@@ -252,6 +253,17 @@ def main():
         time.sleep(POLL_SECONDS)
     adb("shell", "input", "keyevent", "BACK")
     remote_label, remote_switch, remote_row = remote_debugging_nodes()
+    if FORCE_TOGGLE and remote_switch.attrib.get("checked") == "true":
+        print(f"Resetting Remote debugging via USB with {remote_switch.attrib}")
+        tap(remote_switch)
+        reset_deadline = time.monotonic() + TIMEOUT_SECONDS
+        while time.monotonic() < reset_deadline:
+            _, remote_switch, _ = remote_debugging_nodes()
+            if remote_switch.attrib.get("checked") != "true":
+                break
+            time.sleep(POLL_SECONDS)
+        else:
+            raise RuntimeError("Remote debugging via USB did not reset")
     if remote_switch.attrib.get("checked") != "true":
         print(f"Enabling Remote debugging via USB with {remote_switch.attrib}")
         tap(remote_switch)

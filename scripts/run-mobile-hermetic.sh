@@ -63,5 +63,7 @@ adb shell am start -W \
   -a android.intent.action.VIEW \
   -d 'about:blank' \
   -p "${FENIX_PACKAGE}"
+# Reapply the switch in the final GeckoView process so its runtime listener starts the RDP server.
+python3 tests/e2e/android/enable-remote-debugging.py --force
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi
