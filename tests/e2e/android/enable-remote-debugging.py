@@ -43,6 +43,16 @@ def matching_nodes(nodes, labels):
     ]
 
 
+def dismiss_pixel_launcher_anr(nodes):
+    if len(matching_nodes(nodes, ("Pixel Launcher isn't responding",))) != 1:
+        return False
+    wait = matching_nodes(nodes, ("Wait",))
+    if len(wait) != 1:
+        raise RuntimeError(f"Pixel Launcher ANR has no unique Wait control: {[node.attrib for node in wait]}")
+    tap(wait[0])
+    return True
+
+
 def bounds_center(node):
     match = re.fullmatch(
         r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
@@ -76,6 +86,9 @@ def wait_for(labels, timeout=TIMEOUT_SECONDS):
     last = []
     while time.monotonic() < deadline:
         nodes = dump_nodes()
+        if dismiss_pixel_launcher_anr(nodes):
+            time.sleep(POLL_SECONDS)
+            continue
         found = matching_nodes(nodes, labels)
         if len(found) == 1:
             return found[0]

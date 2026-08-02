@@ -22,10 +22,11 @@ its live GeckoView remote-debugging setter on archived releases.
 
 ## Fix
 
-- BENCH builds retain only local fixture host permissions. The harness registers the real packaged
-  isolated content script for its exact fixture origin through the persistent MV2 background before
-  navigation. Firefox unregisters dynamically registered scripts when their originating extension
-  document unloads, so this owner remains alive for the browser session.
+- BENCH builds retain only local fixture host permissions. The fixture holds telemetry after its watch
+  document loads; the harness uses an extension page to execute the real packaged isolated content
+  script in that exact tab, restores its normal `pageshow` visibility path after the injector tab
+  closes, and then releases telemetry. Firefox unregisters dynamically registered scripts when their
+  originating extension document unloads, so this avoids depending on a temporary registration owner.
   The persistent-profile upgrade qualification instead builds a dedicated BENCH artifact with the
   static local fixture matches needed at installation time. Production keeps its four static YouTube
   content-script matches.

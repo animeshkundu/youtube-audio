@@ -393,8 +393,6 @@ export async function runSession({
         await driver.close();
       }
       await driver.switchTo().window(workHandle);
-      const registration = await registerBenchContentScript(driver, OPTIONS_URL, origin);
-      log('registered BENCH content script:', JSON.stringify(registration));
 
       if (seedConsent) {
         const consent = await seedDataConsent(driver, OPTIONS_URL, {
@@ -425,9 +423,24 @@ export async function runSession({
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
+    await driver.get(
+      `${origin}/watch?v=${videoId}&yta-bench-hold=1${watchQuery ? `&${watchQuery}` : ''}`
+    );
     await driver.wait(until.elementLocated(By.css('video')), 10000);
     await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
+    if (withAddon) {
+      const registration = await registerBenchContentScript(driver, OPTIONS_URL, origin);
+      log('executed BENCH content script:', JSON.stringify(registration));
+      // The extension-page injector briefly backgrounds the fixture tab. Its content script starts
+      // while hidden, so re-run its existing pageshow visibility path after the tab is foregrounded.
+      await driver.executeScript(() => window.dispatchEvent(new Event('pageshow')));
+      const marker = await waitFor(async () => {
+        const snap = await driver.executeScript(snapshotScript);
+        return snap.marker === '1' ? snap : null;
+      }, 4000);
+      if (!marker) throw new Error('BENCH content script did not mark the fixture document');
+    }
+    await driver.executeScript(() => window.dispatchEvent(new Event('yta-bench-start')));
     // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
     // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
     // rejected). Waiting for it here means the request log is quiescent before any telemetry

@@ -1,37 +1,58 @@
 const CONSENT_STORAGE_KEY = 'dataTransmissionConsent';
 const CONSENT_VERSION = 1;
-const BENCH_REGISTER_FIXTURE_CONTENT_SCRIPT_MESSAGE = 'yta:__bench-register-fixture-content-script';
 
 /**
- * Registers the real packaged content script for a BENCH fixture before navigating to it.
+ * Executes the real packaged content script in the already-loaded BENCH fixture tab.
  *
  * Firefox 139-142 and supported Fenix versions can accept a temporary XPI but not activate its
- * static local-HTTP content-script match. The production static declaration remains limited to
- * YouTube; this registration uses the BENCH-only host permission and avoids double injection. Firefox
- * unregisters dynamically registered scripts when their originating extension document unloads, so the
- * harness asks the persistent MV2 background to own the registration for the browser session.
+ * static local-HTTP content-script match, including when a dynamically registered script is removed
+ * with its extension-page owner. The production static declaration remains limited to YouTube; this
+ * BENCH-only host-permitted execution invokes the same packaged isolated-world code without broadening
+ * production matches.
  */
 export async function registerBenchContentScript(driver, extensionPageUrl, fixtureOrigin) {
-  await driver.get(extensionPageUrl);
-  const result = await driver.executeAsyncScript(
-    function (origin, messageType) {
-      const done = arguments[arguments.length - 1];
-      try {
-        browser.runtime
-          .sendMessage({ type: messageType, origin })
-          .then((response) => done(response))
-          .catch((error) => done({ ok: false, error: String(error) }));
-      } catch (error) {
-        done({ ok: false, error: String(error) });
-      }
-    },
-    fixtureOrigin,
-    BENCH_REGISTER_FIXTURE_CONTENT_SCRIPT_MESSAGE
-  );
-  if (!result?.ok) {
-    throw new Error(`BENCH content-script registration failed: ${JSON.stringify(result)}`);
+  const fixturePrefix = `${fixtureOrigin}/watch`;
+  const fixtureHandle = await driver.getWindowHandle();
+  await driver.switchTo().newWindow('tab');
+  try {
+    await driver.get(extensionPageUrl);
+    const result = await driver.executeAsyncScript(
+      function (targetUrl) {
+        const done = arguments[arguments.length - 1];
+        try {
+          browser.tabs
+            .query({})
+            .then((tabs) => {
+              const matches = tabs.filter(
+                (tab) => typeof tab.id === 'number' && tab.url?.startsWith(targetUrl)
+              );
+              if (matches.length !== 1 || typeof matches[0]?.id !== 'number') {
+                done({
+                  ok: false,
+                  error: `expected one fixture tab, found ${matches.length}`,
+                });
+                return;
+              }
+              return browser.tabs
+                .executeScript(matches[0].id, { file: '/content-scripts/content.js' })
+                .then(() => done({ ok: true }))
+                .catch((error) => done({ ok: false, error: String(error) }));
+            })
+            .catch((error) => done({ ok: false, error: String(error) }));
+        } catch (error) {
+          done({ ok: false, error: String(error) });
+        }
+      },
+      fixturePrefix
+    );
+    if (!result?.ok) {
+      throw new Error(`BENCH content-script execution failed: ${JSON.stringify(result)}`);
+    }
+    return result;
+  } finally {
+    await driver.close();
+    await driver.switchTo().window(fixtureHandle);
   }
-  return result;
 }
 
 /** Seeds explicit extension data consent through an extension-owned page. */

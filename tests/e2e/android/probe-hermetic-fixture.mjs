@@ -96,9 +96,10 @@ try {
   temporaryAddon = await installTemporaryAddonWithRdp(XPI, FENIX_PACKAGE);
   report.addonId = temporaryAddon.addonId;
 
-  await registerBenchContentScript(driver, OPTIONS_URL, origin);
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(`${origin}/watch?v=FIXTURE0001`);
+  await registerBenchContentScript(driver, OPTIONS_URL, origin);
+  await driver.executeScript(() => window.dispatchEvent(new Event('pageshow')));
   report.snapshot = await waitForTerminalState(driver);
   report.playerRequests = fixture
     .getRequests()

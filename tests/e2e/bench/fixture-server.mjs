@@ -372,10 +372,11 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
     })();
   </script>
   <script>
-    // On load the fixture page fires the same telemetry beacons a real watch page emits.
-    // The bench uses this to prove the request log records traffic (and, for features,
-    // to assert the extension blocked them: "telemetry fired 0 times").
-    window.addEventListener('load', function () {
+    // The BENCH harness may hold these beacons until it has explicitly injected the packaged content
+    // script into a fixture tab. This preserves the telemetry assertions on Firefox versions that do
+    // not activate a temporary add-on's local HTTP content-script match. Production pages do not use
+    // the yta-bench-hold query and retain the normal immediate-on-load behavior.
+    function fireTelemetry() {
       var telemetry = [];
       try {
         telemetry.push(fetch('/youtubei/v1/log_event?fixture=1', {
@@ -396,7 +397,14 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
       Promise.allSettled(telemetry).then(function () {
         document.documentElement.setAttribute('data-fixture-telemetry-ready', '1');
       });
+    }
+    window.addEventListener('load', function () {
       document.documentElement.setAttribute('data-fixture-ready', '1');
+      if (/[?&]yta-bench-hold=1/.test(location.search)) {
+        window.addEventListener('yta-bench-start', fireTelemetry, { once: true });
+      } else {
+        fireTelemetry();
+      }
     });
   </script>
 </body>
