@@ -117,15 +117,15 @@ jobs:
 
       - name: Pin the YouTube fixture hostname to loopback
         run: |
-          echo '127.0.0.1 yta-fixture.youtube.com' | sudo tee -a /etc/hosts
-          getent ahostsv4 yta-fixture.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
+          echo '127.0.0.1 www.youtube.com' | sudo tee -a /etc/hosts
+          getent ahostsv4 www.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
 
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
         run: xvfb-run --auto-servernum npm run test:bench
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
-          BENCH_FIXTURE_HOST: yta-fixture.youtube.com
+          BENCH_FIXTURE_HOST: www.youtube.com
 
   matrix:
     name: Settings matrix (Firefox ${{ matrix.firefox }})
@@ -169,8 +169,8 @@ jobs:
 
       - name: Pin the YouTube fixture hostname to loopback
         run: |
-          echo '127.0.0.1 yta-fixture.youtube.com' | sudo tee -a /etc/hosts
-          getent ahostsv4 yta-fixture.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
+          echo '127.0.0.1 www.youtube.com' | sudo tee -a /etc/hosts
+          getent ahostsv4 www.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
 
       # Drives the real built add-on across the full toggle permutation space (all-off, each
       # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
@@ -179,7 +179,7 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:matrix
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
-          BENCH_FIXTURE_HOST: yta-fixture.youtube.com
+          BENCH_FIXTURE_HOST: www.youtube.com
 
   upgrade-seed-139:
     name: Seed persistent consent profiles (Firefox 139)

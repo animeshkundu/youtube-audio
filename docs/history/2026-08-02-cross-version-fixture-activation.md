@@ -23,8 +23,8 @@ its live GeckoView remote-debugging setter on archived releases.
 ## Fix
 
 - BENCH builds retain only local fixture host permissions for Android. Desktop CI instead resolves
-  `yta-fixture.youtube.com` only to `127.0.0.1`, serves the fixture through that static production
-  YouTube match, disables HSTS/HTTPS-first only in the disposable test profile, and fails closed if
+  `www.youtube.com` only to `127.0.0.1`, serves the fixture through that static production
+  YouTube match, disables HSTS/HTTPS-first and DNS-over-HTTPS only in the disposable test profile, and fails closed if
   the virtual host does not resolve exclusively to loopback. Firefox therefore uses the ordinary
   `document_start` content-script path instead of a temporary local-origin injection.
   The persistent-profile upgrade qualification instead builds a dedicated BENCH artifact with the

@@ -87,11 +87,11 @@ describe('PlayerHandle', () => {
     expect(
       virtualHostHandle.attach(
         virtualHostMedia as unknown as HTMLMediaElement,
-        'http://yta-fixture.youtube.com:8080/videoplayback',
+        'http://www.youtube.com:8080/videoplayback',
         virtualHostHandle.navigate()
       )
     ).toBe(true);
-    expect(virtualHostMedia.src).toBe('http://yta-fixture.youtube.com:8080/videoplayback');
+    expect(virtualHostMedia.src).toBe('http://www.youtube.com:8080/videoplayback');
   });
 
   it('prefers the caller intent over the transient live element on a fast re-attach', () => {

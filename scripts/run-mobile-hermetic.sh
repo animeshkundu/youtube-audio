@@ -23,7 +23,20 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 # browser chooser over Fenix's own Remote debugging via USB setting.
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "${FENIX_PACKAGE}"
 adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\r' | grep -Fx "${FENIX_PACKAGE}"
-adb shell am start -W -n "${FENIX_PACKAGE}/.App"
+adb shell cmd package resolve-activity --brief \
+  -a android.intent.action.MAIN \
+  -c android.intent.category.LAUNCHER \
+  "${FENIX_PACKAGE}"
+started=false
+for attempt in 1 2 3; do
+  if adb shell am start -W -n "${FENIX_PACKAGE}/.App"; then
+    started=true
+    break
+  fi
+  echo "Fenix launch attempt ${attempt} failed; retrying after device startup settles" >&2
+  sleep 3
+done
+test "${started}" = true
 
 # Fenix starts its DevTools server through its live GeckoView runtime setting. Writing backing
 # preference files bypasses that listener on some archived releases, so use the app's own checked

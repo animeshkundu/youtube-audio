@@ -176,8 +176,8 @@ release APKs at the pinned archive URLs for all five versions. Legs run independ
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
 Only `BENCH=1` builds grant that alias as a host permission. On desktop, the harness resolves
-`yta-fixture.youtube.com` exclusively to `127.0.0.1`, serves the fixture through that virtual YouTube
-origin, disables HSTS/HTTPS-first only in the disposable test profile, and refuses to start if DNS
+`www.youtube.com` exclusively to `127.0.0.1`, serves the fixture through that production YouTube
+origin, disables HSTS/HTTPS-first and DNS-over-HTTPS only in the disposable test profile, and refuses to start if DNS
 does not return loopback. This exercises the normal production `*.youtube.com` declarative
 content-script path without changing the four production matches or allowing fixture traffic to leave
 the runner. Before emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb

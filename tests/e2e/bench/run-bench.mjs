@@ -59,7 +59,7 @@ const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
 const DESKTOP_FIXTURE_HOST = process.env.BENCH_FIXTURE_HOST ?? '127.0.0.1';
-const YOUTUBE_FIXTURE_HOST = 'yta-fixture.youtube.com';
+const YOUTUBE_FIXTURE_HOST = 'www.youtube.com';
 
 // The extension's gecko id (wxt.config.ts) and a pinned internal UUID. Pinning the
 // moz-extension UUID lets the bench open the extension's own options page deterministically
@@ -151,6 +151,7 @@ function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   options.setPreference('network.stricttransportsecurity.preloadlist', false);
   options.setPreference('dom.security.https_first', false);
   options.setPreference('dom.security.https_first_pbm', false);
+  options.setPreference('network.trr.mode', 5);
   // The named fresh-profile case deliberately suppresses Firefox's automatic grant for a required
   // category. Every treatment session leaves the pref at its real default and asserts that the
   // seeded state resolves granted.

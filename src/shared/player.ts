@@ -262,7 +262,7 @@ function isSafeMediaUrl(url: string): boolean {
       __BENCH__ &&
       (parsed.hostname === '127.0.0.1' ||
         parsed.hostname === 'localhost' ||
-        parsed.hostname === 'yta-fixture.youtube.com' ||
+        parsed.hostname === 'www.youtube.com' ||
         parsed.hostname === '10.0.2.2')
     );
   } catch {

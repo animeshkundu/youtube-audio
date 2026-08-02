@@ -76,11 +76,11 @@ A “Data & consent” section remains visible in settings. It summarizes the sa
 - On actual Firefox 128-139, the temporary-install E2E harnesses seed the same versioned local consent record through an extension-owned page before testing playback or visuals. SponsorBlock cases additionally seed its independent opt-in.
 - On modern Firefox, temporary installation bypasses the native UI but reports a manifest required category through `permissions.getAll().data_collection`. Treatment harnesses leave that Firefox capability enabled and fail loudly unless the required category or legacy custom record makes consent resolve granted.
 - Blocking desktop CI runs both the hermetic bench and settings-permutation suite on Firefox 128 ESR, representative custom-consent versions, both sides of the desktop 139/140 boundary, a post-boundary release, and current mainline. Every seeded session reports its resolved source and throws before feature assertions if consent remains denied. Firefox 128-133 use geckodriver 0.36.0 through the harness's explicit `GECKODRIVER_BIN`; current geckodriver's add-on-install request is incompatible with those releases, while Firefox 134+ uses the current npm-provided driver.
-- The desktop hermetic fixture uses the virtual `yta-fixture.youtube.com` host, which CI resolves only
+- The desktop hermetic fixture uses the production `www.youtube.com` host, which CI resolves only
   to `127.0.0.1` before it starts Firefox. That host is already covered by the normal
   `*.youtube.com` static content-script declaration, avoiding the Firefox 139-142 temporary-add-on
   local-origin injection gap without changing production matches. The disposable Firefox test profile
-  disables HSTS and HTTPS-first behavior only so the loopback fixture can remain HTTP; the harness
+  disables HSTS, HTTPS-first, and DNS-over-HTTPS behavior only so the loopback fixture can remain HTTP; the harness
   fails before browser startup if DNS resolves the host outside loopback. Android retains its
   BENCH-only `10.0.2.2` handling. The content script itself, its background consent request, and its
   fail-closed behavior are unchanged.
