@@ -82,8 +82,10 @@ A “Data & consent” section remains visible in settings. It summarizes the sa
   local-origin injection gap without changing production matches. The disposable Firefox test profile
   disables HSTS, HTTPS-first, and DNS-over-HTTPS behavior only so the loopback fixture can remain HTTP; the harness
   fails before browser startup if DNS resolves the host outside loopback. Android retains its
-  BENCH-only `10.0.2.2` handling. The content script itself, its background consent request, and its
-  fail-closed behavior are unchanged.
+  BENCH-only `10.0.2.2` handling. Since that HTTP fixture is not a secure context, only the BENCH
+  bundle uses a bounded non-cryptographic request identifier when Web Crypto UUIDs are unavailable;
+  production stays HTTPS-only and fails closed without Web Crypto. The content script itself, its
+  background consent request, and its fail-closed behavior are unchanged.
   The persistent-profile upgrade qualification builds a separate BENCH artifact with static fixture
   matches at installation time; this is limited to that non-temporary profile test. The named
   fresh-profile case still proves that a running content script makes no player, artwork, thumbnail,

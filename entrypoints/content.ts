@@ -88,6 +88,18 @@ export function nextStatusRunStart(): number {
 }
 const statusRunStart = nextStatusRunStart();
 
+function createRequestId(): string {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
+  // The desktop hermetic fixture is a loopback-resolved HTTP YouTube origin, which is not a secure
+  // context and therefore has no Web Crypto UUID API. Production runs only on HTTPS origins and fail
+  // closed rather than using this BENCH-only identifier.
+  if (__BENCH__) {
+    return `bench-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 18)}`;
+  }
+  throw new Error('Secure random UUID is unavailable');
+}
+
 /** Requests background-owned consent and fails closed on unavailable or malformed replies. */
 export async function requestDataConsent(): Promise<DataConsentState> {
   try {
@@ -108,7 +120,7 @@ export default defineContentScript({
     }
 
     try {
-      const bridgeNonce = crypto.randomUUID();
+      const bridgeNonce = createRequestId();
       installDiagnosticsRelay(bridgeNonce);
       installGlobalErrorCapture('content.uncaught', logFromContent);
       await initializeSettings();
@@ -1235,7 +1247,7 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     button.disabled = true;
     announcePlayerStatus('Preparing audio download');
   }
-  const requestId = crypto.randomUUID();
+  const requestId = createRequestId();
   try {
     const payload = await new Promise<{ url: string; filename: string }>((resolve, reject) => {
       const finish = () => {
