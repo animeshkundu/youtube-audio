@@ -21,23 +21,18 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # 128 is the declared minimum; 136/141 cover the custom-consent lane through its last
-      # release; 142 is the Android built-in-consent boundary; 145 verifies a later implementation.
       matrix:
         fenix: ['128.0', '136.0', '141.0', '142.0', '145.0']
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
-
       - name: Install dependencies
         run: npm ci
-
       - name: Build BENCH extension XPI
         run: |
           set -euo pipefail
@@ -49,23 +44,16 @@ jobs:
             --artifacts-dir=dist/bench-web-ext-artifacts \
             --overwrite-dest
           cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
-
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      # The emulator binary tries to connect to adb as soon as it launches, which logs a startup
-      # race. Pre-starting the daemon quiets it, but the Android SDK is only guaranteed on PATH
-      # once the emulator action runs, so resolve adb explicitly and never fail the job here: the
-      # race was cosmetic, and the runner script waits for the device before it does anything.
       - name: Start adb daemon
         continue-on-error: true
         run: |
@@ -75,20 +63,6 @@ jobs:
           else
             echo "adb not present yet; the emulator action will start its own daemon"
           fi
-
-      # Current geckodriver cannot temporarily install this XPI into Gecko 128. Keep the known
-      # compatible driver isolated to the support-floor leg; newer Fenix releases use npm's driver.
-      - name: Install legacy geckodriver for Fenix 128
-        if: matrix.fenix == '128.0'
-        run: |
-          curl --fail --location --retry 3 \
-            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
-            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
-          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
-          mkdir -p /tmp/geckodriver-v0.36.0
-          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
-          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
-
       - name: Run hermetic Fenix qualification
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -100,6 +74,4 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -no-metrics
-          # The action splits multiline input and runs every line in a separate `sh -c`; keep shared
-          # shell state (fail-fast mode, computed URL/package, and export) in one checked-in script.
           script: sh ./scripts/run-mobile-hermetic.sh

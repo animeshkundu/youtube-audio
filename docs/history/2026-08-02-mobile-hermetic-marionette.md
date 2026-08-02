@@ -4,38 +4,17 @@
 
 ## Summary
 
-The blocking Fenix fixture matrix now relies on geckodriver's Android Marionette setup instead of
-trying to enable Fenix's Remote debugging via USB setting through uiautomator.
+The blocking Fenix fixture matrix now relies on geckodriver's Android Marionette setup instead of trying to enable Fenix's Remote debugging via USB setting through uiautomator.
 
-## Root cause
+## Root cause and changes
 
-- The setting is for Firefox's remote-debugging protocol, while the fixture probe starts a
-  geckodriver Marionette session.
-- The Android WebDriver setup writes the GeckoView configuration and controls the application launch.
-  Pre-launching Fenix and tapping its settings UI added a fixed delay, release-specific labels, and
-  unsettled `uiautomator dump` calls without making the Marionette session more reliable.
-- The UI dump and pull commands accounted for the preceding adb exit-code-1 output. They are not
-  required by the fixture probe and are no longer run in this gating path.
-- Fenix 128 uses geckodriver 0.36.0. The later driver rejects temporary add-on installation on Gecko
-  128, while releases at Fenix 136 and above retain the npm-provided driver.
-- Run `30771906632` proved that the no-UI path starts and installs the temporary XPI on Fenix
-  141/142/145, but the first fixture document can precede Android's content-script registration.
-  Fenix 128/136 instead returned Android's transient `Resource temporarily unavailable` New-Session
-  error.
-
-## Changes
-
-- Removed the Fenix launch, fixed sleeps, SDK-path shim, and uiautomator settings taps from
-  `scripts/run-mobile-hermetic.sh`.
-- Invoke the checked-in runner through POSIX `sh`, so the emulator action does not require its file
-  mode to be executable.
-- Added a checksum-verified geckodriver 0.36.0 setup step only for the Fenix 128 matrix leg.
-- Made the hermetic Android probe honor `GECKODRIVER_BIN`, matching the established desktop harness
-  contract.
-- Retry only the documented transient New-Session error and at most two additional fixture documents
-  before the existing marker, active-state, `/videoplayback`, and player-POST assertions run.
+- The USB setting is for Firefox's remote-debugging protocol, while the fixture probe starts a geckodriver Marionette session. The UI dump and pull commands caused the preceding adb exit-code-1 output and are no longer run in this gating path.
+- The runner invokes its checked-in script through POSIX `sh`, avoiding an executable-bit dependency.
+- Geckodriver 0.36.0 creates a Fenix 128 session but rejects `installAddon` as desktop-only. Every Fenix leg therefore uses the current driver, whose Android temporary-add-on endpoint the probe requires.
+- The probe retries only Android's transient `Resource temporarily unavailable` New-Session error and at most two additional fixture documents before the existing marker, active-state, `/videoplayback`, and player-POST assertions run.
+- The report records resolved consent and manifest content-script matches before navigation, so attachment failures surface the installed extension state.
 
 ## Validation
 
-- The probe keeps its consent, active-state, `/videoplayback`, and fixture player-POST assertions.
+- The probe retains its consent, active-state, `/videoplayback`, and fixture player-POST assertions.
 - The five-leg GitHub Actions matrix is the integration qualification for this emulator-only path.
