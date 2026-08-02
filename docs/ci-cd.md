@@ -176,27 +176,28 @@ release APKs at the pinned archive URLs for all five versions. Legs run independ
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
 Only `BENCH=1` builds grant that alias as a host permission. Before navigation, the harness registers
-the packaged content script dynamically for the exact fixture origin, so temporary-install behavior
-cannot suppress the local HTTP match. Production retains exactly the four YouTube content-script
-matches. Before emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb
-startup race seen in the first matrix run. The upstream action parses multiline `script:` input into
-separate `sh -c` invocations, so the workflow invokes one checked-in portable shell script; its
-computed APK URL, detected package, exports, and `set -eu` now share one process. The KVM udev rule
-remains before emulator launch, and JDK 17 setup remains before the action.
+the packaged content script dynamically for the exact fixture origin from the persistent MV2
+background, so temporary-install behavior cannot suppress the local HTTP match or unload the
+registration owner. Production retains exactly the four YouTube content-script matches. Before
+emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb startup race seen
+in the first matrix run. The upstream action parses multiline `script:` input into separate `sh -c`
+invocations, so the workflow invokes one checked-in portable shell script; its computed APK URL,
+detected package, exports, and `set -eu` now share one process. The KVM udev rule remains before
+emulator launch, and JDK 17 setup remains before the action.
 
 Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The runner dismisses the
 Android default-browser dialog by assigning the Fenix package the disposable emulator's browser role
-before its first launch. It stops Fenix and sets its app-owned
-`fenix_preferences/pref_key_remote_debugging` value before relaunch, because Fenix reads that setting
-when creating GeckoView but ignores injected Gecko profiles. It also writes the corresponding debugger
-preferences into Fenix's real profile before relaunch. The runner requires and passes the exact
-package-owned debugger socket to the RDP installer, accepting Fenix's abstract
-`@<package>/firefox-debugger-socket` form as well as a filesystem socket and waiting up to the
-same three-minute bound as `web-ext`. It writes the pinned add-on UUID into the same real profile
-before RDP installation, so the extension page used for consent and dynamic fixture registration has
-the expected origin. The installer stages the XPI in the same device artifact directory scheme used
-by `web-ext`, connects to Firefox Android's Remote Debugging Protocol add-ons actor, and loads the
-temporary add-on before Selenium attaches. It then seeds consent through the
+before its first launch. It pins the emulator locale to English, opens **About Firefox**, taps Fenix's
+unique `wordmark` control five times to unlock the session-only **Secret settings** row, then drives
+the exact, state-verified **Remote debugging via USB** control. That invokes Fenix's live GeckoView
+setting, which direct preference-file writes do not reliably do across archived releases. The runner
+leaves that process running through WebDriver creation and RDP temporary installation. The RDP
+installer accepts Fenix's abstract `@<package>/firefox-debugger-socket` form as well as a filesystem
+socket and waits up to the same three-minute bound as `web-ext`. Selenium creates the pinned add-on
+UUID mapping before the RDP install, so the extension page used for consent and dynamic fixture
+registration has the expected origin. The installer stages the XPI in the same device artifact
+directory scheme used by `web-ext`, connects to Firefox Android's Remote Debugging Protocol add-ons
+actor, and loads the temporary add-on after WebDriver attaches. It then seeds consent through the
 extension-owned options page and fails loudly if the resolved source remains denied. The fixture watch
 page must reach `active`, hold a `/videoplayback` source, and record a credentialless player request.
 No live YouTube traffic participates in this blocking check. This emulator-only gate cannot be

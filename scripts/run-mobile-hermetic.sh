@@ -5,12 +5,10 @@ set -eu
 
 : "${FENIX_VERSION:?FENIX_VERSION must name the Fenix release to qualify}"
 
-ADDON_ID='{580efa7d-66f9-474d-857a-8e2afc6b1181}'
-PINNED_UUID='11111111-2222-4333-8444-555555555555'
-
 adb wait-for-device
 adb root || true
 adb wait-for-device
+adb shell settings put system system_locales en-US
 
 fenix_apk_url="https://archive.mozilla.org/pub/fenix/releases/${FENIX_VERSION}/android/fenix-${FENIX_VERSION}-android-x86_64/fenix-${FENIX_VERSION}.multi.android-x86_64.apk"
 echo "Installing x86_64 Fenix from: ${fenix_apk_url}"
@@ -26,24 +24,10 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "${FENIX_PACKAGE}"
 adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\r' | grep -Fx "${FENIX_PACKAGE}"
 adb shell am start -W -n "${FENIX_PACKAGE}/.App"
-sleep 8
 
-# Fenix ignores an injected Gecko profile, but Core reads this app-owned setting when it creates
-# GeckoView. Set the source-defined preference while the disposable emulator's Fenix process is stopped.
-adb shell am force-stop "${FENIX_PACKAGE}"
-fenix_preferences="/data/user/0/${FENIX_PACKAGE}/shared_prefs/fenix_preferences.xml"
-adb shell test -f "${fenix_preferences}"
-adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}'; then sed -i 's#<boolean name=\"pref_key_remote_debugging\" value=\"false\" />#<boolean name=\"pref_key_remote_debugging\" value=\"true\" />#' '${fenix_preferences}'; else sed -i 's#</map>#<boolean name=\"pref_key_remote_debugging\" value=\"true\" /></map>#' '${fenix_preferences}'; fi"
-adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
-fenix_gecko_prefs="$(adb shell find "/data/user/0/${FENIX_PACKAGE}/files/mozilla" -name prefs.js -print -quit | tr -d '\r')"
-test -n "${fenix_gecko_prefs}"
-uuid_quote="$(printf '\134\042')"
-uuid_mapping="{${uuid_quote}${ADDON_ID}${uuid_quote}:${uuid_quote}${PINNED_UUID}${uuid_quote}}"
-uuid_pref="$(printf 'user_pref("extensions.webextensions.uuids", "%s");\n' "${uuid_mapping}")"
-uuid_pref_base64="$(printf '%s' "${uuid_pref}" | base64 | tr -d '\n')"
-adb shell "printf '%s' '${uuid_pref_base64}' | base64 -d >> '${fenix_gecko_prefs}'"
-adb shell "printf '\\nuser_pref(\"devtools.debugger.remote-enabled\", true);\\nuser_pref(\"devtools.debugger.prompt-connection\", false);\\nuser_pref(\"devtools.remote.usb.enabled\", true);\\n' >> '${fenix_gecko_prefs}'"
-adb shell "grep -F 'extensions.webextensions.uuids' '${fenix_gecko_prefs}'"
-adb shell am start -W -n "${FENIX_PACKAGE}/.App"
+# Fenix starts its DevTools server through its live GeckoView runtime setting. Writing backing
+# preference files bypasses that listener on some archived releases, so use the app's own checked
+# Remote debugging via USB control and leave this process running through RDP installation.
+python3 tests/e2e/android/enable-remote-debugging.py
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

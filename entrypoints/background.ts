@@ -430,6 +430,45 @@ function installStatusChannel(): void {
 // bench verify the content->background status channel end-to-end without the browser-action popup
 // (whose content DOM the headless harness cannot drive). See tests/e2e/bench/run-bench.mjs.
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
+const BENCH_REGISTER_FIXTURE_CONTENT_SCRIPT_MESSAGE = 'yta:__bench-register-fixture-content-script';
+
+function benchFixtureContentScriptMatch(message: unknown): string | null {
+  if (typeof message !== 'object' || message === null) return null;
+  const origin = (message as { origin?: unknown }).origin;
+  if (typeof origin !== 'string') return null;
+  try {
+    const parsed = new URL(origin);
+    if (
+      parsed.protocol !== 'http:' ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash ||
+      parsed.username ||
+      parsed.password ||
+      !['127.0.0.1', 'localhost', '10.0.2.2'].includes(parsed.hostname)
+    ) {
+      return null;
+    }
+    return `http://${parsed.hostname}/*`;
+  } catch {
+    return null;
+  }
+}
+
+async function registerBenchFixtureContentScript(message: unknown): Promise<{ ok: boolean }> {
+  const match = benchFixtureContentScriptMatch(message);
+  if (!match) return { ok: false };
+  try {
+    await browser.contentScripts.register({
+      matches: [match],
+      js: [{ file: '/content-scripts/content.js' }],
+      runAt: 'document_start',
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
 
 async function benchStatusMapSnapshot(): Promise<{
   entries: Array<{
@@ -482,6 +521,9 @@ export default defineBackground({
           if (type === GET_DATA_CONSENT_MESSAGE) return Promise.resolve(dataConsent);
           if (__BENCH__ && type === BENCH_STATUS_MAP_MESSAGE) {
             return benchStatusMapSnapshot();
+          }
+          if (__BENCH__ && type === BENCH_REGISTER_FIXTURE_CONTENT_SCRIPT_MESSAGE) {
+            return registerBenchFixtureContentScript(message);
           }
           const sponsorRequest = parseSponsorRequest(message);
           if (sponsorRequest) {
