@@ -171,7 +171,7 @@ def remote_debugging_nodes():
             label = None
         if label is not None:
             if "checked" in label.attrib:
-                return label, label
+                return label, label, None
             _, label_top, _, label_bottom = bounds_box(label)
             controls = [
                 node
@@ -181,7 +181,15 @@ def remote_debugging_nodes():
                 and bounds_box(node)[3] >= label_top
             ]
             if len(controls) == 1:
-                return label, controls[0]
+                rows = [
+                    node
+                    for node in nodes
+                    if node.attrib.get("clickable") == "true"
+                    and bounds_box(node)[1] <= label_bottom
+                    and bounds_box(node)[3] >= label_top
+                    and node not in controls
+                ]
+                return label, controls[0], rows[0] if len(rows) == 1 else None
             raise RuntimeError(
                 f"expected one Remote debugging via USB switch, found {[node.attrib for node in controls]}"
             )
@@ -243,13 +251,18 @@ def main():
         tap(logo)
         time.sleep(POLL_SECONDS)
     adb("shell", "input", "keyevent", "BACK")
-    remote_label, remote_switch = remote_debugging_nodes()
+    remote_label, remote_switch, remote_row = remote_debugging_nodes()
     if remote_switch.attrib.get("checked") != "true":
         print(f"Enabling Remote debugging via USB with {remote_switch.attrib}")
         tap(remote_switch)
+        time.sleep(POLL_SECONDS)
+        remote_label, remote_switch, remote_row = remote_debugging_nodes()
+        if remote_switch.attrib.get("checked") != "true" and remote_row is not None:
+            print(f"Retrying Remote debugging via USB with row {remote_row.attrib}")
+            tap(remote_row)
     deadline = time.monotonic() + TIMEOUT_SECONDS
     while time.monotonic() < deadline:
-        remote_label, remote_switch = remote_debugging_nodes()
+        remote_label, remote_switch, remote_row = remote_debugging_nodes()
         if remote_switch.attrib.get("checked") == "true":
             scroll_to_label(("Secret settings", "Secret Settings"))
             print("Fenix Remote debugging via USB enabled")
