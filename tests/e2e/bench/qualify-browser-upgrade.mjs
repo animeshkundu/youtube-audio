@@ -183,8 +183,11 @@ async function main() {
     throw new Error(`Upgrade artifact is missing ${xpi}`);
   }
 
-  const fixture = createFixtureServer();
-  await fixture.start();
+  const server = createFixtureServer();
+  // `start()` resolves with { origin, port }; the server object itself carries neither, so the
+  // probe below needs the resolved value rather than the factory's return.
+  const { origin } = await server.start();
+  const fixture = { ...server, origin };
   try {
     const granted = await runProfile('granted', fixture);
     const revoked = await runProfile('revoked', fixture);
