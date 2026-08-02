@@ -29,9 +29,10 @@ const YOUTUBE_MATCHES = [
   '*://m.youtube.com/*',
 ];
 
-// Integration-bench flag. When BENCH=1, the content script ALSO matches the local
-// fixture host so the extension can be exercised against tests/e2e/bench/fixture-server.mjs.
-// Production builds (BENCH unset) never include these hosts. See tests/e2e/bench/.
+// Integration-bench flag. When BENCH=1, the extension receives host permission for the local
+// fixture. The harness registers the packaged content script for that exact origin before
+// navigation because Firefox 139-142 and Fenix can install a temporary add-on without activating a
+// static local HTTP match. Production builds (BENCH unset) never include these hosts.
 const BENCH = process.env.BENCH === '1';
 const BENCH_MATCHES = [
   'http://127.0.0.1/*',
@@ -141,7 +142,10 @@ export default defineConfig({
         entry.matches?.some((match) => YOUTUBE_MATCHES.includes(match))
       );
       if (contentScript) {
-        contentScript.matches = BENCH ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES] : YOUTUBE_MATCHES;
+        // Keep static injection production-faithful. BENCH fixture injection is registered from the
+        // extension page after temporary installation, avoiding duplicate scripts where Firefox does
+        // activate both static and dynamic local matches.
+        contentScript.matches = YOUTUBE_MATCHES;
       }
     },
   },

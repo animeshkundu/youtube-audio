@@ -1,6 +1,41 @@
 const CONSENT_STORAGE_KEY = 'dataTransmissionConsent';
 const CONSENT_VERSION = 1;
 
+/**
+ * Registers the real packaged content script for a BENCH fixture before navigating to it.
+ *
+ * Firefox 139-142 and supported Fenix versions can accept a temporary XPI but not activate its
+ * static local-HTTP content-script match. The production static declaration remains limited to
+ * YouTube; this registration uses the BENCH-only host permission and avoids double injection.
+ */
+export async function registerBenchContentScript(driver, extensionPageUrl, fixtureOrigin) {
+  const fixture = new URL(fixtureOrigin);
+  const match = `${fixture.protocol}//${fixture.hostname}/*`;
+  await driver.get(extensionPageUrl);
+  const result = await driver.executeAsyncScript(
+    function (fixtureMatch) {
+      const done = arguments[arguments.length - 1];
+      try {
+        browser.contentScripts
+          .register({
+            matches: [fixtureMatch],
+            js: [{ file: 'content-scripts/content.js' }],
+            runAt: 'document_start',
+          })
+          .then(() => done({ ok: true, match: fixtureMatch }))
+          .catch((error) => done({ ok: false, error: String(error) }));
+      } catch (error) {
+        done({ ok: false, error: String(error) });
+      }
+    },
+    match
+  );
+  if (!result?.ok) {
+    throw new Error(`BENCH content-script registration failed: ${JSON.stringify(result)}`);
+  }
+  return result;
+}
+
 /** Seeds explicit extension data consent through an extension-owned page. */
 export async function seedDataConsent(
   driver,

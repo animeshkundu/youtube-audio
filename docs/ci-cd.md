@@ -175,20 +175,24 @@ release APKs at the pinned archive URLs for all five versions. Legs run independ
 `fail-fast: false`, and the Fenix version appears in each job name.
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
-Only `BENCH=1` builds add that alias to content-script and host permissions; production retains
-exactly the four YouTube content-script matches. Before emulator launch the workflow starts the host
-adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
-parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
-checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
-share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
-the action.
+Only `BENCH=1` builds grant that alias as a host permission. Before navigation, the harness registers
+the packaged content script dynamically for the exact fixture origin, so temporary-install behavior
+cannot suppress the local HTTP match. Production retains exactly the four YouTube content-script
+matches. Before emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb
+startup race seen in the first matrix run. The upstream action parses multiline `script:` input into
+separate `sh -c` invocations, so the workflow invokes one checked-in portable shell script; its
+computed APK URL, detected package, exports, and `set -eu` now share one process. The KVM udev rule
+remains before emulator launch, and JDK 17 setup remains before the action.
 
-The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
-fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
-`active`, hold a `/videoplayback` source, and record a credentialless player request. No live YouTube
-traffic participates in this blocking check. This emulator-only gate cannot be executed on the local
-Apple Silicon host because its x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is
-the qualification surface.
+Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The probe instead stages
+the XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's
+Remote Debugging Protocol add-ons actor after WebDriver starts it with remote debugging enabled, and
+loads a temporary add-on through that actor on every Fenix version. It then seeds consent through the
+extension-owned options page and fails loudly if the resolved source remains denied. The fixture watch
+page must reach `active`, hold a `/videoplayback` source, and record a credentialless player request.
+No live YouTube traffic participates in this blocking check. This emulator-only gate cannot be
+executed on the local Apple Silicon host because its x86_64 guest has no hardware-virtualization path;
+GitHub Actions/KVM is the qualification surface.
 
 ## Mobile Live E2E (non-gating, best-effort)
 

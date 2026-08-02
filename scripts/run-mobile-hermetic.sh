@@ -21,15 +21,9 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1 || true
 sleep 8
 
-sudo mkdir -p /opt/homebrew/share
-sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
-python3 tests/e2e/android/ui.py list || true
-python3 tests/e2e/android/ui.py tap "more options" || python3 tests/e2e/android/ui.py tap "menu" || true
-sleep 2
-python3 tests/e2e/android/ui.py tap "settings" || true
-sleep 2
-python3 tests/e2e/android/ui.py scroll down || true
-python3 tests/e2e/android/ui.py tap "remote debugging" || true
+# Fenix's first-run default-browser chooser is Android system UI. Dismiss it before WebDriver starts
+# Firefox with its explicit Remote Debugging Protocol preferences.
+adb shell input keyevent 4
 sleep 2
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

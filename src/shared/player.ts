@@ -255,10 +255,15 @@ function isSafeMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url, location.href);
     if (parsed.protocol === 'https:') return true;
-    // The hermetic bench serves fixture media over http://127.0.0.1 / http://localhost. This
-    // branch is compiled out of production (`__BENCH__` is `false`), so a real build only ever
-    // hijacks an https media url.
-    return __BENCH__ && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
+    // The hermetic bench serves fixture media from the desktop loopback hosts and Android's host
+    // alias. This branch is compiled out of production (`__BENCH__` is `false`), so a real build
+    // only ever hijacks an https media url.
+    return (
+      __BENCH__ &&
+      (parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '10.0.2.2')
+    );
   } catch {
     return false;
   }

@@ -9,8 +9,9 @@ import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 
-import { seedDataConsent } from '../consent-helper.mjs';
+import { registerBenchContentScript, seedDataConsent } from '../consent-helper.mjs';
 import { createFixtureServer } from '../bench/fixture-server.mjs';
+import { installTemporaryAddonWithRdp } from './rdp-temporary-addon.mjs';
 
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
 const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
@@ -27,6 +28,8 @@ function firefoxOptions() {
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
+  options.setPreference('devtools.debugger.remote-enabled', true);
+  options.setPreference('devtools.debugger.prompt-connection', false);
   return options;
 }
 
@@ -63,11 +66,13 @@ const report = {
   addonId: null,
   snapshot: null,
   playerRequests: 0,
+  cleanupFailures: [],
   verdict: 'FAIL',
 };
 
 const fixture = createFixtureServer();
 let driver;
+let temporaryAddon;
 try {
   const { origin } = await fixture.start({ hostname: '0.0.0.0', publicHostname: '10.0.2.2' });
   report.fixtureOrigin = origin;
@@ -79,7 +84,9 @@ try {
     .build();
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
-  report.addonId = await driver.installAddon(XPI, true);
+  temporaryAddon = await installTemporaryAddonWithRdp(XPI, FENIX_PACKAGE);
+  report.addonId = temporaryAddon.addonId;
+  await registerBenchContentScript(driver, OPTIONS_URL, origin);
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(`${origin}/watch?v=FIXTURE0001`);
   report.snapshot = await waitForTerminalState(driver);
@@ -96,8 +103,26 @@ try {
 } catch (error) {
   report.error = String(error?.stack || error);
 } finally {
-  if (driver) await driver.quit().catch(() => undefined);
-  await fixture.close().catch(() => undefined);
+  if (driver) {
+    try {
+      await driver.quit();
+    } catch (error) {
+      report.cleanupFailures.push(`WebDriver shutdown: ${String(error)}`);
+    }
+  }
+  if (temporaryAddon) {
+    try {
+      temporaryAddon.dispose();
+    } catch (error) {
+      report.cleanupFailures.push(`temporary add-on cleanup: ${String(error)}`);
+    }
+  }
+  try {
+    await fixture.close();
+  } catch (error) {
+    report.cleanupFailures.push(`fixture shutdown: ${String(error)}`);
+  }
+  if (report.cleanupFailures.length > 0) report.verdict = 'FAIL';
 }
 
 console.log(JSON.stringify(report, null, 2));

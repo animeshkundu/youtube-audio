@@ -41,7 +41,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 
-import { seedDataConsent } from '../consent-helper.mjs';
+import { registerBenchContentScript, seedDataConsent } from '../consent-helper.mjs';
 import { createFixtureServer } from './fixture-server.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -389,6 +389,7 @@ export async function runSession({
         await driver.close();
       }
       await driver.switchTo().window(workHandle);
+      await registerBenchContentScript(driver, OPTIONS_URL, origin);
 
       if (seedConsent) {
         const consent = await seedDataConsent(driver, OPTIONS_URL, {
