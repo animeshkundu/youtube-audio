@@ -18,6 +18,10 @@ trying to enable Fenix's Remote debugging via USB setting through uiautomator.
   required by the fixture probe and are no longer run in this gating path.
 - Fenix 128 uses geckodriver 0.36.0. The later driver rejects temporary add-on installation on Gecko
   128, while releases at Fenix 136 and above retain the npm-provided driver.
+- Run `30771906632` proved that the no-UI path starts and installs the temporary XPI on Fenix
+  141/142/145, but the first fixture document can precede Android's content-script registration.
+  Fenix 128/136 instead returned Android's transient `Resource temporarily unavailable` New-Session
+  error.
 
 ## Changes
 
@@ -28,6 +32,8 @@ trying to enable Fenix's Remote debugging via USB setting through uiautomator.
 - Added a checksum-verified geckodriver 0.36.0 setup step only for the Fenix 128 matrix leg.
 - Made the hermetic Android probe honor `GECKODRIVER_BIN`, matching the established desktop harness
   contract.
+- Retry only the documented transient New-Session error and at most two additional fixture documents
+  before the existing marker, active-state, `/videoplayback`, and player-POST assertions run.
 
 ## Validation
 

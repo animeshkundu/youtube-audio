@@ -20,6 +20,10 @@ const GECKO =
   process.env.GECKODRIVER_BIN || process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const SESSION_RETRY_ERROR =
+  /^Could not launch Android [\w.]+\/org\.mozilla\.fenix\.IntentReceiverActivity: Resource temporarily unavailable \(os error 11\)$/;
+const MAX_SESSION_ATTEMPTS = 3;
+const MAX_FIXTURE_NAVIGATIONS = 3;
 
 function firefoxOptions() {
   const options = new firefox.Options();
@@ -29,6 +33,28 @@ function firefoxOptions() {
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
   return options;
+}
+
+async function startAndroidSession(report) {
+  for (let attempt = 1; attempt <= MAX_SESSION_ATTEMPTS; attempt += 1) {
+    report.sessionAttempts = attempt;
+    try {
+      return await new Builder()
+        .forBrowser('firefox')
+        .setFirefoxOptions(firefoxOptions())
+        .setFirefoxService(new ServiceBuilder(GECKO).addArguments('--android-storage', 'internal'))
+        .build();
+    } catch (error) {
+      if (
+        attempt === MAX_SESSION_ATTEMPTS ||
+        !SESSION_RETRY_ERROR.test(String(error?.message ?? error))
+      ) {
+        throw error;
+      }
+      await sleep(2_000);
+    }
+  }
+  throw new Error('Android WebDriver session retry loop completed without a session');
 }
 
 async function snapshot(driver) {
@@ -46,6 +72,23 @@ async function snapshot(driver) {
   });
 }
 
+async function navigateUntilContentScriptAttached(driver, fixtureUrl, report) {
+  let last = null;
+  for (let attempt = 1; attempt <= MAX_FIXTURE_NAVIGATIONS; attempt += 1) {
+    report.fixtureNavigations = attempt;
+    await driver.get(fixtureUrl);
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      last = await snapshot(driver);
+      if (last.marker === '1') return;
+      await sleep(250);
+    }
+  }
+  throw new Error(
+    `fixture content script did not attach after ${MAX_FIXTURE_NAVIGATIONS} navigations: ${JSON.stringify(last)}`
+  );
+}
+
 async function waitForTerminalState(driver) {
   const deadline = Date.now() + 60_000;
   let last = null;
@@ -61,6 +104,8 @@ const report = {
   xpi: XPI,
   fenixPackage: FENIX_PACKAGE,
   geckodriver: GECKO,
+  sessionAttempts: 0,
+  fixtureNavigations: 0,
   fixtureOrigin: null,
   addonId: null,
   snapshot: null,
@@ -74,16 +119,12 @@ try {
   const { origin } = await fixture.start({ hostname: '0.0.0.0', publicHostname: '10.0.2.2' });
   report.fixtureOrigin = origin;
 
-  driver = await new Builder()
-    .forBrowser('firefox')
-    .setFirefoxOptions(firefoxOptions())
-    .setFirefoxService(new ServiceBuilder(GECKO).addArguments('--android-storage', 'internal'))
-    .build();
+  driver = await startAndroidSession(report);
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
   report.addonId = await driver.installAddon(XPI, true);
   await seedDataConsent(driver, OPTIONS_URL);
-  await driver.get(`${origin}/watch?v=FIXTURE0001`);
+  await navigateUntilContentScriptAttached(driver, `${origin}/watch?v=FIXTURE0001`, report);
   report.snapshot = await waitForTerminalState(driver);
   report.playerRequests = fixture
     .getRequests()
