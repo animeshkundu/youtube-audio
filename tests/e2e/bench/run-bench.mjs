@@ -35,6 +35,7 @@
  */
 
 import { Builder, By, until } from 'selenium-webdriver';
+import { Command } from 'selenium-webdriver/lib/command.js';
 import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -373,7 +374,11 @@ export async function runSession({
     if (withAddon) {
       const workHandle = await driver.getWindowHandle();
       const handlesBeforeInstall = new Set(await driver.getAllWindowHandles());
-      addonId = await driver.installAddon(BENCH_XPI, true);
+      addonId = await driver.execute(
+        new Command('install addon')
+          .setParameter('path', BENCH_XPI)
+          .setParameter('temporary', true)
+      );
       log('installed temporary add-on:', addonId);
 
       // First install opens the real onboarding options page in a new tab. Close only that
