@@ -102,6 +102,19 @@ jobs:
         with:
           firefox-version: ${{ matrix.firefox }}
 
+      # Current geckodriver's add-on-install request is incompatible with Firefox 128-133.
+      # Pin 0.36.0 for those releases; Firefox 134+ uses the npm-provided current driver.
+      - name: Install legacy geckodriver for Firefox 128-133
+        if: matrix.firefox == '128.0esr' || matrix.firefox == '133.0'
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
+            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
+          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
+          mkdir -p /tmp/geckodriver-v0.36.0
+          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
+          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
+
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
         run: xvfb-run --auto-servernum npm run test:bench
@@ -136,6 +149,17 @@ jobs:
         uses: browser-actions/setup-firefox@v1
         with:
           firefox-version: ${{ matrix.firefox }}
+
+      - name: Install legacy geckodriver for Firefox 128-133
+        if: matrix.firefox == '128.0esr' || matrix.firefox == '133.0'
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
+            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
+          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
+          mkdir -p /tmp/geckodriver-v0.36.0
+          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
+          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
 
       # Drives the real built add-on across the full toggle permutation space (all-off, each
       # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry

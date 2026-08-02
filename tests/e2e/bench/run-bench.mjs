@@ -31,6 +31,7 @@
  *   HEADLESS    "1" (default) headless, "0" headful
  *   SKIP_BUILD  "1" reuse an existing bench XPI (dist/youtube-audio-bench.xpi) instead of building
  *   FIREFOX_BIN explicit Firefox binary path (default: geckodriver auto-discovery)
+ *   GECKODRIVER_BIN explicit geckodriver binary path (default: npm package binary)
  */
 
 import { Builder, By, until } from 'selenium-webdriver';
@@ -52,6 +53,7 @@ process.env.PATH = `${binDir}:${process.env.PATH || ''}`;
 
 const HEADLESS = process.env.HEADLESS !== '0';
 const SKIP_BUILD = process.env.SKIP_BUILD === '1';
+const GECKODRIVER_BIN = process.env.GECKODRIVER_BIN || join(binDir, 'geckodriver');
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
@@ -364,7 +366,7 @@ export async function runSession({
   const driver = await new Builder()
     .forBrowser('firefox')
     .setFirefoxOptions(makeOptions({ disableBuiltInDataConsent: withAddon && !seedConsent }))
-    .setFirefoxService(new ServiceBuilder().addArguments('--allow-system-access'))
+    .setFirefoxService(new ServiceBuilder(GECKODRIVER_BIN).addArguments('--allow-system-access'))
     .build();
   try {
     let addonId = null;

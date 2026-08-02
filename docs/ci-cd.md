@@ -42,6 +42,12 @@ Five executable gate outcomes must pass:
 4. **matrix**: runs the full deterministic settings-permutation surface independently on the same six
    Firefox versions and hermetic fixture. Every job name includes the Firefox version and every leg
    runs in parallel, so one version's failure neither hides nor delays attribution for the others.
+   Both desktop harnesses accept `GECKODRIVER_BIN`. CI pins geckodriver `0.36.0` for Firefox 128-133
+   and verifies the downloaded Linux archive's SHA-256 before extraction; Firefox 134+ uses the
+   current npm-provided driver. This split is required because geckodriver 0.37.1 starts Firefox
+   128-133 but its add-on-install command returns an empty `InvalidArgumentError` before any test
+   runs. Geckodriver 0.36.0 installs the same XPI on both releases. The Firefox-side breakpoint is
+   exact: the current driver fails on 133 and succeeds on 134, with 134-139 all confirmed installable.
 5. **upgrade-verify-140**: after `upgrade-seed-139` creates granted and revoked non-temporary
    Developer Edition profiles, Firefox 140 reopens the exact profile artifacts and reports the
    literal `permissions.getAll()` state plus playback behavior.
@@ -116,6 +122,11 @@ npm run build          # Firefox MV2
 npx web-ext lint --source-dir=.output/firefox-mv2
 npm run build:mv3
 npm run test:bench     # hermetic bench (needs a local Firefox)
+
+# Firefox 128-133 require geckodriver 0.36.0:
+FIREFOX_BIN=/path/to/firefox \
+GECKODRIVER_BIN=/path/to/geckodriver-0.36.0 \
+npm run test:bench
 
 # Or all deterministic gates at once:
 ./scripts/validate.sh
