@@ -183,6 +183,14 @@ checked-in portable shell script; its computed APK URL, detected package, export
 share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
 the action.
 
+The blocking probe uses geckodriver's Android Marionette setup, not Fenix's Remote debugging via USB
+setting. A WebDriver New Session writes and activates the GeckoView debug configuration, then waits
+for the browser process to accept Marionette, so the runner neither launches Fenix early nor parses
+an unsettled uiautomator dump. This avoids release-specific settings labels and avoids a setting that
+geckodriver's app-data preparation can remove. Fenix 128 uses a downloaded, checksum-verified
+geckodriver 0.36.0 because the current driver's temporary add-on installation is incompatible with
+Gecko 128; Fenix 136 and later use the npm-provided driver.
+
 The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
 fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
 `active`, hold a `/videoplayback` source, and record a credentialless player request. No live YouTube

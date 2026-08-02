@@ -16,7 +16,8 @@ const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
 const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
-const GECKO = process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
+const GECKO =
+  process.env.GECKODRIVER_BIN || process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,6 +60,7 @@ async function waitForTerminalState(driver) {
 const report = {
   xpi: XPI,
   fenixPackage: FENIX_PACKAGE,
+  geckodriver: GECKO,
   fixtureOrigin: null,
   addonId: null,
   snapshot: null,

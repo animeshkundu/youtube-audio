@@ -76,6 +76,19 @@ jobs:
             echo "adb not present yet; the emulator action will start its own daemon"
           fi
 
+      # Current geckodriver cannot temporarily install this XPI into Gecko 128. Keep the known
+      # compatible driver isolated to the support-floor leg; newer Fenix releases use npm's driver.
+      - name: Install legacy geckodriver for Fenix 128
+        if: matrix.fenix == '128.0'
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
+            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
+          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
+          mkdir -p /tmp/geckodriver-v0.36.0
+          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
+          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
+
       - name: Run hermetic Fenix qualification
         uses: reactivecircus/android-emulator-runner@v2
         env:
