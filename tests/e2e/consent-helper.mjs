@@ -1,6 +1,58 @@
 const CONSENT_STORAGE_KEY = 'dataTransmissionConsent';
 const CONSENT_VERSION = 1;
 
+/**
+ * Executes the real packaged content script in the already-loaded Android BENCH fixture tab.
+ *
+ * Android uses the emulator-only 10.0.2.2 host, which is never part of production's YouTube static
+ * declaration. This BENCH-only host-permitted execution invokes the same packaged isolated-world code
+ * without broadening production matches.
+ */
+export async function registerBenchContentScript(driver, extensionPageUrl, fixtureOrigin) {
+  const fixturePrefix = `${fixtureOrigin}/watch`;
+  const fixtureHandle = await driver.getWindowHandle();
+  await driver.switchTo().newWindow('tab');
+  try {
+    await driver.get(extensionPageUrl);
+    const result = await driver.executeAsyncScript(
+      function (targetUrl) {
+        const done = arguments[arguments.length - 1];
+        try {
+          browser.tabs
+            .query({})
+            .then((tabs) => {
+              const matches = tabs.filter(
+                (tab) => typeof tab.id === 'number' && tab.url?.startsWith(targetUrl)
+              );
+              if (matches.length !== 1 || typeof matches[0]?.id !== 'number') {
+                done({
+                  ok: false,
+                  error: `expected one fixture tab, found ${matches.length}`,
+                });
+                return;
+              }
+              return browser.tabs
+                .executeScript(matches[0].id, { file: 'content-scripts/content.js' })
+                .then(() => done({ ok: true }))
+                .catch((error) => done({ ok: false, error: String(error) }));
+            })
+            .catch((error) => done({ ok: false, error: String(error) }));
+        } catch (error) {
+          done({ ok: false, error: String(error) });
+        }
+      },
+      fixturePrefix
+    );
+    if (!result?.ok) {
+      throw new Error(`BENCH content-script execution failed: ${JSON.stringify(result)}`);
+    }
+    return result;
+  } finally {
+    await driver.close();
+    await driver.switchTo().window(fixtureHandle);
+  }
+}
+
 /** Seeds explicit extension data consent through an extension-owned page. */
 export async function seedDataConsent(
   driver,

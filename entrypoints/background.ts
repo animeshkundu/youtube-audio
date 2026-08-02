@@ -125,6 +125,15 @@ function asBenchYouTubeUrl(url: string): string {
   return parsed.href;
 }
 
+function isBenchFixtureOrigin(origin: URL): boolean {
+  return (
+    origin.protocol === 'http:' &&
+    (origin.hostname === '127.0.0.1' ||
+      origin.hostname === 'localhost' ||
+      origin.hostname === 'www.youtube.com')
+  );
+}
+
 function blockTelemetry(
   details: browser.webRequest._OnBeforeRequestDetails
 ): browser.webRequest.BlockingResponse {
@@ -238,10 +247,7 @@ function parseSponsorRequest(
   if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
     try {
       const origin = new URL(candidate.benchOrigin);
-      if (
-        origin.protocol === 'http:' &&
-        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
-      ) {
+      if (isBenchFixtureOrigin(origin)) {
         benchOrigin = origin.origin;
       }
     } catch {
@@ -267,10 +273,7 @@ function parseDownloadRequest(
   if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
     try {
       const origin = new URL(candidate.benchOrigin);
-      if (
-        origin.protocol === 'http:' &&
-        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
-      ) {
+      if (isBenchFixtureOrigin(origin)) {
         benchOrigin = origin.origin;
       }
     } catch {

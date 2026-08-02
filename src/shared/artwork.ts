@@ -173,10 +173,10 @@ function finiteDimension(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-// Compile-time bench flag (`false` in production, so the localhost artwork allowance below is
-// dead-code-eliminated from real builds). The hermetic bench serves fixture thumbnails over
-// http://127.0.0.1 / http://localhost; a shipped build only ever loads https artwork. Mirrors the
-// same guard in `player.ts:isSafeMediaUrl`.
+// Compile-time bench flag (`false` in production, so the HTTP artwork allowance below is
+// dead-code-eliminated from real builds). The hermetic bench serves fixture thumbnails from
+// loopback hosts and its loopback-resolved www.youtube.com fixture; a shipped build only ever loads
+// HTTPS artwork. Mirrors the same guard in `player.ts:isSafeMediaUrl`.
 declare const __BENCH__: boolean;
 
 function isSafeArtworkUrl(value: unknown): value is string {
@@ -187,7 +187,9 @@ function isSafeArtworkUrl(value: unknown): value is string {
       url.protocol === 'https:' ||
       (__BENCH__ &&
         url.protocol === 'http:' &&
-        (url.hostname === '127.0.0.1' || url.hostname === 'localhost'))
+        (url.hostname === '127.0.0.1' ||
+          url.hostname === 'localhost' ||
+          url.hostname === 'www.youtube.com'))
     );
   } catch {
     return false;

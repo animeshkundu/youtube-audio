@@ -115,11 +115,17 @@ jobs:
           tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
           echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
 
+      - name: Pin the YouTube fixture hostname to loopback
+        run: |
+          echo '127.0.0.1 www.youtube.com' | sudo tee -a /etc/hosts
+          getent ahostsv4 www.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
+
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
         run: xvfb-run --auto-servernum npm run test:bench
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          BENCH_FIXTURE_HOST: www.youtube.com
 
   matrix:
     name: Settings matrix (Firefox ${{ matrix.firefox }})
@@ -161,6 +167,11 @@ jobs:
           tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
           echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
 
+      - name: Pin the YouTube fixture hostname to loopback
+        run: |
+          echo '127.0.0.1 www.youtube.com' | sudo tee -a /etc/hosts
+          getent ahostsv4 www.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
+
       # Drives the real built add-on across the full toggle permutation space (all-off, each
       # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
       # edges) against the hermetic fixture. Deterministic; safe to gate on.
@@ -168,6 +179,7 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:matrix
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          BENCH_FIXTURE_HOST: www.youtube.com
 
   upgrade-seed-139:
     name: Seed persistent consent profiles (Firefox 139)
@@ -255,6 +267,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     concurrency:
       group: release-on-merge
       cancel-in-progress: false
@@ -267,6 +280,28 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
+
+      # The Fenix matrix is maintained as its own workflow because each emulator leg is expensive.
+      # Require the run triggered by this exact master push before releasing its bytes, so a direct
+      # master push cannot bypass Firefox Android qualification.
+      - name: Require Fenix hermetic qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          run_id=''
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            run_id="$(gh run list --workflow mobile-hermetic.yml --commit "$GITHUB_SHA" \
+              --json databaseId --jq '.[0].databaseId')"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          gh run watch "$run_id" --exit-status
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

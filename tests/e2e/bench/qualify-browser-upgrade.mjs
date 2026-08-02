@@ -176,7 +176,7 @@ async function runProfile(decision, fixture) {
 }
 
 async function main() {
-  if (phase === 'seed') buildBenchExtension();
+  if (phase === 'seed') buildBenchExtension({ staticFixtureMatches: true });
   else if (!existsSync(xpi)) {
     // The profile contains the installed XPI, but keeping the artifact alongside it makes the
     // handoff inspectable and guards against an incomplete artifact upload.

@@ -92,11 +92,17 @@ jobs:
         id: firefox
         uses: browser-actions/setup-firefox@v1
 
+      - name: Pin the YouTube fixture hostname to loopback
+        run: |
+          echo '127.0.0.1 www.youtube.com' | sudo tee -a /etc/hosts
+          getent ahostsv4 www.youtube.com | awk 'NR == 1 { exit ($1 == "127.0.0.1" ? 0 : 1) }'
+
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
         run: xvfb-run --auto-servernum npm run test:bench
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          BENCH_FIXTURE_HOST: www.youtube.com
 
       # Drives the real built add-on across the full toggle permutation space against the hermetic
       # fixture. Run both suites before the clean beta build because they write BENCH output.
@@ -104,6 +110,7 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:matrix
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          BENCH_FIXTURE_HOST: www.youtube.com
 
       - name: Build beta MV2
         run: npm run build

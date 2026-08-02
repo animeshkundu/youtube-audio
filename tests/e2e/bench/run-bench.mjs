@@ -37,6 +37,7 @@
 import { Builder, By, until } from 'selenium-webdriver';
 import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 import { execFileSync } from 'node:child_process';
+import { lookup } from 'node:dns/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
@@ -57,6 +58,8 @@ const GECKODRIVER_BIN = process.env.GECKODRIVER_BIN || join(binDir, 'geckodriver
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
+const DESKTOP_FIXTURE_HOST = process.env.BENCH_FIXTURE_HOST ?? '127.0.0.1';
+const YOUTUBE_FIXTURE_HOST = 'www.youtube.com';
 
 // The extension's gecko id (wxt.config.ts) and a pinned internal UUID. Pinning the
 // moz-extension UUID lets the bench open the extension's own options page deterministically
@@ -77,11 +80,17 @@ function log(...a) {
 }
 
 /** Build the BENCH extension and package it into a temporary-installable XPI. */
-export function buildBenchExtension() {
+export function buildBenchExtension({
+  staticFixtureMatches = DESKTOP_FIXTURE_HOST !== YOUTUBE_FIXTURE_HOST,
+} = {}) {
   log('building bench extension (BENCH=1 wxt build -b firefox --mv2)...');
   execFileSync(join(binDir, 'wxt'), ['build', '-b', 'firefox', '--mv2'], {
     cwd: repoRoot,
-    env: { ...process.env, BENCH: '1' },
+    env: {
+      ...process.env,
+      BENCH: '1',
+      ...(staticFixtureMatches ? { BENCH_STATIC_FIXTURE_MATCHES: '1' } : {}),
+    },
     stdio: 'inherit',
   });
 
@@ -101,6 +110,27 @@ export function buildBenchExtension() {
   log('bench XPI ready:', BENCH_XPI);
 }
 
+/** Refuse a virtual YouTube fixture unless it resolves only to loopback. */
+export async function assertBenchFixtureHost() {
+  const addresses = await lookup(DESKTOP_FIXTURE_HOST, { all: true, verbatim: true });
+  if (
+    addresses.length === 0 ||
+    addresses.some((address) => address.family !== 4 || address.address !== '127.0.0.1')
+  ) {
+    throw new Error(
+      `BENCH_FIXTURE_HOST must resolve only to 127.0.0.1: ${JSON.stringify(addresses)}`
+    );
+  }
+}
+
+/** Return the bind and public host pair for the desktop hermetic fixture. */
+export function benchFixtureServerOptions() {
+  return {
+    hostname: '127.0.0.1',
+    publicHostname: DESKTOP_FIXTURE_HOST,
+  };
+}
+
 function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
@@ -115,6 +145,13 @@ function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
   options.setPreference('datareporting.policy.dataSubmissionEnabled', false);
+  // The CI fixture's loopback-resolved YouTube hostname is HTTP. These disposable test profiles
+  // must not upgrade it through the real YouTube HSTS preload.
+  options.setPreference('network.stricttransportsecurity.enabled', false);
+  options.setPreference('network.stricttransportsecurity.preloadlist', false);
+  options.setPreference('dom.security.https_first', false);
+  options.setPreference('dom.security.https_first_pbm', false);
+  options.setPreference('network.trr.mode', 5);
   // The named fresh-profile case deliberately suppresses Firefox's automatic grant for a required
   // category. Every treatment session leaves the pref at its real default and asserts that the
   // seeded state resolves granted.
@@ -947,6 +984,7 @@ function statusMapEntry(statusMap) {
 }
 
 async function main() {
+  await assertBenchFixtureHost();
   if (!SKIP_BUILD) {
     buildBenchExtension();
   } else if (!existsSync(BENCH_XPI)) {
@@ -954,7 +992,7 @@ async function main() {
   }
 
   const fixture = createFixtureServer();
-  const { origin, port } = await fixture.start();
+  const { origin, port } = await fixture.start(benchFixtureServerOptions());
   log('fixture server listening on', origin);
 
   const tests = [];

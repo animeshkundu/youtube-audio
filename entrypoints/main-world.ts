@@ -74,6 +74,16 @@ declare global {
 
 declare const __BENCH__: boolean;
 
+function createRequestId(): string {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === 'function') return randomUuid.call(globalThis.crypto);
+  // See the isolated content script: only the loopback-resolved BENCH fixture can be HTTP.
+  if (__BENCH__) {
+    return `bench-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 18)}`;
+  }
+  throw new Error('Secure random UUID is unavailable');
+}
+
 export default defineUnlistedScript(() => {
   const player = new PlayerHandle();
   // Native-playback reclaim: PlayerHandle never rewrites <video>.src on teardown (the stale native
@@ -731,7 +741,7 @@ function requestSponsorSegments(
   categories: readonly SponsorCategory[]
 ): Promise<readonly SponsorSegment[]> {
   return new Promise((resolve) => {
-    const requestId = crypto.randomUUID();
+    const requestId = createRequestId();
     const bridgeNonce = readBridgeNonceForRequest();
     if (!bridgeNonce) {
       resolve([]);

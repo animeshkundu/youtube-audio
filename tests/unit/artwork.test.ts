@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AUDIO_ARTWORK_CLASS,
@@ -46,6 +46,15 @@ describe('pickArtworkUrl', () => {
       { url: 'https://i.ytimg.com/vi/x/sd.jpg', width: 640, height: 480 },
     ]);
     expect(pickArtworkUrl(response)).toBe('https://i.ytimg.com/vi/x/sd.jpg');
+  });
+
+  it('allows the loopback-resolved YouTube fixture only in a BENCH build', () => {
+    vi.stubGlobal('__BENCH__', true);
+    const response = responseWithThumbnails([
+      { url: 'http://www.youtube.com:8080/vi/x/maxresdefault.jpg', width: 1280, height: 720 },
+    ]);
+    expect(pickArtworkUrl(response)).toBe('http://www.youtube.com:8080/vi/x/maxresdefault.jpg');
+    vi.unstubAllGlobals();
   });
 });
 

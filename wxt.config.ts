@@ -29,10 +29,13 @@ const YOUTUBE_MATCHES = [
   '*://m.youtube.com/*',
 ];
 
-// Integration-bench flag. When BENCH=1, the content script ALSO matches the local
-// fixture host so the extension can be exercised against tests/e2e/bench/fixture-server.mjs.
-// Production builds (BENCH unset) never include these hosts. See tests/e2e/bench/.
+// Integration-bench flag. When BENCH=1, the extension receives host permission for local fixtures.
+// Desktop CI resolves its virtual YouTube fixture through the existing production match; Android uses
+// 10.0.2.2 and the local fallback needs these BENCH-only hosts. Production builds never include them.
 const BENCH = process.env.BENCH === '1';
+// The persistent-profile upgrade qualification and loopback local runs need the fixture declaration
+// at installation time. Desktop CI uses the existing static YouTube match instead.
+const BENCH_STATIC_FIXTURE_MATCHES = BENCH && process.env.BENCH_STATIC_FIXTURE_MATCHES === '1';
 const BENCH_MATCHES = [
   'http://127.0.0.1/*',
   'http://localhost/*',
@@ -141,7 +144,11 @@ export default defineConfig({
         entry.matches?.some((match) => YOUTUBE_MATCHES.includes(match))
       );
       if (contentScript) {
-        contentScript.matches = BENCH ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES] : YOUTUBE_MATCHES;
+        // Desktop CI uses the ordinary YouTube match. Local loopback and persistent-profile
+        // qualification builds opt into static fixture matches at installation time.
+        contentScript.matches = BENCH_STATIC_FIXTURE_MATCHES
+          ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES]
+          : YOUTUBE_MATCHES;
       }
     },
   },
