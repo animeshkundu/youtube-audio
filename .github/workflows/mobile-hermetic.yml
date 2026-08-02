@@ -102,4 +102,4 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -no-metrics
           # The action splits multiline input and runs every line in a separate `sh -c`; keep shared
           # shell state (fail-fast mode, computed URL/package, and export) in one checked-in script.
-          script: ./scripts/run-mobile-hermetic.sh
+          script: sh ./scripts/run-mobile-hermetic.sh

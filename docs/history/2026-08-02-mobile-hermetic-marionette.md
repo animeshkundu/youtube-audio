@@ -23,6 +23,8 @@ trying to enable Fenix's Remote debugging via USB setting through uiautomator.
 
 - Removed the Fenix launch, fixed sleeps, SDK-path shim, and uiautomator settings taps from
   `scripts/run-mobile-hermetic.sh`.
+- Invoke the checked-in runner through POSIX `sh`, so the emulator action does not require its file
+  mode to be executable.
 - Added a checksum-verified geckodriver 0.36.0 setup step only for the Fenix 128 matrix leg.
 - Made the hermetic Android probe honor `GECKODRIVER_BIN`, matching the established desktop harness
   contract.
