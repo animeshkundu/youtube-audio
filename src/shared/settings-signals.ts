@@ -36,7 +36,6 @@ export const hideCommentsSignal = signal(DEFAULT_SETTINGS.hideComments);
 export const loudnessNormalizationSignal = signal(DEFAULT_SETTINGS.loudnessNormalization);
 export const equalizerEnabledSignal = signal(DEFAULT_SETTINGS.equalizerEnabled);
 export const equalizerBandsSignal = signal<EqualizerBands>(DEFAULT_SETTINGS.equalizerBands);
-export const lyricsEnabledSignal = signal(DEFAULT_SETTINGS.lyricsEnabled);
 export const downloadEnabledSignal = signal(DEFAULT_SETTINGS.downloadEnabled);
 
 // Mirror the store into the signals. `subscribeSettings` invokes this immediately with the current
@@ -59,6 +58,5 @@ subscribeSettings((settings) => {
   loudnessNormalizationSignal.value = settings.loudnessNormalization;
   equalizerEnabledSignal.value = settings.equalizerEnabled;
   equalizerBandsSignal.value = settings.equalizerBands;
-  lyricsEnabledSignal.value = settings.lyricsEnabled;
   downloadEnabledSignal.value = settings.downloadEnabled;
 });

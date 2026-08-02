@@ -406,6 +406,27 @@ body {
   color: var(--danger);
 }
 
+.action-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+}
+
+.consent-review-row {
+  border-bottom: 1px solid var(--divider);
+}
+
+.consent-privacy-link {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.consent-privacy-link:hover {
+  text-decoration-color: currentcolor;
+}
+
 .reset-confirmation {
   padding: var(--space-3) var(--space-4);
   display: flex;
@@ -527,6 +548,14 @@ body {
   .reset-confirmation {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .action-buttons {
+    width: 100%;
+  }
+
+  .action-buttons .secondary-action {
+    flex: 1;
   }
 
   .reset-confirmation > div {

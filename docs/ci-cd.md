@@ -6,14 +6,15 @@ nightly canaries that never block a merge.
 
 ## Workflow map
 
-| Workflow            | File                                | Trigger                                       | Gating?                    |
-| ------------------- | ----------------------------------- | --------------------------------------------- | -------------------------- |
-| CI                  | `.github/workflows/ci.yml`          | push + PR (`main`/`master`/`rebuild`), manual | Gating + master release    |
-| Beta                | `.github/workflows/beta.yml`        | pre-release tag `v*[a-z]*` + manual           | Gating (blocks the sign)   |
-| Publish to AMO      | `.github/workflows/publish-amo.yml` | manual `workflow_dispatch` only               | Gating (blocks the submit) |
-| Mobile E2E          | `.github/workflows/mobile-e2e.yml`  | nightly 04:17 UTC + manual                    | Non-gating (best-effort)   |
-| Live YouTube Canary | `.github/workflows/live-canary.yml` | nightly 05:42 UTC + manual                    | Non-gating (best-effort)   |
-| Pages               | `.github/workflows/pages.yml`       | (owned by another workflow)                   | n/a                        |
+| Workflow            | File                                    | Trigger                                       | Gating?                    |
+| ------------------- | --------------------------------------- | --------------------------------------------- | -------------------------- |
+| CI                  | `.github/workflows/ci.yml`              | push + PR (`main`/`master`/`rebuild`), manual | Gating + master release    |
+| Beta                | `.github/workflows/beta.yml`            | pre-release tag `v*[a-z]*` + manual           | Gating (blocks the sign)   |
+| Publish to AMO      | `.github/workflows/publish-amo.yml`     | manual `workflow_dispatch` only               | Gating (blocks the submit) |
+| Mobile Hermetic E2E | `.github/workflows/mobile-hermetic.yml` | PR (`main`/`master`/`rebuild`) + manual       | Gating                     |
+| Mobile Live E2E     | `.github/workflows/mobile-e2e.yml`      | nightly 04:17 UTC + manual                    | Non-gating (best-effort)   |
+| Live YouTube Canary | `.github/workflows/live-canary.yml`     | nightly 05:42 UTC + manual                    | Non-gating (best-effort)   |
+| Pages               | `.github/workflows/pages.yml`           | (owned by another workflow)                   | n/a                        |
 
 All workflows use least privilege: `contents: read` by default, while beta and CI's
 `release-on-merge` job use `contents: write` only to publish their Release assets or push the next
@@ -26,19 +27,56 @@ publish or bump concurrently.
 
 ## CI (gating)
 
-Four parallel executable gate jobs must pass:
+Five executable gate outcomes must pass:
 
 1. **validate**: `npm ci` then `typecheck`, `lint` (eslint 0/0), `format:check`, `test` (vitest,
    90%+ coverage), `build` (MV2), and `web-ext lint` on `.output/firefox-mv2` (0 errors).
 2. **build-mv3**: `npm run build:mv3`. Proves the MV3 capability build stays buildable.
-3. **bench**: the hermetic Selenium/Firefox integration bench. It installs a real (non-snap)
-   Firefox via `browser-actions/setup-firefox` (the ubuntu snap Firefox cannot be driven by
-   geckodriver), passes its path as `FIREFOX_BIN`, and runs `xvfb-run --auto-servernum npm run
-test:bench`. The bench builds its own `BENCH=1` XPI and drives it against the local hermetic
-   fixture (`tests/e2e/bench/fixture-server.mjs`), with no live network, which is why it is safe to
-   gate on.
-4. **matrix**: drives the real extension through the deterministic settings-permutation matrix in
-   Firefox against the same hermetic fixture.
+3. **bench**: the hermetic Selenium/Firefox integration bench. A fail-fast-disabled matrix installs
+   real non-snap Firefox `128.0esr`, `133.0`, `139.0`, `140.0`, `142.0`, and `latest` via
+   `browser-actions/setup-firefox`, passes each path as `FIREFOX_BIN`, and runs the bench under
+   `xvfb-run --auto-servernum`. The versions cover the support floor, a mid custom-consent
+   release, both sides of the desktop 139/140 boundary, a post-boundary release, and current
+   mainline. The bench builds its own `BENCH=1` XPI and drives it against the local hermetic fixture
+   (`tests/e2e/bench/fixture-server.mjs`), with no live network, which is why it is safe to gate on.
+4. **matrix**: runs the full deterministic settings-permutation surface independently on the same six
+   Firefox versions and hermetic fixture. Every job name includes the Firefox version and every leg
+   runs in parallel, so one version's failure neither hides nor delays attribution for the others.
+   Both desktop harnesses accept `GECKODRIVER_BIN`. CI pins geckodriver `0.36.0` for Firefox 128-133
+   and verifies the downloaded Linux archive's SHA-256 before extraction; Firefox 134+ uses the
+   current npm-provided driver. This split is required because geckodriver 0.37.1 starts Firefox
+   128-133 but its add-on-install command returns an empty `InvalidArgumentError` before any test
+   runs. Geckodriver 0.36.0 installs the same XPI on both releases. The Firefox-side breakpoint is
+   exact: the current driver fails on 133 and succeeds on 134, with 134-139 all confirmed installable.
+5. **upgrade-verify-140**: after `upgrade-seed-139` creates granted and revoked non-temporary
+   Developer Edition profiles, Firefox 140 reopens the exact profile artifacts and reports the
+   literal `permissions.getAll()` state plus playback behavior.
+
+### Consent qualification lanes
+
+A temporary WebDriver install bypasses Firefox's native consent UI, but Firefox reports a manifest
+**required** category as granted through `permissions.getAll().data_collection`. The harnesses leave
+`extensions.dataCollectionPermissions.enabled` at its real default so modern treatment sessions
+exercise that built-in result. Every seeded session reads the literal permission object and fails
+loudly if consent does not resolve granted.
+
+The named `consent:fresh-unconsented-profile-fails-closed` bench case is deliberately different: its
+fresh profile suppresses the automatic required-category grant and receives no stored custom record.
+It verifies no audio hijack, extension player request, artwork marker, or artwork request.
+
+Firefox 128-139 takes the custom branch, where the versioned local record supplies required consent.
+The cross-version matrix makes this a blocking functional lane rather than an opt-in local
+qualification. Firefox 140+ takes the built-in branch with the preference at its real default. A
+seeded custom record is deliberately insufficient there, and the shared helper throws before any
+feature assertion if Firefox does not report `websiteContent` granted.
+
+The browser-upgrade lane stages the packaged unsigned XPI into granted and revoked Firefox 139
+Developer Edition profiles with `xpinstall.signatures.required=false`, shuts them down cleanly, then
+opens the same profiles in Firefox 140 Developer Edition. This answers browser-version boundary
+survival. It does not simulate a 1.0.3-to-candidate extension update or click Firefox's native
+install/update consent UI; those remain separate qualification gaps documented in
+`docs/testing/amo-compliance-qualification-plan.md`. The upgrade job must produce an empirical
+`NOT BRICKED` result while preserving revocation; infrastructure failure is not a pass.
 
 The public website is a bespoke Astro project in `website/`, deployed to GitHub Pages by `pages.yml`
 on changes under `website/**` (see below). The engineering docs under `docs/` (specs, ADRs,
@@ -46,8 +84,9 @@ architecture, research, history) live in the repo and are not built into the pub
 
 ### GitHub Release after a merge to master
 
-On a `push` to `master` only, **release-on-merge** waits for `validate`, `build-mv3`, `bench`, and
-`matrix`. Once all four succeed it checks out the exact gated merge commit with full history, runs
+On a `push` to `master` only, **release-on-merge** waits for `validate`, `build-mv3`, `bench`,
+`matrix`, and `upgrade-verify-140`. Once every prerequisite succeeds it checks out the exact gated
+merge commit with full history, runs
 `npm ci` and `npm run build:ext`, copies the packaged artifact to
 `dist/youtube-audio-<version>.xpi`, and creates
 latest GitHub Release `v<version>`. It uses `docs/release-notes/NEXT.md` when present and generated
@@ -83,6 +122,11 @@ npm run build          # Firefox MV2
 npx web-ext lint --source-dir=.output/firefox-mv2
 npm run build:mv3
 npm run test:bench     # hermetic bench (needs a local Firefox)
+
+# Firefox 128-133 require geckodriver 0.36.0:
+FIREFOX_BIN=/path/to/firefox \
+GECKODRIVER_BIN=/path/to/geckodriver-0.36.0 \
+npm run test:bench
 
 # Or all deterministic gates at once:
 ./scripts/validate.sh
@@ -121,7 +165,32 @@ AMO hosts the signed XPI and becomes the sole update authority for desktop and A
 Release asset and no self-hosted `updates.json`. The recommended human gate is a GitHub Environment
 `amo-production` with a required reviewer. See `RELEASE.md`.
 
-## Mobile E2E (non-gating, best-effort)
+## Mobile Hermetic E2E (gating)
+
+Every pull request runs the BENCH extension against the local fixture in Fenix `128.0`, `136.0`,
+`141.0`, `142.0`, and `145.0` on an API-34 x86_64 emulator. Version 128 is the declared support
+floor; 136 and 141 sample the custom-consent lane through its last release; 142 is the Android
+built-in-consent boundary; 145 proves a later built-in implementation. Mozilla publishes x86_64
+release APKs at the pinned archive URLs for all five versions. Legs run independently with
+`fail-fast: false`, and the Fenix version appears in each job name.
+
+The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
+Only `BENCH=1` builds add that alias to content-script and host permissions; production retains
+exactly the four YouTube content-script matches. Before emulator launch the workflow starts the host
+adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
+parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
+checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
+share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
+the action.
+
+The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
+fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
+`active`, hold a `/videoplayback` source, and record a credentialless player request. No live YouTube
+traffic participates in this blocking check. This emulator-only gate cannot be executed on the local
+Apple Silicon host because its x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is
+the qualification surface.
+
+## Mobile Live E2E (non-gating, best-effort)
 
 Nightly probe of the core audio-only path on Fenix (Firefox for Android) in an x86_64 Android
 emulator (`reactivecircus/android-emulator-runner`, API 34, `google_apis`, `x86_64`,
@@ -179,10 +248,9 @@ Both non-gating workflows were exercised once on GitHub Actions to validate them
   desktop) probe cannot reliably go green from CI regardless of the Fenix tuning.
 - **Real mobile verification is local.** `probe-mobile-fenix.mjs` passes 4/4 on a real emulator from
   a residential IP (see `docs/history/2026-07-11-mobile-firefox-verification.md`).
-- **Recommended proper fix:** make the mobile probe **hermetic** like the desktop bench, driving the
-  emulator's Fenix against the local fixture over `10.0.2.2` (requires the extension to also match
-  `10.0.2.2` and the probe to point there). That removes the datacenter-IP dependency and would make
-  mobile E2E deterministic and even gate-able. Tracked as a follow-up.
+- **Hermetic gating added:** `.github/workflows/mobile-hermetic.yml` now drives the emulator's Fenix
+  against the local fixture over `10.0.2.2`, removing the datacenter-IP dependency from the blocking
+  mobile lane. The live probe remains here as a separate nightly canary for real-site drift.
 
 ### Run the mobile probe locally
 

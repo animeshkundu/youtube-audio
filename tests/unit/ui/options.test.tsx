@@ -29,6 +29,14 @@ function actions(): OptionsActions {
     setDownloadEnabled: vi.fn(async () => undefined),
     setAggressiveTelemetry: vi.fn(async () => undefined),
     resetSettings: vi.fn(async () => undefined),
+    resolveDataConsent: vi.fn(async () => ({
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'custom',
+    })),
+    revokeDataConsent: vi.fn(async () => undefined),
+    setSponsorBlockConsent: vi.fn(async () => undefined),
+    openConsent: vi.fn(),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
   };
@@ -144,11 +152,41 @@ describe('Options', () => {
     );
   });
 
+  it('links the permanent consent controls to the public privacy policy', () => {
+    const container = mount(<Options actions={actions()} />);
+    const privacyLink = container.querySelector('.consent-privacy-link');
+
+    expect(privacyLink?.getAttribute('href')).toBe(
+      'https://animesh.kundus.in/youtube-audio/privacy/'
+    );
+    expect(privacyLink?.getAttribute('target')).toBe('_blank');
+    expect(privacyLink?.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('persists the separate SponsorBlock consent before enabling segment skipping', async () => {
+    segmentSkipEnabledSignal.value = false;
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-skip [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setSponsorBlockConsent).toHaveBeenCalledWith(true);
+    expect(optionsActions.setSegmentSkipEnabled).toHaveBeenCalledWith(true);
+    expect(
+      vi.mocked(optionsActions.setSponsorBlockConsent).mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      vi.mocked(optionsActions.setSegmentSkipEnabled).mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
   it('keeps SponsorBlock category rows absent until segment skipping is enabled', () => {
     segmentSkipEnabledSignal.value = false;
     const container = mount(<Options actions={actions()} />);
 
     expect(container.querySelector('#option-skip [role="switch"]')).not.toBeNull();
+    expect(container.querySelector('#option-skip')?.textContent).toContain('sponsor.ajay.app');
+    expect(container.querySelector('#option-skip')?.textContent).toContain('16-bit');
     expect(container.querySelector('#option-sponsor')).toBeNull();
     expect(container.querySelector('#option-music_offtopic')).toBeNull();
     expect(container.querySelector('#skipping .dependent-reveal')).toBeNull();
@@ -218,18 +256,6 @@ describe('Options', () => {
     ).toEqual(['●Music']);
   });
 
-  it('keeps synced lyrics hidden from settings and search', () => {
-    const container = mount(<Options actions={actions()} />);
-
-    expect(container.querySelector('#option-lyrics')).toBeNull();
-    expect(container.textContent).not.toContain('Synced lyrics');
-
-    searchFor(container, 'lyrics');
-
-    expect(container.querySelector('#music')).toBeNull();
-    expect(container.querySelector('.empty-search[role="status"]')).not.toBeNull();
-  });
-
   it('does not render an empty Playback card for removed Audio-only or Background terms', () => {
     const container = mount(<Options actions={actions()} />);
 
@@ -296,7 +322,7 @@ describe('Options', () => {
     const optionsActions = actions();
     const container = mount(<Options actions={optionsActions} />);
 
-    click(container.querySelector('.action-row .secondary-action'));
+    click(container.querySelector('.reset-row .secondary-action'));
     expect(optionsActions.resetSettings).not.toHaveBeenCalled();
     expect(container.querySelector('[aria-label="Confirm reset"]')).not.toBeNull();
 

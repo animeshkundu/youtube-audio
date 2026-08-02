@@ -15,8 +15,13 @@ import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 
+import { seedDataConsent } from '../consent-helper.mjs';
+
 const execFile = promisify(execFileCallback);
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
+const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
+const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
+const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const ADB = process.env.ADB || 'adb';
 const GECKO = process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.fenix';
@@ -29,6 +34,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function firefoxOptions() {
   const options = new firefox.Options();
   options.enableMobile(FENIX_PACKAGE);
+  options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: PINNED_UUID }));
   return options;
 }
 
@@ -185,6 +191,7 @@ try {
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
   report.addonId = await driver.installAddon(XPI, true);
+  await seedDataConsent(driver, OPTIONS_URL);
   report.overlays.addonConfirmation = await tapOverlay('OK');
   report.overlays.onboarding = await tapOverlay('Continue');
   report.overlays.defaultBrowser = await tapOverlay('Not now');

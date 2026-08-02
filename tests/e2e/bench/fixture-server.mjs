@@ -598,12 +598,6 @@ export function createFixtureServer() {
       const videoId = url.searchParams.get('videoID') || undefined;
       return sendJson(res, 200, fixtureSkipSegments(videoId));
     }
-    if (path === '/api/get') {
-      return sendJson(res, 200, {
-        syncedLyrics: '[00:00.00]Fixture opening\n[00:04.00]Fixture chorus',
-        plainLyrics: 'Fixture opening\nFixture chorus',
-      });
-    }
     if (/^\/vi\/[^/]+\/(?:hqdefault|maxresdefault)\.jpg$/.test(path)) {
       return sendText(res, 200, fixtureThumbnailSvg(), 'image/svg+xml; charset=utf-8');
     }
@@ -629,14 +623,14 @@ export function createFixtureServer() {
 
   return {
     server,
-    /** Start listening on an ephemeral 127.0.0.1 port. Resolves with { origin, port }. */
-    start() {
+    /** Start listening on an ephemeral port. Resolves with the caller-facing origin and port. */
+    start({ hostname = '127.0.0.1', publicHostname = hostname } = {}) {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(0, '127.0.0.1', () => {
+        server.listen(0, hostname, () => {
           const addr = server.address();
           const port = typeof addr === 'object' && addr ? addr.port : 0;
-          resolve({ origin: `http://127.0.0.1:${port}`, port });
+          resolve({ origin: `http://${publicHostname}:${port}`, port });
         });
       });
     },

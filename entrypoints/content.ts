@@ -2,6 +2,15 @@ import { defineContentScript } from 'wxt/utils/define-content-script';
 import { injectScript } from 'wxt/utils/inject-script';
 
 import {
+  applyConsentToSettings,
+  createContentConsentState,
+  DATA_CONSENT_CHANGED_MESSAGE,
+  DENIED_DATA_CONSENT,
+  GET_DATA_CONSENT_MESSAGE,
+  parseDataConsentMessage,
+  type DataConsentState,
+} from '../src/shared/consent';
+import {
   getSettings,
   initializeSettings,
   setAudioOnlyEnabled,
@@ -15,7 +24,6 @@ import {
   logFromContent,
 } from '../src/shared/diagnostics';
 import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
-import { parseLrc, type LyricLine } from '../src/shared/lyrics';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 import { isPlaybackStatus, STATUS_UPDATE_MESSAGE, type StatusUpdate } from '../src/shared/status';
@@ -35,8 +43,6 @@ const STATUS_EVENT = 'yta:status';
 const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
-const TRACK_EVENT = 'yta:track';
-const LYRICS_MESSAGE = 'yta:lyrics';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const DOWNLOAD_MESSAGE = 'yta:download-audio';
@@ -49,20 +55,8 @@ const PLAYER_TOOLTIP_ID = 'yta-audio-only-tooltip';
 const SEGMENT_TOAST_ID = 'yta-segment-toast';
 const COACH_ID = 'yta-audio-only-coach';
 const COACH_STORAGE_KEY = 'seenAudioOnlyCoach';
-const LYRICS_ID = 'yta-synced-lyrics';
 const DISTRACTION_STYLE_ID = 'yta-distraction-style';
 const PLAYER_CONTROL_STYLE_ID = 'yta-player-control-style';
-let lyricsCleanup: () => void = () => undefined;
-// The videoId whose lyrics are currently rendered, the last track handleTrack saw (so a duplicate
-// event for a just-closed track cannot reopen it), the track the user explicitly closed, a monotonic
-// token that drops a superseded lyrics fetch, and the last-seen enabled state so re-enabling lyrics
-// clears a prior manual dismiss.
-let lyricsVideoId: string | null = null;
-let lyricsLastTrackId: string | null = null;
-let lyricsFetchingVideoId: string | null = null;
-let lyricsDismissedVideoId: string | null = null;
-let lyricsRequestGeneration = 0;
-let lyricsWasEnabled = false;
 let coachRequest: Promise<void> | null = null;
 let coachSeenThisPage = false;
 let coachCleanup: () => void = () => undefined;
@@ -94,6 +88,16 @@ export function nextStatusRunStart(): number {
 }
 const statusRunStart = nextStatusRunStart();
 
+/** Requests background-owned consent and fails closed on unavailable or malformed replies. */
+export async function requestDataConsent(): Promise<DataConsentState> {
+  try {
+    const reply = await browser.runtime.sendMessage({ type: GET_DATA_CONSENT_MESSAGE });
+    return parseDataConsentMessage(reply) ?? DENIED_DATA_CONSENT;
+  } catch {
+    return DENIED_DATA_CONSENT;
+  }
+}
+
 export default defineContentScript({
   matches: MATCHES,
   runAt: 'document_start',
@@ -108,8 +112,13 @@ export default defineContentScript({
       installDiagnosticsRelay(bridgeNonce);
       installGlobalErrorCapture('content.uncaught', logFromContent);
       await initializeSettings();
+      // Consent starts denied and the push listener is installed BEFORE the initial request, so a
+      // denial broadcast that lands while that request is in flight cannot be missed. A generation
+      // guard prevents that push from being overwritten by an older startup reply.
+      let consent: DataConsentState = DENIED_DATA_CONSENT;
       watchSettings();
-      subscribeSettings((settings) => {
+      const applyEffectiveSettings = () => {
+        const settings = applyConsentToSettings(getSettings(), consent);
         window.postMessage(
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
           location.origin
@@ -117,25 +126,33 @@ export default defineContentScript({
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
-        const lyricsOn = settings.enabled && settings.lyricsEnabled;
-        if (!lyricsOn) removeLyrics();
-        else if (!lyricsWasEnabled) lyricsDismissedVideoId = null; // re-enabled: allow showing again
-        lyricsWasEnabled = lyricsOn;
+      };
+      const consentState = createContentConsentState((nextConsent) => {
+        consent = nextConsent;
+        applyEffectiveSettings();
       });
+      subscribeSettings(applyEffectiveSettings);
+      browser.runtime.onMessage.addListener((message: unknown) => {
+        if (
+          typeof message !== 'object' ||
+          message === null ||
+          (message as { type?: unknown }).type !== DATA_CONSENT_CHANGED_MESSAGE
+        ) {
+          return undefined;
+        }
+        // A malformed push is a denial, never permission to keep a transmitting snapshot alive.
+        consentState.applyPush((message as { consent?: unknown }).consent);
+        return undefined;
+      });
+      consentState.applyInitial(await requestDataConsent());
       document.addEventListener(STATUS_EVENT, updateStatusMarker);
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
         void handleSponsorRequest(event, bridgeNonce);
       });
-      document.addEventListener(TRACK_EVENT, (event) => {
-        void handleTrack(event);
-      });
       // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
       document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
-      window.postMessage(
-        { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings: getSettings() },
-        location.origin
-      );
+      applyEffectiveSettings();
       installPlayerControls(bridgeNonce);
     } catch (error) {
       logFromContent('error', { where: 'content.init', ...errorFields(error) });
@@ -143,183 +160,6 @@ export default defineContentScript({
     }
   },
 });
-
-async function handleTrack(event: Event): Promise<void> {
-  if (!getSettings().enabled || !getSettings().lyricsEnabled) return;
-  if (location.hostname !== 'music.youtube.com' && !__BENCH__) return;
-  const detail = (event as CustomEvent<unknown>).detail;
-  if (typeof detail !== 'string') return;
-  let candidate: {
-    videoId?: unknown;
-    title?: unknown;
-    artist?: unknown;
-    duration?: unknown;
-  };
-  try {
-    const parsed: unknown = JSON.parse(detail);
-    if (typeof parsed !== 'object' || parsed === null) return;
-    candidate = parsed;
-  } catch {
-    return;
-  }
-  if (
-    typeof candidate.videoId !== 'string' ||
-    !/^[A-Za-z0-9_-]{6,20}$/.test(candidate.videoId) ||
-    typeof candidate.title !== 'string' ||
-    candidate.title.length === 0 ||
-    candidate.title.length > 200 ||
-    typeof candidate.artist !== 'string' ||
-    candidate.artist.length === 0 ||
-    candidate.artist.length > 200 ||
-    typeof candidate.duration !== 'number' ||
-    !Number.isFinite(candidate.duration) ||
-    candidate.duration <= 0
-  ) {
-    return;
-  }
-  const videoId = candidate.videoId;
-  // A genuinely different track (vs the last one we saw, not the rendered one which is null after a
-  // close) clears a prior manual dismiss; a duplicate event for the track the user just closed stays
-  // closed; a track already rendered needs no re-fetch (avoids flicker / resetting a minimized panel).
-  if (videoId !== lyricsLastTrackId) lyricsDismissedVideoId = null;
-  lyricsLastTrackId = videoId;
-  if (videoId === lyricsDismissedVideoId) return;
-  if (videoId === lyricsVideoId && document.getElementById(LYRICS_ID)) return;
-  // A fetch for this exact track is already in flight: skip a duplicate so it does not supersede the
-  // first (which would drop a good result if the duplicate then fails). Only a genuinely different
-  // track bumps the generation and supersedes.
-  if (videoId === lyricsFetchingVideoId) return;
-  const generation = ++lyricsRequestGeneration;
-  lyricsFetchingVideoId = videoId;
-  try {
-    const response: unknown = await browser.runtime.sendMessage({
-      type: LYRICS_MESSAGE,
-      title: candidate.title,
-      artist: candidate.artist,
-      duration: candidate.duration,
-      ...(__BENCH__ ? { benchOrigin: location.origin } : {}),
-    });
-    // Drop a superseded fetch (a newer track started while this one was in flight) so a slow lookup
-    // for the previous song can never overwrite the current one.
-    if (generation !== lyricsRequestGeneration) return;
-    if (!getSettings().enabled || !getSettings().lyricsEnabled) return;
-    if (videoId === lyricsDismissedVideoId) return;
-    const syncedLyrics =
-      typeof response === 'object' && response !== null
-        ? (response as { syncedLyrics?: unknown }).syncedLyrics
-        : undefined;
-    if (typeof syncedLyrics !== 'string' || syncedLyrics.length > 200_000) {
-      // No lyrics for the new track: clear a stale panel from the previous one.
-      if (videoId !== lyricsVideoId) removeLyrics();
-      return;
-    }
-    renderLyrics(parseLrc(syncedLyrics), videoId);
-  } catch {
-    if (generation === lyricsRequestGeneration && videoId !== lyricsVideoId) removeLyrics();
-  } finally {
-    if (lyricsFetchingVideoId === videoId) lyricsFetchingVideoId = null;
-  }
-}
-
-function renderLyrics(lines: readonly LyricLine[], videoId: string): void {
-  removeLyrics();
-  if (lines.length === 0) return;
-  const video = document.querySelector<HTMLMediaElement>('video');
-  if (!video) return;
-
-  const container = document.createElement('section');
-  container.id = LYRICS_ID;
-  container.setAttribute('aria-label', 'Synced lyrics');
-  container.dataset.videoId = videoId;
-  container.style.cssText =
-    'position:fixed;right:16px;bottom:72px;z-index:2147483646;max-width:min(420px,calc(100vw - 32px));max-height:40vh;display:flex;flex-direction:column;overflow:hidden;border-radius:12px;background:rgba(15,15,15,.92);color:#fff;font:16px/1.5 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;';
-
-  // Header with minimize + close controls. The panel is click-through (container `pointer-events:none`,
-  // only the buttons re-enable events), so on YouTube Music the lyric text no longer swallows clicks
-  // meant for the Up Next queue behind it (a click on a queue row passes through and switches songs).
-  // Minimize collapses to just this header; close removes the panel.
-  const header = document.createElement('div');
-  header.style.cssText =
-    'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;flex:0 0 auto;';
-  const label = document.createElement('span');
-  label.textContent = 'Lyrics';
-  label.style.cssText =
-    'font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7;';
-  const controls = document.createElement('div');
-  controls.style.cssText = 'display:flex;gap:2px;';
-  const body = document.createElement('div');
-  body.style.cssText = 'overflow:auto;padding:2px 16px 12px;flex:1 1 auto;';
-
-  const makeButton = (
-    symbol: string,
-    ariaLabel: string,
-    onClick: () => void
-  ): HTMLButtonElement => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = symbol;
-    button.setAttribute('aria-label', ariaLabel);
-    button.style.cssText =
-      'appearance:none;border:0;background:transparent;color:#fff;opacity:.65;cursor:pointer;width:28px;height:28px;border-radius:6px;font:16px/1 system-ui,sans-serif;pointer-events:auto;';
-    button.addEventListener('mouseenter', () => button.style.setProperty('opacity', '1'));
-    button.addEventListener('mouseleave', () => button.style.setProperty('opacity', '.65'));
-    button.addEventListener('click', onClick);
-    return button;
-  };
-
-  let minimized = false;
-  const minimizeButton = makeButton('–', 'Minimize lyrics', () => {
-    minimized = !minimized;
-    body.style.setProperty('display', minimized ? 'none' : 'block');
-    minimizeButton.textContent = minimized ? '▸' : '–';
-    minimizeButton.setAttribute('aria-label', minimized ? 'Expand lyrics' : 'Minimize lyrics');
-  });
-  const closeButton = makeButton('×', 'Close lyrics', () => {
-    lyricsDismissedVideoId = videoId;
-    removeLyrics();
-  });
-  controls.append(minimizeButton, closeButton);
-  header.append(label, controls);
-
-  const elements = lines.map((line) => {
-    const paragraph = document.createElement('p');
-    paragraph.textContent = line.text;
-    paragraph.style.cssText = 'margin:4px 0;opacity:.55;';
-    body.append(paragraph);
-    return paragraph;
-  });
-  container.append(header, body);
-
-  let activeIndex = -1;
-  const sync = () => {
-    let nextIndex = -1;
-    for (let index = 0; index < lines.length; index += 1) {
-      if ((lines[index]?.time ?? Number.POSITIVE_INFINITY) <= video.currentTime) nextIndex = index;
-      else break;
-    }
-    if (nextIndex === activeIndex) return;
-    if (activeIndex >= 0) elements[activeIndex]?.style.setProperty('opacity', '.55');
-    activeIndex = nextIndex;
-    if (activeIndex >= 0) {
-      elements[activeIndex]?.style.setProperty('opacity', '1');
-      if (!minimized) elements[activeIndex]?.scrollIntoView({ block: 'nearest' });
-    }
-  };
-  video.addEventListener('timeupdate', sync);
-  lyricsCleanup = () => video.removeEventListener('timeupdate', sync);
-  document.body.append(container);
-  lyricsVideoId = videoId;
-  if (__BENCH__) document.documentElement.dataset.ytaLyrics = String(lines.length);
-  sync();
-}
-
-function removeLyrics(): void {
-  lyricsCleanup();
-  lyricsCleanup = () => undefined;
-  lyricsVideoId = null;
-  document.getElementById(LYRICS_ID)?.remove();
-  if (__BENCH__) delete document.documentElement.dataset.ytaLyrics;
-}
 
 async function handleSponsorRequest(event: Event, bridgeNonce: string): Promise<void> {
   const detail = (event as CustomEvent<unknown>).detail;

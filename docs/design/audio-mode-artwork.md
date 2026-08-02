@@ -64,9 +64,8 @@ backdrop reframes the same state as intentional and pleasant.
   resource load governed by the page CSP, not by extension host permissions, and
   YouTube's own CSP already permits `i.ytimg.com`.
 - In-page DOM has no access to the `tokens.css` design variables (those load only
-  in the popup/options documents). In-page code hardcodes values inline, exactly
-  as the lyrics panel does (`entrypoints/content.ts:146-147`). The overlay mirrors
-  the token values as literals.
+  in the popup/options documents). The overlay mirrors the token values as inline
+  literals.
 
 ### Approach (summary)
 
@@ -424,7 +423,7 @@ child of the persistent container across theater/fullscreen/miniplayer, so no
 re-mount is needed. As optional hardening (not required for v1), `showArtwork`
 could keep a lightweight `MutationObserver` on the container to re-append if
 YouTube ever removes the node; v1 keeps it simple and relies on the container's
-persistence, matching how the lyrics and button features mount once.
+persistence, matching how the in-player controls mount once.
 
 ## Decision 4: Media Session artwork tie-in
 
@@ -493,7 +492,7 @@ verification (S4), tracked as an open question below.
 ## Test signal (deterministic, hermetic)
 
 Follows the existing marker convention (`data-yta-*` on `documentElement`, set only
-under `__BENCH__`, mirroring `ytaAudioGraph`/`ytaLyrics`/`ytaSkipArmed`).
+under `__BENCH__`, mirroring `ytaAudioGraph` and `ytaSkipArmed`).
 
 Production behavior is unmarked (ghost-friendly); only the bench build emits markers.
 

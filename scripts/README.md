@@ -4,13 +4,14 @@ This folder contains automation scripts for development and CI/CD.
 
 ## Available Scripts
 
-| Script         | Purpose                                                    | Usage                       |
-| -------------- | ---------------------------------------------------------- | --------------------------- |
-| `build-ext.sh` | Build WXT Firefox MV2 and package `dist/youtube-audio.xpi` | `./scripts/build-ext.sh`    |
-| `release.sh`   | Validate and AMO-sign an unlisted Firefox MV2 XPI          | `npm run release:sign`      |
-| `validate.sh`  | Run all validation checks                                  | `./scripts/validate.sh`     |
-| `setup.sh`     | Setup development environment                              | `./scripts/setup.sh`        |
-| `lint.sh`      | Run linter (with optional fix)                             | `./scripts/lint.sh [--fix]` |
+| Script                   | Purpose                                                     | Usage                               |
+| ------------------------ | ----------------------------------------------------------- | ----------------------------------- |
+| `build-ext.sh`           | Build WXT Firefox MV2 and package `dist/youtube-audio.xpi`  | `./scripts/build-ext.sh`            |
+| `release.sh`             | Validate and AMO-sign an unlisted Firefox MV2 XPI           | `npm run release:sign`              |
+| `run-mobile-hermetic.sh` | Qualify one Fenix release against the local Android fixture | `FENIX_VERSION=128.0 ./scripts/...` |
+| `validate.sh`            | Run all validation checks                                   | `./scripts/validate.sh`             |
+| `setup.sh`               | Setup development environment                               | `./scripts/setup.sh`                |
+| `lint.sh`                | Run linter (with optional fix)                              | `./scripts/lint.sh [--fix]`         |
 
 ## Quick Start
 

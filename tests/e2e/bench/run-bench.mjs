@@ -31,15 +31,17 @@
  *   HEADLESS    "1" (default) headless, "0" headful
  *   SKIP_BUILD  "1" reuse an existing bench XPI (dist/youtube-audio-bench.xpi) instead of building
  *   FIREFOX_BIN explicit Firefox binary path (default: geckodriver auto-discovery)
+ *   GECKODRIVER_BIN explicit geckodriver binary path (default: npm package binary)
  */
 
 import { Builder, By, until } from 'selenium-webdriver';
-import firefox from 'selenium-webdriver/firefox.js';
+import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, mkdirSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
 
+import { seedDataConsent } from '../consent-helper.mjs';
 import { createFixtureServer } from './fixture-server.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -51,6 +53,7 @@ process.env.PATH = `${binDir}:${process.env.PATH || ''}`;
 
 const HEADLESS = process.env.HEADLESS !== '0';
 const SKIP_BUILD = process.env.SKIP_BUILD === '1';
+const GECKODRIVER_BIN = process.env.GECKODRIVER_BIN || join(binDir, 'geckodriver');
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
 const ARTIFACTS_DIR = join(repoRoot, 'dist', 'bench-web-ext-artifacts');
 const BENCH_XPI = join(repoRoot, 'dist', 'youtube-audio-bench.xpi');
@@ -98,12 +101,9 @@ export function buildBenchExtension() {
   log('bench XPI ready:', BENCH_XPI);
 }
 
-function makeOptions() {
+function makeOptions({ disableBuiltInDataConsent = false } = {}) {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
-  // Permit Marionette's chrome context (openBrowserActionPopup drives the toolbar via it). This is
-  // a WebDriver capability flag only; it does not change content-page or extension behavior.
-  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   // Pin the extension's internal UUID so the options page has a stable moz-extension origin.
   options.setPreference(
@@ -115,6 +115,12 @@ function makeOptions() {
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
   options.setPreference('datareporting.policy.dataSubmissionEnabled', false);
+  // The named fresh-profile case deliberately suppresses Firefox's automatic grant for a required
+  // category. Every treatment session leaves the pref at its real default and asserts that the
+  // seeded state resolves granted.
+  if (disableBuiltInDataConsent) {
+    options.setPreference('extensions.dataCollectionPermissions.enabled', false);
+  }
   options.setPreference('browser.shell.checkDefaultBrowser', false);
   return options;
 }
@@ -283,7 +289,6 @@ function snapshotScript() {
     ready: document.documentElement.getAttribute('data-fixture-ready'),
     telemetryReady: document.documentElement.getAttribute('data-fixture-telemetry-ready'),
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
-    lyrics: document.documentElement.dataset.ytaLyrics || null,
     download: document.documentElement.dataset.ytaDownload || null,
     downloadButtonVisible: !!document.querySelector('#yta-download-audio:not([hidden])'),
     audioOnlyTogglePresent: !!audioOnlyToggle,
@@ -326,13 +331,16 @@ function visibilityProbeScript() {
 
 /**
  * One fresh-profile browser session against the fixture watch page.
- * @param {{ withAddon: boolean, seedSettings?: object, probePlayerFromPage?: boolean,
- *           probeCoach?: boolean, probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
+ * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
+ *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
+ *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
   withAddon,
   seedSettings,
+  seedConsent = true,
+  sponsorBlockAllowed,
   probePlayerFromPage,
   probeCoach,
   probeSegmentSkip,
@@ -355,7 +363,11 @@ export async function runSession({
   probeLateAutonav,
   expectedTerminalStatus,
 }) {
-  const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
+  const driver = await new Builder()
+    .forBrowser('firefox')
+    .setFirefoxOptions(makeOptions({ disableBuiltInDataConsent: withAddon && !seedConsent }))
+    .setFirefoxService(new ServiceBuilder(GECKODRIVER_BIN).addArguments('--allow-system-access'))
+    .build();
   try {
     let addonId = null;
     if (withAddon) {
@@ -378,24 +390,29 @@ export async function runSession({
       }
       await driver.switchTo().window(workHandle);
 
-      if (seedSettings) {
-        // Faithful settings path: write browser.storage from the extension's own options page,
-        // exactly what the content script reads via initializeSettings() on the next navigation.
-        await driver.get(OPTIONS_URL);
-        const seed = await driver.executeAsyncScript(function (settings) {
-          const done = arguments[arguments.length - 1];
-          try {
-            browser.storage.local
-              .set({ settings })
-              .then(() => done({ ok: true }))
-              .catch((e) => done({ ok: false, error: String(e) }));
-          } catch (e) {
-            done({ ok: false, error: String(e) });
-          }
-        }, seedSettings);
-        if (!seed || !seed.ok) throw new Error(`settings seed failed: ${JSON.stringify(seed)}`);
-        log('seeded settings via options page:', JSON.stringify(seedSettings));
+      if (seedConsent) {
+        const consent = await seedDataConsent(driver, OPTIONS_URL, {
+          sponsorBlockAllowed: sponsorBlockAllowed ?? seedSettings?.segmentSkipEnabled === true,
+        });
+        log('seeded data consent via options page:', JSON.stringify(consent));
       }
+
+      // Faithful settings path: write browser.storage from the extension's own options page,
+      // exactly what the content script reads via initializeSettings() on the next navigation.
+      await driver.get(OPTIONS_URL);
+      const seed = await driver.executeAsyncScript(function (settings) {
+        const done = arguments[arguments.length - 1];
+        try {
+          browser.storage.local
+            .set({ settings })
+            .then(() => done({ ok: true }))
+            .catch((e) => done({ ok: false, error: String(e) }));
+        } catch (e) {
+          done({ ok: false, error: String(e) });
+        }
+      }, seedSettings ?? {});
+      if (!seed || !seed.ok) throw new Error(`settings seed failed: ${JSON.stringify(seed)}`);
+      if (seedSettings) log('seeded settings via options page:', JSON.stringify(seedSettings));
     }
 
     // Clean the fixture request log so this session's traffic is measured in isolation.
@@ -431,13 +448,15 @@ export async function runSession({
           return snap.ytaCoach === '1' ? snap : null;
         }, 4000));
       }
-      terminalSnap = await waitFor(async () => {
-        const snap = await driver.executeScript(snapshotScript);
-        if (expectedTerminalStatus) {
-          return snap.status === expectedTerminalStatus ? snap : null;
-        }
-        return snap.status && TERMINAL_STATUSES.includes(snap.status) ? snap : null;
-      }, 8000);
+      if (seedConsent) {
+        terminalSnap = await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          if (expectedTerminalStatus) {
+            return snap.status === expectedTerminalStatus ? snap : null;
+          }
+          return snap.status && TERMINAL_STATUSES.includes(snap.status) ? snap : null;
+        }, 8000);
+      }
 
       const artworkExpected =
         terminalSnap?.status === 'active' &&
@@ -572,12 +591,6 @@ export async function runSession({
         }, 8000, 50)) || (await driver.executeScript(snapshotScript));
     }
 
-    if (seedSettings?.lyricsEnabled) {
-      await waitFor(async () => {
-        const state = await driver.executeScript(snapshotScript);
-        return state.lyrics ? state : null;
-      }, 4000);
-    }
     if (probeDownload) {
       await driver.executeScript(function () {
         const button = document.getElementById('yta-download-audio');
@@ -889,7 +902,6 @@ export async function runSession({
       segmentSkip,
       qol,
       audioGraph: snap.audioGraph,
-      lyrics: snap.lyrics,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
       audioOnlyTogglePresent: snap.audioOnlyTogglePresent,
@@ -982,12 +994,38 @@ async function main() {
     // --- enabled (default settings) -------------------------------------------
     const enabled = await runSession({
       withAddon: true,
+      sponsorBlockAllowed: true,
       probePlayerFromPage: true,
       probeCoach: true,
       origin,
       resetLog: () => fixture.reset(),
     });
     const enabledLog = fixture.getRequests();
+
+    const unconsented = await runSession({
+      withAddon: true,
+      seedConsent: false,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const unconsentedLog = fixture.getRequests();
+    record(
+      'consent:fresh-unconsented-profile-fails-closed',
+      unconsented.marker === '1' &&
+        unconsented.status === 'disabled' &&
+        !unconsented.videoSrc?.includes('/videoplayback') &&
+        !hasPlayerPost(unconsentedLog) &&
+        unconsented.ytaArtwork === null &&
+        !unconsentedLog.some((request) => request.path.startsWith('/vi/')),
+      {
+        marker: unconsented.marker,
+        status: unconsented.status,
+        videoSrc: unconsented.videoSrc,
+        playerPost: hasPlayerPost(unconsentedLog),
+        artwork: unconsented.ytaArtwork,
+        artworkRequests: unconsentedLog.filter((request) => request.path.startsWith('/vi/')),
+      }
+    );
 
     record('treatment:content-script-marker', enabled.marker === '1', {
       marker: enabled.marker,
@@ -1029,7 +1067,6 @@ async function main() {
       loudnessNormalization: false,
       equalizerEnabled: false,
       equalizerBands: [0, 0, 0, 0, 0],
-      lyricsEnabled: false,
       downloadEnabled: false,
     };
     const toggleOffRun = await runSession({
@@ -1519,14 +1556,17 @@ async function main() {
     );
     record(
       'm3a:privacy-k-anon-prefix-no-viewcount',
-      enabledLog.some(
+      // Reads the dedicated segment-skip session's log, not `enabledLog`: SponsorBlock is now
+      // opt-in and default-off, so the general enabled session legitimately never contacts it.
+      segmentSkipLog.some(
         (r) => r.method === 'GET' && /^\/api\/skipSegments\/[0-9a-f]{4}$/.test(r.path)
-      ) && !enabledLog.some((r) => r.path.includes('viewedVideoSponsorTime')),
+      ) && !segmentSkipLog.some((r) => r.path.includes('viewedVideoSponsorTime')),
       {
-        skipSegmentsRequests: enabledLog
+        skipSegmentsRequests: segmentSkipLog
           .filter((r) => r.path.startsWith('/api/skipSegments/'))
           .map((r) => `${r.method} ${r.path}`),
-        viewCountLeaks: enabledLog.filter((r) => r.path.includes('viewedVideoSponsorTime')).length,
+        viewCountLeaks: segmentSkipLog.filter((r) => r.path.includes('viewedVideoSponsorTime'))
+          .length,
       }
     );
 
@@ -1549,7 +1589,6 @@ async function main() {
         loudnessNormalization: false,
         equalizerEnabled: false,
         equalizerBands: [0, 0, 0, 0, 0],
-        lyricsEnabled: false,
       },
       origin,
       resetLog: () => fixture.reset(),
@@ -1573,40 +1612,6 @@ async function main() {
       marker: loudnessDisabled.audioGraph,
     });
 
-    const lyricsRun = await runSession({
-      withAddon: true,
-      seedSettings: {
-        enabled: true,
-        audioOnlyEnabled: false,
-        backgroundPlayEnabled: false,
-        ghostEnabled: false,
-        aggressiveTelemetry: false,
-        adBlockEnabled: false,
-        segmentSkipEnabled: false,
-        segmentSkipCategories: [],
-        forceQualityMax: 'off',
-        disableAutoplayNext: false,
-        hideShorts: false,
-        hideRecommendations: false,
-        hideComments: false,
-        loudnessNormalization: false,
-        equalizerEnabled: false,
-        equalizerBands: [0, 0, 0, 0, 0],
-        lyricsEnabled: true,
-      },
-      origin,
-      resetLog: () => fixture.reset(),
-    });
-    const lyricsLog = fixture.getRequests();
-    record(
-      'm4:lyrics-disabled-even-when-forced',
-      // Lyrics are disabled at the config layer (YouTube Music has native lyrics). Even with
-      // lyricsEnabled seeded true, normalizeSettings coerces it off, so no panel renders and no
-      // LRCLIB lookup ever fires.
-      lyricsRun.lyrics === null && !lyricsLog.some((r) => r.path === '/api/get'),
-      { marker: lyricsRun.lyrics, fetched: lyricsLog.filter((r) => r.path === '/api/get') }
-    );
-
     const downloadDisabled = await runSession({
       withAddon: true,
       seedSettings: {
@@ -1626,7 +1631,6 @@ async function main() {
         loudnessNormalization: false,
         equalizerEnabled: false,
         equalizerBands: [0, 0, 0, 0, 0],
-        lyricsEnabled: false,
         downloadEnabled: false,
       },
       origin,
@@ -1657,7 +1661,6 @@ async function main() {
         loudnessNormalization: false,
         equalizerEnabled: false,
         equalizerBands: [0, 0, 0, 0, 0],
-        lyricsEnabled: false,
         downloadEnabled: true,
       },
       probeDownload: true,

@@ -1,0 +1,92 @@
+name: Mobile Hermetic E2E
+
+# Blocking Android qualification uses only the local fixture. The separate mobile-e2e workflow keeps
+# the live m.youtube.com probe nightly and non-gating because datacenter IP and UI drift make it flaky.
+on:
+  pull_request:
+    branches: [main, master, rebuild]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fenix-fixture:
+    name: Hermetic fixture (Fenix ${{ matrix.fenix }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # 128 is the declared minimum; 136/141 cover the custom-consent lane through its last
+      # release; 142 is the Android built-in-consent boundary; 145 verifies a later implementation.
+      matrix:
+        fenix: ['128.0', '136.0', '141.0', '142.0', '145.0']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build BENCH extension XPI
+        run: |
+          set -euo pipefail
+          BENCH=1 node_modules/.bin/wxt build -b firefox --mv2
+          rm -rf dist/bench-web-ext-artifacts
+          mkdir -p dist/bench-web-ext-artifacts dist
+          node_modules/.bin/web-ext build \
+            --source-dir=.output/firefox-mv2 \
+            --artifacts-dir=dist/bench-web-ext-artifacts \
+            --overwrite-dest
+          cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The emulator binary tries to connect to adb as soon as it launches, which logs a startup
+      # race. Pre-starting the daemon quiets it, but the Android SDK is only guaranteed on PATH
+      # once the emulator action runs, so resolve adb explicitly and never fail the job here: the
+      # race was cosmetic, and the runner script waits for the device before it does anything.
+      - name: Start adb daemon
+        continue-on-error: true
+        run: |
+          ADB="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/platform-tools/adb"
+          if [ -x "$ADB" ]; then
+            "$ADB" start-server
+          else
+            echo "adb not present yet; the emulator action will start its own daemon"
+          fi
+
+      - name: Run hermetic Fenix qualification
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          FENIX_VERSION: ${{ matrix.fenix }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -no-metrics
+          # The action splits multiline input and runs every line in a separate `sh -c`; keep shared
+          # shell state (fail-fast mode, computed URL/package, and export) in one checked-in script.
+          script: ./scripts/run-mobile-hermetic.sh

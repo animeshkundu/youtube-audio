@@ -45,8 +45,6 @@ export interface ReportBundle {
   events: ReportEvent[];
 }
 
-export const ISSUE_BASE_URL = 'https://github.com/animeshkundu/youtube-audio/issues/new';
-
 const OS_VALUES = ['android', 'win', 'mac', 'linux', 'openbsd', 'cros', 'fuchsia'] as const;
 const QUALITY_VALUES = ['off', '144p', '240p', '360p', '480p', '720p', '1080p'] as const;
 const CATEGORY_VALUES = ['sponsor', 'music_offtopic'] as const;
@@ -64,7 +62,6 @@ const BOOLEAN_SETTING_KEYS = [
   'hideComments',
   'loudnessNormalization',
   'equalizerEnabled',
-  'lyricsEnabled',
   'downloadEnabled',
 ] as const;
 
@@ -125,12 +122,6 @@ export function formatDeltaBucket(deltaMs: number): string {
   if (delta < 30_000) return '5-30s';
   if (delta < 300_000) return '30s-5m';
   return '>5m';
-}
-
-/** The bare GitHub new-issue URL. Carries only a static title and the bug label. */
-export function buildIssueUrl(): string {
-  const params = new URLSearchParams({ labels: 'bug', title: 'YouTube Audio: issue report' });
-  return `${ISSUE_BASE_URL}?${params.toString()}`;
 }
 
 function formatDetail(data: Record<string, string | number | boolean>): string {

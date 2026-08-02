@@ -10,6 +10,8 @@
 import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
 const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
@@ -19,7 +21,7 @@ const SETTINGS = {
   aggressiveTelemetry: false, adBlockEnabled: true, segmentSkipEnabled: false, segmentSkipCategories: [],
   forceQualityMax: 'off', disableAutoplayNext: false, hideShorts: false, hideRecommendations: false,
   hideComments: false, loudnessNormalization: false, equalizerEnabled: false,
-  equalizerBands: [0, 0, 0, 0, 0], lyricsEnabled: false, downloadEnabled: false,
+  equalizerBands: [0, 0, 0, 0, 0], downloadEnabled: false,
 };
 // VOD eligible (expect audio-only + advance) and live (expect graceful fallback, not stalled).
 const CASES = [
@@ -48,6 +50,7 @@ try {
   driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options()).build();
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 60_000 });
   await driver.installAddon(XPI, true);
+  await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(OPTIONS_URL);
   await driver.executeAsyncScript(function (s) {
     const done = arguments[arguments.length - 1];

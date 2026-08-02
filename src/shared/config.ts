@@ -20,7 +20,6 @@ export interface ExtensionSettings {
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
-  lyricsEnabled: boolean;
   downloadEnabled: boolean;
 }
 
@@ -31,7 +30,7 @@ export type QualityOfLifeSetting =
   | 'hideShorts'
   | 'hideRecommendations'
   | 'hideComments';
-export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled' | 'lyricsEnabled';
+export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled';
 export type DownloadSetting = 'downloadEnabled';
 
 const STORAGE_KEY = 'settings';
@@ -43,7 +42,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   ghostEnabled: true,
   aggressiveTelemetry: false,
   adBlockEnabled: true,
-  segmentSkipEnabled: true,
+  segmentSkipEnabled: false,
   segmentSkipCategories: SPONSOR_CATEGORIES,
   forceQualityMax: 'off',
   disableAutoplayNext: false,
@@ -53,7 +52,6 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   loudnessNormalization: true,
   equalizerEnabled: false,
   equalizerBands: FLAT_EQUALIZER,
-  lyricsEnabled: false,
   downloadEnabled: false,
 };
 
@@ -263,12 +261,6 @@ function normalizeSettings(value: unknown): ExtensionSettings {
         ? candidate.equalizerEnabled
         : DEFAULT_SETTINGS.equalizerEnabled,
     equalizerBands: normalizeEqualizerBands(candidate.equalizerBands),
-    // Lyrics are disabled. YouTube Music now shows synced lyrics natively, so ours is redundant. The
-    // feature code and this setting are retained (reversible), but the setting is coerced off so a
-    // stale stored `true` cannot run it, and the options toggle + the lrclib.net host permission are
-    // gone. To bring it back: restore this to read `candidate.lyricsEnabled`, re-add the options
-    // toggle, and re-add the lrclib host permission.
-    lyricsEnabled: false,
     downloadEnabled:
       typeof candidate.downloadEnabled === 'boolean'
         ? candidate.downloadEnabled

@@ -65,7 +65,7 @@ Three touchpoints, one of which is a real screen. Nothing is required; the produ
 
 ### 5.1 Screen 0: the product itself (no UI)
 
-Defaults are on. The user installs and audio-only, background play, ad and tracker blocking, segment skipping, and loudness normalization are already active. This is the primary "onboarding": the thing works. Preserve it. Do not add a permissions pre-prompt, an account step, or a "get started" gate in front of it.
+Audio-only, background play, ad and tracker blocking, and loudness normalization are on after consent. Segment skipping remains off until the user opts in. Do not add an account step or a "get started" gate in front of the useful defaults.
 
 ### 5.2 Screen 1: one welcome, opened once on install
 

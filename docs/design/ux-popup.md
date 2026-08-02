@@ -204,7 +204,7 @@ Behavioral spine:
 - **Accent means active, only.** The aqua dot and any wash appear in the `active` state and nowhere else.
 - **Master is a quiet pause, not a hero.** A small power control in the header dims the whole card to a single "Paused. YouTube works normally." line when off.
 - **Off-YouTube, the card collapses** to a one-line "Open YouTube to start" with a primary Open button. No toggles that cannot bite the current tab.
-- **Everything else lives in Settings.** Segment categories, EQ, lyrics, quality caps, distraction hiding, downloads, aggressive telemetry: all already grouped and searchable in the options page. The popup stays at four zones plus header/footer, well inside the budget of six.
+- **Everything else lives in Settings.** Segment categories, EQ, quality caps, distraction hiding, downloads, and aggressive telemetry are grouped and searchable in the options page. The popup stays at four zones plus header/footer, well inside the budget of six.
 
 Two-audience contract, honored: the 90% open the popup, read one true status line, and close it; the 10% tap the gear. Nothing was removed, only placed where it belongs.
 

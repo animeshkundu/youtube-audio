@@ -33,7 +33,13 @@ const YOUTUBE_MATCHES = [
 // fixture host so the extension can be exercised against tests/e2e/bench/fixture-server.mjs.
 // Production builds (BENCH unset) never include these hosts. See tests/e2e/bench/.
 const BENCH = process.env.BENCH === '1';
-const BENCH_MATCHES = ['http://127.0.0.1/*', 'http://localhost/*'];
+const BENCH_MATCHES = [
+  'http://127.0.0.1/*',
+  'http://localhost/*',
+  // Android emulators route 10.0.2.2 to the host fixture server. BENCH-only so production keeps the
+  // four YouTube content-script matches and does not gain a local-network origin.
+  'http://10.0.2.2/*',
+];
 const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 // Permanent Gecko add-on ID: a single identity for AMO-listed production and the unlisted beta
 // channel (ADR-0006, which supersedes ADR-0002's two-identity model). AMO is the sole update
@@ -123,7 +129,7 @@ export default defineConfig({
         strict_min_version: '128.0',
         ...(SELF_HOSTED_UPDATE_URL ? { update_url: SELF_HOSTED_UPDATE_URL } : {}),
         data_collection_permissions: {
-          required: ['none'],
+          required: ['websiteContent'],
         },
       },
       gecko_android: {},

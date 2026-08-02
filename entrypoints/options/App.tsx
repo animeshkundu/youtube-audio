@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import {
+  resolveDataConsent,
+  revokeDataConsent,
+  setSponsorBlockConsent,
+} from '../../src/shared/consent';
+import {
   resetSettings,
   setAdBlockEnabled,
   setAggressiveTelemetry,
@@ -81,6 +86,10 @@ export type OptionsActions = {
   setDownloadEnabled: typeof setDownloadEnabled;
   setAggressiveTelemetry: typeof setAggressiveTelemetry;
   resetSettings: typeof resetSettings;
+  resolveDataConsent: typeof resolveDataConsent;
+  revokeDataConsent: typeof revokeDataConsent;
+  setSponsorBlockConsent: typeof setSponsorBlockConsent;
+  openConsent: () => void;
   markOnboardingSeen: () => Promise<void>;
   openYouTube: () => void;
 };
@@ -100,6 +109,10 @@ export const defaultOptionsActions: OptionsActions = {
   setDownloadEnabled,
   setAggressiveTelemetry,
   resetSettings,
+  resolveDataConsent,
+  revokeDataConsent,
+  setSponsorBlockConsent,
+  openConsent: () => void browser.tabs.create({ url: browser.runtime.getURL('/consent.html') }),
   markOnboardingSeen: async () => browser.storage.local.set({ [SEEN_ONBOARDING_KEY]: true }),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
 };
@@ -142,17 +155,18 @@ export function Options({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [activeSection, setActiveSection] = useState('quick-controls');
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [consentGranted, setConsentGranted] = useState<boolean | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const requestIds = useRef<Record<string, number>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const normalizedQuery = useMemo(() => query.trim().toLocaleLowerCase(), [query]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    void actions.resolveDataConsent().then((consent) => setConsentGranted(consent.granted));
+    return () => {
       if (toastTimer.current !== null) clearTimeout(toastTimer.current);
-    },
-    []
-  );
+    };
+  }, [actions]);
 
   const dismissOnboarding = () => {
     setShowOnboarding(false);
@@ -192,6 +206,16 @@ export function Options({
       .catch(() =>
         showToast({ kind: 'error', message: "Couldn't reset settings. Nothing was changed." })
       );
+  };
+
+  const revokeConsent = () => {
+    void actions
+      .revokeDataConsent()
+      .then(() => {
+        setConsentGranted(false);
+        showToast({ kind: 'ok', message: 'Data consent revoked. Transmission has stopped.' });
+      })
+      .catch(() => showToast({ kind: 'error', message: "Couldn't revoke consent. Try again." }));
   };
 
   const enabledDescription = enabledSignal.value
@@ -235,8 +259,8 @@ export function Options({
     : `${aggressiveTelemetrySignal.value ? 'On' : 'Off'}, unavailable. Turn on Ghost mode to use this.`;
   const skipDescription = stateDescription(
     segmentSkipEnabledSignal.value,
-    'Skips sponsored and non-music parts. Lookups are anonymous.',
-    'Every part of the video plays.'
+    'Sends only a 16-bit video hash prefix to sponsor.ajay.app; matching stays on your device.',
+    'No request is sent to sponsor.ajay.app. If enabled, only a 16-bit video hash prefix leaves your device.'
   );
   const shortsDescription = stateDescription(
     hideShortsSignal.value,
@@ -269,8 +293,7 @@ export function Options({
     'Keeps the save-audio button hidden.'
   );
   const resetDescription = 'Restore every option to the shipped defaults.';
-  const helpDescription =
-    'Review private on-device diagnostics, copy them, or report a playback issue.';
+  const helpDescription = 'Review, copy, export, or clear private on-device diagnostics.';
 
   const enabledVisible = matchesSearch(
     normalizedQuery,
@@ -568,7 +591,10 @@ export function Options({
                     error={errors.skip}
                     checked={segmentSkipEnabledSignal.value}
                     onChange={(checked) =>
-                      apply('skip', () => actions.setSegmentSkipEnabled(checked))
+                      apply('skip', async () => {
+                        if (checked) await actions.setSponsorBlockConsent(true);
+                        await actions.setSegmentSkipEnabled(checked);
+                      })
                     }
                   />
                 )}
@@ -753,7 +779,42 @@ export function Options({
             <section id="advanced-about" class="settings-section">
               <SectionHeader>Advanced/About</SectionHeader>
               <div class="settings-card reset-card">
-                <div class="action-row">
+                <div class="action-row consent-review-row">
+                  <span>
+                    <strong>Data &amp; consent</strong>
+                    <small>
+                      {consentGranted === true
+                        ? 'Allowed. YouTube receives video request details and audio requests; SponsorBlock remains a separate choice.'
+                        : consentGranted === false
+                          ? 'Not allowed. Transmission-dependent features are stopped.'
+                          : 'Checking your current consent…'}{' '}
+                      <a
+                        class="consent-privacy-link"
+                        href="https://animesh.kundus.in/youtube-audio/privacy/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Privacy policy
+                      </a>
+                      .
+                    </small>
+                  </span>
+                  <div class="action-buttons">
+                    <button type="button" class="secondary-action" onClick={actions.openConsent}>
+                      Review
+                    </button>
+                    {consentGranted && (
+                      <button
+                        type="button"
+                        class="secondary-action is-danger"
+                        onClick={revokeConsent}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div class="action-row reset-row">
                   <span>
                     <strong>{OPTION_LABELS.reset}</strong>
                     <small>{resetDescription}</small>

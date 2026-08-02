@@ -10,6 +10,7 @@ import {
   installPlayerControls,
   nextStatusRunStart,
   reconcileInPlayerControls,
+  requestDataConsent,
 } from '../../entrypoints/content';
 
 function createDesktopPlayer(): {
@@ -36,6 +37,37 @@ function createDesktopPlayer(): {
 afterEach(() => {
   vi.unstubAllGlobals();
   Reflect.deleteProperty(document, 'visibilityState');
+});
+
+describe('requestDataConsent', () => {
+  it('returns a validated background reply', async () => {
+    const sendMessage = vi.fn(async () => ({
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+    }));
+    vi.stubGlobal('browser', { runtime: { sendMessage } });
+
+    await expect(requestDataConsent()).resolves.toEqual({
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+    });
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'yta:get-data-consent' });
+  });
+
+  it.each([
+    ['an unavailable background', () => Promise.reject(new Error('unavailable'))],
+    ['a malformed reply', () => Promise.resolve({ granted: true })],
+  ])('fails closed for %s', async (_label, reply) => {
+    vi.stubGlobal('browser', { runtime: { sendMessage: vi.fn(reply) } });
+
+    await expect(requestDataConsent()).resolves.toEqual({
+      granted: false,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+    });
+  });
 });
 
 describe('nextStatusRunStart', () => {

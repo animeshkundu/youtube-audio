@@ -25,7 +25,7 @@ function actions(overrides: Partial<ReporterActions> = {}): ReporterActions {
   return {
     loadReport: vi.fn(async () => bundle),
     copy: vi.fn(async () => undefined),
-    openIssue: vi.fn(),
+    exportFile: vi.fn(),
     clearLogs: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -75,29 +75,25 @@ describe('IssueReporter', () => {
     expect(container.textContent).toContain('copied to your clipboard');
   });
 
-  it('opens GitHub only after a successful copy', async () => {
+  it('exports the report to a local file', async () => {
     const reporterActions = actions();
     const container = await mountReporter(reporterActions);
     click(container.querySelector('.reporter-btn.is-primary'));
     await settle();
-    expect(reporterActions.copy).toHaveBeenCalledOnce();
-    expect(reporterActions.openIssue).toHaveBeenCalledOnce();
-    expect((reporterActions.openIssue as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain(
-      'github.com/animeshkundu/youtube-audio/issues/new'
-    );
+    expect(reporterActions.exportFile).toHaveBeenCalledWith(bundle.markdown);
+    expect(container.textContent).toContain('exported to a local file');
   });
 
-  it('does not open GitHub when the copy fails', async () => {
+  it('keeps the preview selectable when clipboard copy fails', async () => {
     const reporterActions = actions({
       copy: vi.fn(async () => {
         throw new Error('denied');
       }),
     });
     const container = await mountReporter(reporterActions);
-    click(container.querySelector('.reporter-btn.is-primary'));
+    click(container.querySelector('.reporter-btn:not(.is-primary):not(.is-danger)'));
     await settle();
     expect(reporterActions.copy).toHaveBeenCalledOnce();
-    expect(reporterActions.openIssue).not.toHaveBeenCalled();
     expect(container.textContent).toContain('copy it manually');
   });
 

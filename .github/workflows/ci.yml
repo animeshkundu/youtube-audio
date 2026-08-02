@@ -72,7 +72,105 @@ jobs:
         run: npm run build:mv3
 
   bench:
-    name: Hermetic Selenium Firefox bench
+    name: Hermetic bench (Firefox ${{ matrix.firefox }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # 128 is the support floor; 133 samples the custom lane; 139/140 straddle the desktop consent
+      # boundary; 142 samples a post-boundary release; latest catches current mainline drift.
+      matrix:
+        firefox: [128.0esr, '133.0', '139.0', '140.0', '142.0', latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # setup-firefox installs each real, non-snap matrix version and exposes its path.
+      - name: Install Firefox ${{ matrix.firefox }} (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: ${{ matrix.firefox }}
+
+      # Current geckodriver's add-on-install request is incompatible with Firefox 128-133.
+      # Pin 0.36.0 for those releases; Firefox 134+ uses the npm-provided current driver.
+      - name: Install legacy geckodriver for Firefox 128-133
+        if: matrix.firefox == '128.0esr' || matrix.firefox == '133.0'
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
+            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
+          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
+          mkdir -p /tmp/geckodriver-v0.36.0
+          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
+          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
+
+      # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
+      - name: Run hermetic integration bench
+        run: xvfb-run --auto-servernum npm run test:bench
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  matrix:
+    name: Settings matrix (Firefox ${{ matrix.firefox }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # Match the bench matrix so every functional permutation runs in the legacy custom lane,
+      # across the 139/140 boundary, on a post-boundary release, and on current mainline.
+      matrix:
+        firefox: [128.0esr, '133.0', '139.0', '140.0', '142.0', latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Firefox ${{ matrix.firefox }} (non-snap)
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: ${{ matrix.firefox }}
+
+      - name: Install legacy geckodriver for Firefox 128-133
+        if: matrix.firefox == '128.0esr' || matrix.firefox == '133.0'
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \
+            --output /tmp/geckodriver-v0.36.0-linux64.tar.gz
+          echo "0bde38707eb0a686a20c6bd50f4adcc7d60d4f73c60eb83ee9e0db8f65823e04  /tmp/geckodriver-v0.36.0-linux64.tar.gz" | sha256sum --check
+          mkdir -p /tmp/geckodriver-v0.36.0
+          tar -xzf /tmp/geckodriver-v0.36.0-linux64.tar.gz -C /tmp/geckodriver-v0.36.0
+          echo "GECKODRIVER_BIN=/tmp/geckodriver-v0.36.0/geckodriver" >> "$GITHUB_ENV"
+
+      # Drives the real built add-on across the full toggle permutation space (all-off, each
+      # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
+      # edges) against the hermetic fixture. Deterministic; safe to gate on.
+      - name: Run settings-permutation matrix
+        run: xvfb-run --auto-servernum npm run test:matrix
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+
+  upgrade-seed-139:
+    name: Seed persistent consent profiles (Firefox 139)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -88,24 +186,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
-      # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
-      # latest mainline release (proven green): latest-esr regressed the seeded-settings
-      # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
-      - name: Install Firefox (non-snap)
+      # Developer Edition honors xpinstall.signatures.required=false, allowing the unsigned CI XPI
+      # to be installed non-temporarily in a persistent profile.
+      - name: Install Firefox 139 Developer Edition
         id: firefox
         uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: devedition-139.0b10
 
-      # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
-      - name: Run hermetic integration bench
-        run: xvfb-run --auto-servernum npm run test:bench
+      - name: Seed and verify granted and revoked profiles
+        run: xvfb-run --auto-servernum node tests/e2e/bench/qualify-browser-upgrade.mjs
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          UPGRADE_PHASE: seed
 
-  matrix:
-    name: Settings-permutation matrix (Firefox)
+      - name: Upload persistent Firefox 139 profiles
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-139-consent-profiles
+          path: |
+            dist/upgrade-profiles
+            dist/youtube-audio-bench.xpi
+          if-no-files-found: error
+          retention-days: 1
+
+  upgrade-verify-140:
+    name: Verify 139 to 140 consent survival
+    needs: upgrade-seed-139
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -119,21 +228,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Firefox (non-snap)
+      - name: Download persistent Firefox 139 profiles
+        uses: actions/download-artifact@v4
+        with:
+          name: firefox-139-consent-profiles
+          path: dist
+
+      - name: Install Firefox 140 Developer Edition
         id: firefox
         uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: devedition-140.0b9
 
-      # Drives the real built add-on across the full toggle permutation space (all-off, each
-      # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry
-      # edges) against the hermetic fixture. Deterministic; safe to gate on.
-      - name: Run settings-permutation matrix
-        run: xvfb-run --auto-servernum npm run test:matrix
+      # Reopens the exact profile directories. It reports the literal permission state and fails
+      # rather than inferring an answer if the persistent install cannot be measured.
+      - name: Measure granted and revoked outcomes after browser upgrade
+        run: xvfb-run --auto-servernum node tests/e2e/bench/qualify-browser-upgrade.mjs
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          UPGRADE_PHASE: verify
 
   release-on-merge:
     name: Publish GitHub Release and bump version
-    needs: [validate, build-mv3, bench, matrix]
+    needs: [validate, build-mv3, bench, matrix, upgrade-verify-140]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:

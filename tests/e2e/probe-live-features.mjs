@@ -12,6 +12,8 @@
 import { Builder, By, until } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
 const TIMEOUT = Number(process.env.LIVE_TIMEOUT_MS || 45_000);
 const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
@@ -34,7 +36,6 @@ const DEFAULTS = {
   loudnessNormalization: true,
   equalizerEnabled: false,
   equalizerBands: [0, 0, 0, 0, 0],
-  lyricsEnabled: false,
   downloadEnabled: false,
 };
 const videos = {
@@ -95,7 +96,6 @@ function pageSnapshot() {
     status: document.documentElement.dataset.ytaStatus || null,
     skipArmed: document.documentElement.dataset.ytaSkipArmed || null,
     audioGraph: document.documentElement.dataset.ytaAudioGraph || null,
-    lyrics: document.documentElement.dataset.ytaLyrics || null,
     downloadMarker: document.documentElement.dataset.ytaDownload || null,
     video: video ? {
       src: src.slice(0, 240),
@@ -125,6 +125,9 @@ async function createSession(settings = DEFAULTS) {
   const driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options()).build();
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 60_000 });
   await driver.installAddon(XPI, true);
+  await seedDataConsent(driver, OPTIONS_URL, {
+    sponsorBlockAllowed: settings.segmentSkipEnabled === true,
+  });
   await driver.get(OPTIONS_URL);
   const seed = await driver.executeAsyncScript(function (nextSettings) {
     const done = arguments[arguments.length - 1];
@@ -340,11 +343,11 @@ await add('quality-and-cosmetics-off', async (own) => {
   });
 });
 
-await add('youtube-music-loudness-and-lyrics', async (own) => {
-  const driver = await createSession({ ...DEFAULTS, audioOnlyEnabled: false, lyricsEnabled: true }); own(driver);
+await add('youtube-music-loudness', async (own) => {
+  const driver = await createSession({ ...DEFAULTS, audioOnlyEnabled: false }); own(driver);
   const snapshot = await stableSnapshot(driver, videos.normal, 'music.youtube.com');
   await driver.sleep(8_000);
-  return { ...snapshot, final: await driver.executeScript(pageSnapshot), lyricsElement: await driver.executeScript(() => Boolean(document.getElementById('yta-synced-lyrics'))) };
+  return { ...snapshot, final: await driver.executeScript(pageSnapshot) };
 });
 
 await add('download-on', async (own) => {

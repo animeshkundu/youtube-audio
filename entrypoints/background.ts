@@ -14,6 +14,16 @@ import {
 } from '../src/shared/config';
 import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import {
+  consentStorageChangeGrants,
+  consentStorageKey,
+  createConsentStateController,
+  DATA_CONSENT_CHANGED_MESSAGE,
+  GET_DATA_CONSENT_MESSAGE,
+  resolveDataConsent,
+  supportsBuiltInDataConsent,
+  type DataConsentState,
+} from '../src/shared/consent';
+import {
   createDiagnosticsHub,
   errorFields,
   installGlobalErrorCapture,
@@ -53,8 +63,6 @@ const YOUTUBE_REQUESTS = [
 ];
 const SPONSORBLOCK_BASE_URL = 'https://sponsor.ajay.app';
 const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
-const LYRICS_MESSAGE = 'yta:lyrics';
-const LRCLIB_BASE_URL = 'https://lrclib.net';
 const DOWNLOAD_MESSAGE = 'yta:download-audio';
 const PLAYER_RESPONSE_REQUESTS = [
   '*://*.youtube.com/youtubei/v1/player*',
@@ -73,27 +81,39 @@ const PLAYER_RESPONSE_REQUESTS = [
 
 let settings: ExtensionSettings;
 let diagnostics: DiagnosticsHub | undefined;
+let dataConsent: DataConsentState = {
+  granted: false,
+  sponsorBlockAllowed: false,
+  source: 'custom',
+};
 
 type OnboardingInstallDetails = Pick<browser.runtime._OnInstalledDetails, 'reason'>;
 
 export function shouldOpenOnboarding(details: OnboardingInstallDetails): boolean {
-  return details.reason === 'install';
+  return details.reason === 'install' || details.reason === 'update';
 }
 
-export function handleOnboardingInstalled(details: OnboardingInstallDetails): void {
+export async function handleOnboardingInstalled(details: OnboardingInstallDetails): Promise<void> {
   if (!shouldOpenOnboarding(details)) return;
+  const [builtInSupported, consent] = await Promise.all([
+    supportsBuiltInDataConsent(),
+    resolveDataConsent(),
+  ]);
+  if (builtInSupported || consent.granted) return;
   try {
-    void browser.runtime.openOptionsPage().catch(() => undefined);
+    await browser.tabs.create({ url: browser.runtime.getURL('/consent.html'), active: true });
   } catch {
-    // Onboarding is helpful, but a missing options API must not affect the extension.
+    // A failure to show consent never grants it; all transmission remains fail-closed.
   }
 }
 
 export function registerOnboardingInstallHandler(): void {
   try {
-    browser.runtime.onInstalled.addListener(handleOnboardingInstalled);
+    browser.runtime.onInstalled.addListener((details) => {
+      void handleOnboardingInstalled(details);
+    });
   } catch {
-    // Keep initialization fail-open if this runtime event is unavailable.
+    // Keep initialization fail-closed if this runtime event is unavailable.
   }
 }
 
@@ -229,98 +249,6 @@ function parseSponsorRequest(
     }
   }
   return { videoId: candidate.videoId, categories, ...(benchOrigin ? { benchOrigin } : {}) };
-}
-
-function parseLyricsRequest(
-  value: unknown
-): { title: string; artist: string; duration: number; benchOrigin?: string } | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const candidate = value as {
-    type?: unknown;
-    title?: unknown;
-    artist?: unknown;
-    duration?: unknown;
-    benchOrigin?: unknown;
-  };
-  if (
-    candidate.type !== LYRICS_MESSAGE ||
-    typeof candidate.title !== 'string' ||
-    candidate.title.length === 0 ||
-    candidate.title.length > 200 ||
-    typeof candidate.artist !== 'string' ||
-    candidate.artist.length === 0 ||
-    candidate.artist.length > 200 ||
-    typeof candidate.duration !== 'number' ||
-    !Number.isFinite(candidate.duration) ||
-    candidate.duration <= 0 ||
-    candidate.duration > 86_400
-  ) {
-    return null;
-  }
-  let benchOrigin: string | undefined;
-  if (__BENCH__ && typeof candidate.benchOrigin === 'string') {
-    try {
-      const origin = new URL(candidate.benchOrigin);
-      if (
-        origin.protocol === 'http:' &&
-        (origin.hostname === '127.0.0.1' || origin.hostname === 'localhost')
-      ) {
-        benchOrigin = origin.origin;
-      }
-    } catch {
-      return null;
-    }
-  }
-  return {
-    title: candidate.title,
-    artist: candidate.artist,
-    duration: candidate.duration,
-    ...(benchOrigin ? { benchOrigin } : {}),
-  };
-}
-
-async function fetchLyrics(
-  request: NonNullable<ReturnType<typeof parseLyricsRequest>>
-): Promise<unknown> {
-  const base = request.benchOrigin ?? LRCLIB_BASE_URL;
-  const duration = Math.round(request.duration);
-  const primary = await lrclibGet(base, request.title, request.artist, duration);
-  if (primary) return primary;
-  // YouTube Music canonical (Content-ID) tracks report the author as "<Artist> - Topic"; lrclib often
-  // files those under the plain artist name, so retry once with the suffix stripped.
-  const stripped = request.artist.replace(/\s*-\s*topic\s*$/i, '').trim();
-  if (stripped && stripped !== request.artist) {
-    return lrclibGet(base, request.title, stripped, duration);
-  }
-  return null;
-}
-
-async function lrclibGet(
-  base: string,
-  title: string,
-  artist: string,
-  duration: number
-): Promise<{ syncedLyrics: string } | null> {
-  try {
-    const url = new URL('/api/get', base);
-    url.searchParams.set('track_name', title);
-    url.searchParams.set('artist_name', artist);
-    url.searchParams.set('duration', String(duration));
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    });
-    if (!response.ok) return null;
-    const value: unknown = await response.json();
-    if (typeof value !== 'object' || value === null) return null;
-    const syncedLyrics = (value as { syncedLyrics?: unknown }).syncedLyrics;
-    return typeof syncedLyrics === 'string' && syncedLyrics.length <= 200_000
-      ? { syncedLyrics }
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function parseDownloadRequest(
@@ -533,11 +461,10 @@ export default defineBackground({
       void loadRescueConfig;
       diagnostics = createDiagnosticsHub(() => getSettings());
       installGlobalErrorCapture('bg.uncaught', (code, data) => diagnostics?.logLocal(code, data));
-      settings = await initializeSettings();
-      subscribeSettings((nextSettings) => {
-        settings = nextSettings;
-      });
-      watchSettings();
+      // Registered BEFORE the awaits below: a content script that asks for consent while this
+      // background is still initializing must get a truthful reply, not a missing receiver it can
+      // never retry. `dataConsent` is denied until resolution completes, so an early answer is
+      // fail-closed, and `publishConsent()` broadcasts the real state once it is known.
       browser.runtime.onMessage.addListener(
         (message: unknown, sender: browser.runtime.MessageSender) => {
           const diagnosticsResponse = diagnostics?.handleMessage(message);
@@ -552,23 +479,75 @@ export default defineBackground({
               kind: 'connecting',
             });
           }
+          if (type === GET_DATA_CONSENT_MESSAGE) return Promise.resolve(dataConsent);
           if (__BENCH__ && type === BENCH_STATUS_MAP_MESSAGE) {
             return benchStatusMapSnapshot();
           }
           const sponsorRequest = parseSponsorRequest(message);
           if (sponsorRequest) {
+            if (!dataConsent.granted || !dataConsent.sponsorBlockAllowed)
+              return Promise.resolve([]);
             return fetchSponsorSegments(
               sponsorRequest.videoId,
               sponsorRequest.categories,
               sponsorRequest.benchOrigin
             );
           }
-          const lyricsRequest = parseLyricsRequest(message);
-          if (lyricsRequest) return fetchLyrics(lyricsRequest);
           const downloadRequest = parseDownloadRequest(message);
           return downloadRequest ? downloadAudio(downloadRequest) : undefined;
         }
       );
+      settings = await initializeSettings();
+      subscribeSettings((nextSettings) => {
+        settings = nextSettings;
+      });
+      watchSettings();
+      // Serialises publications so a slow denial broadcast cannot be overtaken by a later grant.
+      let publishChain: Promise<unknown> = Promise.resolve();
+      const publishConsent = (consent: DataConsentState) => {
+        dataConsent = consent;
+        const message = { type: DATA_CONSENT_CHANGED_MESSAGE, consent };
+        publishChain = publishChain
+          .then(() => browser.tabs.query({}))
+          .then((tabs) =>
+            Promise.all(
+              tabs.map((tab) =>
+                typeof tab.id === 'number'
+                  ? browser.tabs.sendMessage(tab.id, message).catch(() => undefined)
+                  : Promise.resolve(undefined)
+              )
+            )
+          )
+          .catch(() => undefined);
+      };
+      const consentController = createConsentStateController(resolveDataConsent, publishConsent);
+      const reresolveConsent = () => {
+        void consentController.resolve();
+      };
+      // Deny first, then re-resolve, so no request slips through while a revocation-sensitive
+      // lookup is in flight. Storage can carry a revocation, so it takes this path too.
+      const revokeThenReresolve = () => {
+        void consentController.denyThenResolve();
+      };
+      browser.storage.onChanged.addListener((changes) => {
+        const change = changes[consentStorageKey()];
+        if (!change) return;
+        // A well-formed grant is additive, like permissions.onAdded: resolve it without publishing
+        // a transient denial that can reach MAIN world after the granted snapshot. Removal,
+        // revocation, and malformed replacements remain deny-first.
+        if (consentStorageChangeGrants(change.newValue)) reresolveConsent();
+        else revokeThenReresolve();
+      });
+      // Firefox's add-on manager changes required data permission without writing extension storage.
+      browser.permissions.onRemoved?.addListener(revokeThenReresolve);
+      // Addition cannot revoke consent: resolve and publish without a synchronous denied snapshot.
+      browser.permissions.onAdded?.addListener(reresolveConsent);
+      // The initial resolution runs through the same guarded path as every later one, AFTER the
+      // change listeners exist. That does two things a bare `await` at startup could not: a
+      // revocation landing mid-startup bumps the generation and discards this stale result, and
+      // the resolved state is broadcast to any content script that already received the
+      // fail-closed default while this background was still initializing.
+      reresolveConsent();
       installStatusChannel();
       browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
         'blocking',

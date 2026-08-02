@@ -5,6 +5,7 @@ import { act } from 'preact/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  handleOnboardingInstalled,
   registerOnboardingInstallHandler,
   shouldOpenOnboarding,
 } from '../../../entrypoints/background';
@@ -25,6 +26,14 @@ function actions(): OptionsActions {
     setForceQualityMax: vi.fn(async () => undefined),
     setDownloadEnabled: vi.fn(async () => undefined),
     setAggressiveTelemetry: vi.fn(async () => undefined),
+    resolveDataConsent: vi.fn(async () => ({
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'custom',
+    })),
+    revokeDataConsent: vi.fn(async () => undefined),
+    setSponsorBlockConsent: vi.fn(async () => undefined),
+    openConsent: vi.fn(),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
   };
@@ -55,41 +64,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('onboarding install trigger', () => {
-  function registeredListener(openOptionsPage: ReturnType<typeof vi.fn>) {
+describe('custom consent install trigger', () => {
+  it('covers both fresh installs and upgrades', () => {
+    expect(shouldOpenOnboarding({ reason: 'install' })).toBe(true);
+    expect(shouldOpenOnboarding({ reason: 'update' })).toBe(true);
+  });
+
+  it('registers the runtime listener', () => {
     const addListener = vi.fn();
-    vi.stubGlobal('browser', { runtime: { openOptionsPage, onInstalled: { addListener } } });
+    vi.stubGlobal('browser', { runtime: { onInstalled: { addListener } } });
 
     registerOnboardingInstallHandler();
 
     expect(addListener).toHaveBeenCalledOnce();
-    const listener = addListener.mock.calls[0]?.[0] as
-      | ((details: { reason: 'install' | 'update' }) => void)
-      | undefined;
-    if (!listener) throw new Error('Expected an onboarding install listener');
-    return listener;
-  }
-
-  it('opens the options welcome exactly once for a fresh install', () => {
-    const openOptionsPage = vi.fn(async () => undefined);
-    const listener = registeredListener(openOptionsPage);
-    const details = { reason: 'install' as const };
-
-    expect(shouldOpenOnboarding(details)).toBe(true);
-    listener(details);
-
-    expect(openOptionsPage).toHaveBeenCalledOnce();
   });
 
-  it('does not open the options welcome for an update', () => {
-    const openOptionsPage = vi.fn(async () => undefined);
-    const listener = registeredListener(openOptionsPage);
-    const details = { reason: 'update' as const };
+  it('does not open the custom consent tab on a supported Firefox version', async () => {
+    const create = vi.fn(async () => undefined);
+    vi.stubGlobal('browser', {
+      permissions: { getAll: vi.fn(async () => ({})) },
+      runtime: {
+        getBrowserInfo: vi.fn(async () => ({ version: '141.0' })),
+        getPlatformInfo: vi.fn(async () => ({ os: 'linux' })),
+        getURL: vi.fn((path: string) => `moz-extension://test${path}`),
+      },
+      storage: { local: { get: vi.fn(async () => ({})) } },
+      tabs: { create },
+    });
 
-    expect(shouldOpenOnboarding(details)).toBe(false);
-    listener(details);
+    await handleOnboardingInstalled({ reason: 'update' });
 
-    expect(openOptionsPage).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 });
 

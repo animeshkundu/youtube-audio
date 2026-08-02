@@ -46,3 +46,6 @@ tests/e2e/scratch-*.mjs
 # Local docs virtualenv and agent worktrees (never committed / formatted)
 .docs-venv/
 .claude/worktrees/
+
+# Local review artifacts (not part of the extension or its source submission)
+.artifacts/

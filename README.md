@@ -14,7 +14,7 @@ A Firefox extension that plays only the audio, so your battery and your data pla
 [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
 [![Manifest V2 + V3](https://img.shields.io/badge/manifest-V2%20%2B%20V3-lightgrey)](wxt.config.ts)
 
-[Website](https://animeshkundu.github.io/youtube-audio) · [How it works](#how-it-works) · [Architecture](#architecture) · [Contributing](#contributing)
+[Website](https://animesh.kundus.in/youtube-audio/) · [How it works](#how-it-works) · [Architecture](#architecture) · [Contributing](#contributing)
 
 </div>
 
@@ -35,27 +35,27 @@ Simple by default, powerful on demand. Everything works the moment you install i
 
 Every feature fails open: if anything goes wrong, native YouTube playback is left untouched.
 
-| Feature                           | What it does                                                                                                                                                            | Default |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| **Audio-only playback**           | Resolves a direct audio stream and points the page player at it, so video bytes stop while the native controls keep working.                                            | On      |
-| **Background / lock-screen play** | Keeps audio going when the tab is hidden or the screen is locked, with OS media controls.                                                                               | On      |
-| **Ghost tracking block**          | Cancels YouTube's first-party telemetry and attribution pings before they leave the browser. A conservative allowlist preserves everything playback needs.              | On      |
-| **Aggressive telemetry mode**     | Extends the ghost policy to a broader set of diagnostic endpoints.                                                                                                      | Off     |
-| **Ad blocking**                   | Prunes ad descriptors out of the InnerTube `player` and `next` responses, plus a small static page-world baseline.                                                      | On      |
-| **Segment skipping**              | SponsorBlock-style auto-skip using a privacy-preserving hashed lookup (only a 4-character hash prefix leaves your machine). Defaults to `sponsor` and `music_offtopic`. | On      |
-| **Force max quality**             | Caps playback resolution (off, or 144p through 1080p) to save even more bandwidth.                                                                                      | Off     |
-| **Disable autoplay-next**         | Uses YouTube's own autonav toggle to stop the endless queue.                                                                                                            | Off     |
-| **Hide distractions**             | Independently hide Shorts, recommendations, and comments via a single managed stylesheet.                                                                               | Off     |
-| **Loudness normalization**        | Applies YouTube Music's per-track loudness value through a Web Audio gain stage so volume stays even.                                                                   | On      |
-| **Equalizer**                     | A 5-band EQ (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz; ±12 dB) chained into the same audio graph.                                                                            | Off     |
-| **Audio download**                | Save the current track as an audio file straight from a validated direct URL.                                                                                           | Off     |
+| Feature                           | What it does                                                                                                                                                                                  | Default |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **Audio-only playback**           | Resolves a direct audio stream and points the page player at it, so video bytes stop while the native controls keep working.                                                                  | On      |
+| **Background / lock-screen play** | Keeps audio going when the tab is hidden or the screen is locked, with OS media controls.                                                                                                     | On      |
+| **Ghost tracking block**          | Cancels YouTube's first-party telemetry and attribution pings before they leave the browser. A conservative allowlist preserves everything playback needs.                                    | On      |
+| **Aggressive telemetry mode**     | Extends the ghost policy to a broader set of diagnostic endpoints.                                                                                                                            | Off     |
+| **Ad blocking**                   | Prunes ad descriptors out of the InnerTube `player` and `next` responses, plus a small static page-world baseline.                                                                            | On      |
+| **Segment skipping**              | SponsorBlock-style auto-skip using a privacy-preserving hashed lookup (only a 4-character hash prefix leaves your machine). Select `sponsor` and `music_offtopic` categories when you opt in. | Off     |
+| **Force max quality**             | Caps playback resolution (off, or 144p through 1080p) to save even more bandwidth.                                                                                                            | Off     |
+| **Disable autoplay-next**         | Uses YouTube's own autonav toggle to stop the endless queue.                                                                                                                                  | Off     |
+| **Hide distractions**             | Independently hide Shorts, recommendations, and comments via a single managed stylesheet.                                                                                                     | Off     |
+| **Loudness normalization**        | Applies YouTube Music's per-track loudness value through a Web Audio gain stage so volume stays even.                                                                                         | On      |
+| **Equalizer**                     | A 5-band EQ (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz; ±12 dB) chained into the same audio graph.                                                                                                  | Off     |
+| **Audio download**                | Save the current track as an audio file straight from a validated direct URL.                                                                                                                 | Off     |
 
 <details>
 <summary><strong>Defaults, at a glance</strong></summary>
 
-On out of the box: audio-only, background play, ghost tracking block, ad blocking, segment skipping (`sponsor` + `music_offtopic`), and YouTube Music loudness normalization.
+On out of the box: audio-only, background play, ghost tracking block, ad blocking, and YouTube Music loudness normalization.
 
-Off until you ask: aggressive telemetry, force-quality cap, disable autoplay-next, hide Shorts / recommendations / comments, equalizer, and audio download.
+Off until you ask: segment skipping (with `sponsor` and `music_offtopic` categories), aggressive telemetry, force-quality cap, disable autoplay-next, hide Shorts / recommendations / comments, equalizer, and audio download.
 
 </details>
 
@@ -100,7 +100,7 @@ Because the resolver runs without credentials and the extension never touches yo
 
 ## Architecture
 
-One strict-TypeScript source tree, built with [WXT](https://wxt.dev). Manifest V2 is the shipping target because Firefox still supports blocking `webRequest` and `filterResponseData`; a Manifest V3 build is produced in parallel as a capability artifact. The extension is split into four layers with tight security boundaries. Page-derived data does cross between worlds through a nonce-authenticated bridge: a video ID for segment skipping, track metadata for lyrics, and, for downloads, the signed media URL all move from the page world through the isolated content script to the background. The background does not trust that input. It re-validates any download URL against a `googlevideo.com`-only host allowlist, sanitizes the download filename, and issues every remote request with `credentials: "omit"`.
+One strict-TypeScript source tree, built with [WXT](https://wxt.dev). Manifest V2 is the shipping target because Firefox still supports blocking `webRequest` and `filterResponseData`; a Manifest V3 build is produced in parallel as a capability artifact. The extension is split into four layers with tight security boundaries. Page-derived data crosses between worlds through a nonce-authenticated bridge: a video ID for segment skipping and, for downloads, the signed media URL move from the page world through the isolated content script to the background. The background does not trust that input. It re-validates any download URL against a `googlevideo.com`-only host allowlist, sanitizes the download filename, and issues every remote request with `credentials: "omit"`.
 
 ```mermaid
 flowchart LR
@@ -116,7 +116,7 @@ flowchart LR
         Store[("browser.storage.local")]
     end
 
-    Services["External services<br/>InnerTube · SponsorBlock · LRCLIB"]
+    Services["External services<br/>InnerTube · SponsorBlock"]
 
     Content -->|inject| MAIN
     MAIN <-->|typed messages| Content
@@ -142,7 +142,7 @@ More detail lives in [`docs/architecture/`](docs/architecture/README.md), with p
 
 Everything is validated without a human in the loop, and live YouTube is treated as a canary rather than a gate.
 
-- **Unit tests** run on [Vitest](https://vitest.dev) with jsdom and V8 coverage. Core shared logic is unit-tested (InnerTube body builder, telemetry policy, ad pruner, SponsorBlock parsing and merging, audio graph, lyrics, quality-of-life, download, player) alongside the Preact popup and options UI, with the coverage-gated modules holding roughly 99% line and 95% branch coverage.
+- **Unit tests** run on [Vitest](https://vitest.dev) with jsdom and V8 coverage. Core shared logic is unit-tested (InnerTube body builder, telemetry policy, ad pruner, SponsorBlock parsing and merging, audio graph, quality-of-life, download, player) alongside the Preact popup and options UI, with the coverage-gated modules holding roughly 99% line and 95% branch coverage.
 - **Hermetic Selenium bench** drives the real extension in Firefox against a local fake-YouTube fixture server, entirely offline and deterministic. Built behind a `BENCH=1` flag that never ships in production, it asserts audio-only playback, telemetry blocking, and that no view-count or tracking pings leak. It gates CI on every push and pull request.
 - **Live canary probes** (`tests/e2e/probe-*.mjs`) exercise the flow against real YouTube to catch YouTube-side drift such as InnerTube shape changes, format shifts, and live handling. They run nightly and never gate a merge.
 - **Android emulator E2E** runs the extension on Fenix (Firefox for Android) in an x86_64 emulator against live `m.youtube.com`, asserting the core audio-only hijack and its fallback path. It is a nightly, non-gating canary and does not cover the popup and options UI or lock-screen controls.
@@ -190,7 +190,7 @@ youtube-audio/
 
 ## Documentation
 
-- **Docs site:** <https://animeshkundu.github.io/youtube-audio>
+- **Docs site:** <https://animesh.kundus.in/youtube-audio/>
 - **Architecture:** [`docs/architecture/`](docs/architecture/README.md)
 - **Specifications:** [`docs/specs/`](docs/specs/README.md)
 - **Architecture Decision Records:** [`docs/adrs/`](docs/adrs/README.md)

@@ -11,7 +11,7 @@ Works on Firefox, desktop and Android. No account, no sign-in, nothing to config
 - **Audio only, video bytes gone.** We point the player at a direct audio stream and stop the video download at the source. Same native controls, far less battery and data.
 - **Keeps playing in the background.** Lock the phone, switch tabs, the audio carries on, with your usual lock-screen and OS media controls.
 - **Ghost mode.** Ads and tracking pings get blocked before they leave your browser, quietly, by default.
-- **Skip the boring bits.** SponsorBlock-style auto-skip past sponsor reads and off-topic music intros. Only a tiny 4-character hash ever leaves your machine to look them up.
+- **Skip the boring bits.** Turn on SponsorBlock-style auto-skip for sponsor reads and off-topic music intros. Only a tiny 4-character hash ever leaves your machine to look them up.
 - **YouTube Music, leveled up.** Even out loud-and-quiet tracks with loudness normalization, and shape the sound with a 5-band equalizer.
 - **Save a track.** Download the current audio as a single, tidy `.m4a` file that plays just about anywhere.
 - **Tidy up the page.** Optionally hide Shorts, recommendations, or comments, cap the quality to save more data, or switch off autoplay-next.
@@ -34,4 +34,4 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Firefox desktop and Android**, Firefox 128 and up.
 - **Falls back gracefully.** When a video cannot be played as audio-only (live streams, made-for-kids, age-restricted, or members-only), it simply hands you back to normal YouTube. No broken playback, ever.
 
-Give it a spin, put your headphones on, and let YouTube be the radio it always wanted to be. If something looks off, the built-in reporter makes it easy to tell us, and there is nothing personal in what it sends.
+Give it a spin, put your headphones on, and let YouTube be the radio it always wanted to be. If something looks off, the built-in local diagnostics log gives you a readable record you can review, copy, export, or clear, without sending it anywhere.
