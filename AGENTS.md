@@ -15,7 +15,7 @@ audio only**: it fetches the audio stream through a credentialless `ANDROID_VR` 
 request and hijacks the page `<video>` source so playback continues without downloading
 video. It also handles background play, ad/telemetry blocking, SponsorBlock-style segment
 skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ, audio
-download, and a PII-free local diagnostics log with a serverless issue reporter.
+download, and a PII-free local diagnostics log that users can view, copy, export locally, and clear.
 
 |                 |                                                                         |
 | --------------- | ----------------------------------------------------------------------- |
@@ -108,7 +108,7 @@ Auto-fixers: `npm run lint:fix`, `npm run format`.
 youtube-audio/
 ├── entrypoints/            # WXT per-context bundles (one build target each)
 │   ├── background.ts       # Persistent MV2 background: webRequest telemetry/ad filter,
-│   │                       #   SponsorBlock + LRCLIB proxies, downloads (all credentialless)
+│   │                       #   SponsorBlock proxy and downloads (all credentialless)
 │   ├── content.ts          # Isolated content script (document_start): injects MAIN world,
 │   │                       #   owns the cross-world bridge and the QoL stylesheet
 │   ├── main-world.ts       # MAIN world: credentialless ANDROID_VR fetch, playability gate,
@@ -124,7 +124,6 @@ youtube-audio/
 │   ├── sponsorblock.ts     # Prefix-hash segment fetch + local filter/merge
 │   ├── telemetry.ts        # First-party telemetry allowlist policy (fail-open)
 │   ├── audiograph.ts       # Web Audio loudness normalization + 5-band EQ graph
-│   ├── lyrics.ts           # LRCLIB timed-lyrics fetch/parse
 │   ├── download.ts         # Direct audio format selection + filename sanitization
 │   ├── quality-of-life.ts  # QoL settings -> managed stylesheet / bounded player hints
 │   ├── rescue.ts           # Static page-world rescue operation baseline (compiled op IDs only)
@@ -176,8 +175,7 @@ Do not break these without an ADR that supersedes the decision:
 - **Four production content-script matches only.** Keep content scripts scoped to the four
   YouTube match patterns and never widen them to `*://*/*`. The credentialless fetch-origin
   permissions for `*://*.googlevideo.com/*` and `https://sponsor.ajay.app/*` are separate,
-  intended, and required. (The `https://lrclib.net/*` origin was dropped when the redundant
-  synced-lyrics feature was disabled.)
+  intended, and required. SponsorBlock traffic requires both data consent and explicit opt-in.
 - **Fail open to native YouTube.** Live streams, YouTube Kids, age-restricted / auth-required
   videos, and any fetch/parse/DOM/media failure must leave or restore normal YouTube
   playback. A feature failure is never a broken page.

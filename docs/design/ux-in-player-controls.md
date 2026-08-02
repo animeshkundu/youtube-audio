@@ -476,9 +476,7 @@ Reduced motion collapses any pulse to the static dot (reuse `.now-playing`,
 - Toggle **off** → poster fades out, native video returns. The toggle's press and
   the poster's fade are one gesture with one confirmation.
 - The audio-mode surface is where the **10% features can live without cluttering
-  the bar**: the download action (P1-2), the synced lyrics (today a separate fixed
-  panel, `content.ts:140-178`, which should move into this surface for one coherent
-  audio view), and, on mobile, the segment affordance.
+  the bar**: the download action (P1-2) and, on mobile, the segment affordance.
 
 **Fidelity across modes.** Scale to the player in theater and fullscreen. On the
 mobile player, render a simpler version (cover + title + dot) sized to the mobile

@@ -1,9 +1,10 @@
 import { Builder, By, until } from 'selenium-webdriver';
-import firefox from 'selenium-webdriver/firefox.js';
+import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
+import { seedDataConsent } from '../consent-helper.mjs';
 import { buildBenchExtension, openBrowserActionPopup } from './run-bench.mjs';
 import { createFixtureServer } from './fixture-server.mjs';
 
@@ -28,12 +29,11 @@ const settings = {
   downloadEnabled: true,
   loudnessNormalization: true,
   equalizerEnabled: true,
-  lyricsEnabled: true,
 };
 
 const makeOptions = () => {
   const options = new firefox.Options();
-  options.addArguments('-headless', '-remote-allow-system-access');
+  options.addArguments('-headless');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   options.setPreference(
     'extensions.webextensions.uuids',
@@ -118,13 +118,18 @@ async function main() {
   const written = [];
   const failures = [];
   try {
-    driver = await new Builder().forBrowser('firefox').setFirefoxOptions(makeOptions()).build();
+    driver = await new Builder()
+      .forBrowser('firefox')
+      .setFirefoxOptions(makeOptions())
+      .setFirefoxService(new ServiceBuilder().addArguments('--allow-system-access'))
+      .build();
     await driver.manage().window().setRect({ width: 1280, height: 800, x: 0, y: 0 });
 
     const workHandle = await driver.getWindowHandle();
     const handlesBefore = new Set(await driver.getAllWindowHandles());
     await driver.installAddon(benchXpi, true);
     await closeInstallTabs(driver, workHandle, handlesBefore);
+    await seedDataConsent(driver, optionsUrl, { sponsorBlockAllowed: true });
     await seedSettings(driver, settings);
 
     await driver.get(`${origin}/watch?v=FIXTURE0001`);

@@ -123,7 +123,7 @@ export default defineConfig({
         strict_min_version: '128.0',
         ...(SELF_HOSTED_UPDATE_URL ? { update_url: SELF_HOSTED_UPDATE_URL } : {}),
         data_collection_permissions: {
-          required: ['none'],
+          required: ['websiteContent'],
         },
       },
       gecko_android: {},

@@ -66,7 +66,7 @@ Source: `entrypoints/options/App.tsx`. Nav rail + search + six sections:
 | **Playback**                     | Audio-only _(again)_, Background & lock-screen play _(again)_, Disable autoplay next, Maximum video quality | switches + native `<select>` | none                                      |
 | **Protection & Ghost**           | Block ads, Ghost mode                                                                                       | switches                     | none                                      |
 | **Enhancers**                    | Skip segments, Sponsored segments*, Non-music segments*, Hide Shorts, Hide recommendations, Hide comments   | switches (2 nested with `↳`) | none                                      |
-| **Music**                        | Normalize loudness, Equalizer, Synced lyrics                                                                | switches                     | `<details>` "Equalizer bands" (5 sliders) |
+| **Music**                        | Normalize loudness, Equalizer                                                                               | switches                     | `<details>` "Equalizer bands" (5 sliders) |
 | **Advanced**                     | Download audio, Aggressive telemetry blocking                                                               | switches                     | `<details>` "Power-user controls"         |
 
 The shared kit (`entrypoints/ui/components.tsx` + `components.css` + `tokens.css`) is genuinely
@@ -184,7 +184,7 @@ setting appears twice. Defaults shown in _italics_.
 | **Privacy & Blocking**      | Block ads _(on, high-impact)_; Ghost mode _(on, recommended)_                                   | switches                         | Under Ghost: **Aggressive telemetry** _(off, high-impact)_ - enabled only when Ghost is on               |
 | **Skipping**                | Skip segments _(on)_                                                                            | switch                           | Category rows Sponsored / Non-music - shown only when Skip is on                                         |
 | **Cleaner YouTube**         | Hide Shorts _(off)_; Hide recommendations _(off)_; Hide comments _(off)_                        | switches                         | -                                                                                                        |
-| **Music**                   | Normalize loudness _(on)_; Equalizer _(off)_; Synced lyrics _(off)_                             | switches                         | EQ band sliders - shown only when Equalizer is on                                                        |
+| **Music**                   | Normalize loudness _(on)_; Equalizer _(off)_                                                    | switches                         | EQ band sliders - shown only when Equalizer is on                                                        |
 | **Downloads**               | Download audio _(off; ships in the AMO/listed build)_                                           | switch                           | **Advanced (later):** format / filename                                                                  |
 | **Advanced / About**        | Reset to defaults; (later) import/export; version + "what's on" checklist                       | button + text                    | -                                                                                                        |
 
@@ -228,7 +228,6 @@ Notes:
 | Ghost mode           | "Reduce safe first-party quality and instrumentation tracking."         | "Blocks YouTube's tracking. Playback stays normal."                                          |
 | Aggressive telemetry | "Also block watch-time statistics; history and resume may be affected." | "Also blocks watch-time stats. Your history and resume-where-you-left-off may stop working." |
 | Skip segments        | "Privately look up and skip enabled categories."                        | "Skips sponsored and non-music parts. Lookups are anonymous."                                |
-| Synced lyrics        | "Opt in to an anonymous LRCLIB lookup."                                 | "Shows time-synced lyrics from LRCLIB. Anonymous lookup."                                    |
 
 ### Risky-toggle framing (non-modal)
 

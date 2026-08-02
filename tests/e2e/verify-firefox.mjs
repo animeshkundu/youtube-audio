@@ -25,6 +25,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { existsSync, writeFileSync } from 'node:fs';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..');
 const xpiPath = resolve(repoRoot, 'dist', process.env.XPI || 'youtube-audio.xpi');
@@ -33,6 +35,9 @@ const VIDEO = process.env.YT_VIDEO || 'dQw4w9WgXcQ';
 const HEADLESS = process.env.HEADLESS !== '0';
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS || 45000);
 const WATCH_URL = `https://www.youtube.com/watch?v=${VIDEO}`;
+const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
+const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
+const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 
 function log(...a) {
   console.error('[e2e]', ...a);
@@ -44,6 +49,7 @@ if (!existsSync(xpiPath)) {
 }
 const options = new firefox.Options();
 if (HEADLESS) options.addArguments('-headless');
+options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: PINNED_UUID }));
 // Allow autoplay so a media request actually flows (the extension only reacts to media requests).
 options.setPreference('media.autoplay.default', 0);
 options.setPreference('media.autoplay.blocking_policy', 0);
@@ -92,6 +98,7 @@ try {
   result.extensionInstalled = true;
   result.addonId = addonId;
   log('installed add-on id:', addonId);
+  await seedDataConsent(driver, OPTIONS_URL);
 
   log('navigating to', WATCH_URL);
   await driver.get(WATCH_URL);

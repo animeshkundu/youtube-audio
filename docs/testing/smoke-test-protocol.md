@@ -61,6 +61,31 @@ not delegate it to a bench pass.
 - [ ] Use a real, logged-out YouTube and YouTube Music. No account. Confirm your region and a
       known monetized channel that serves ads to logged-out viewers before you start.
 
+### Built-in data consent and live revocation
+
+Use a persistent clean profile on desktop Firefox 140+ or Android Firefox 142+. Do not use
+`about:debugging`, `web-ext`, or WebDriver temporary installation for this section: temporary installs
+skip the native data-consent flow and cannot produce a granted `data_collection` result.
+
+- [ ] Install the packaged XPI through Firefox's **Install Add-on From File** flow. Use the signed XPI,
+      or a Firefox build/profile that permits this unsigned package.
+- [ ] Accept the required `websiteContent` data consent during installation. Leave SponsorBlock off
+      for the first pass.
+- [ ] Open an eligible logged-out VOD. Confirm audio-only is active and the media element uses the
+      direct audio source.
+- [ ] Keep the watch page open. In `about:addons`, remove/revoke the extension's data permission.
+- [ ] Without reloading or navigating the watch page, confirm the extension immediately releases its
+      hijack and native YouTube playback is restored.
+- [ ] Clear the Network log, then exercise playback again. Confirm there are no new extension
+      credentialless InnerTube player POSTs, thumbnail/artwork requests, or SponsorBlock requests.
+- [ ] Re-add the permission in `about:addons`; confirm the live page re-resolves consent and features
+      resume without an extension restart.
+- [ ] Repeat with SponsorBlock explicitly accepted, then revoke required consent and confirm its
+      requests stop at the same boundary.
+
+Record the Firefox version, platform, profile path, XPI version/signing channel, and observed request
+counts. This is a manual release gate until the persistent-profile browser-chrome flow is automated.
+
 ### Chrome and packaging (the icon class of bug)
 
 - [ ] Toolbar shows the YouTube Audio icon, not a generic puzzle piece.
@@ -76,7 +101,7 @@ Master switch:
 
 - [ ] Extension `enabled` off: the page is untouched, native YouTube plays normally.
 - [ ] Extension `enabled` on: default behavior applies (audio-only, background play,
-      ghost, ad-block, segment-skip, loudness on per defaults).
+      ghost, ad-block, and loudness on per defaults). Segment skipping stays off until the user opts in.
 
 Playback:
 
@@ -105,9 +130,9 @@ Ad-block (the class that shipped broken; do this in VIDEO mode, not audio-only):
 
 Segment skip:
 
-- [ ] `segmentSkipEnabled` on with a video that has SponsorBlock ranges: the player seeks past
-      the sponsor segment automatically. Toggle categories and confirm only selected categories
-      skip.
+- [ ] `segmentSkipEnabled` is off on a fresh install. Enable it explicitly before testing a video
+      with SponsorBlock ranges; the player then seeks past the sponsor segment automatically.
+      Toggle categories and confirm only selected categories skip.
 
 Quality of life:
 
@@ -121,8 +146,6 @@ YouTube Music extras:
 - [ ] `loudnessNormalization` on: quiet and loud tracks even out; off: raw loudness returns.
 - [ ] `equalizerEnabled` on with non-flat bands: audible tonal change; flat bands sound
       identical to off.
-- [ ] `lyricsEnabled` on for a track with LRCLIB lyrics: synced lyrics render; off: no lyrics
-      panel.
 
 Download (the class that made many files):
 

@@ -29,7 +29,7 @@ A scheduled (cron) GitHub Actions workflow — extending `.github/workflows/live
 3. On any breakage, produce a **holistic repro bundle**, not just a red X:
    - failing flow + assertion, video id, timestamp, platform/host,
    - page DOM snapshot around the player, the InnerTube player-response shape,
-   - the PII-free diagnostic log (the reporter already builds this),
+   - the PII-free local diagnostic log,
    - screenshots, and the specific invariant that broke.
 4. Open an issue with the bundle **and trigger an agent** (a workflow / dispatched subagent) seeded
    with that full context, instructed to root-cause and fix **holistically** (fix the real cause, not
@@ -39,7 +39,7 @@ A scheduled (cron) GitHub Actions workflow — extending `.github/workflows/live
 
 - `tests/e2e/real-youtube-capture.mjs` — loads the production XPI in a real Firefox against a real
   video and screenshots the player/controls/artwork (the first real-YouTube driver).
-- The PII-free diagnostics + serverless issue reporter (SPEC on diagnostics) — the repro-bundle source.
+- The PII-free local diagnostics surface (SPEC-011) — the repro-bundle source.
 - The orchestration tooling (decompose / run_workflow / floor-keeper) — candidates for the
   "trigger an agent to fix holistically" step.
 

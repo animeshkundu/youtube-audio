@@ -28,10 +28,10 @@ The page is grouped and searchable:
 - **Music** controls YouTube Music loudness normalization and five EQ bands.
 - **Downloads** shows or hides the in-player save-audio button.
 
-Most essentials are enabled by default. Cleaner controls, aggressive telemetry blocking, EQ, and downloads wait for you to turn them on. Use **Reset to defaults** under Advanced if you want the original setup back.
+Most essentials are enabled by default. Segment skipping, cleaner controls, aggressive telemetry blocking, EQ, and downloads wait for you to turn them on. Use **Reset to defaults** under Advanced if you want the original setup back.
 
 ## Help and feedback
 
-The options page can assemble a readable diagnostics log with general browser and device details, setting states, limited counts, and recent extension events. Review it before copying it or opening a [GitHub issue](https://github.com/animeshkundu/youtube-audio/issues). It is designed not to record watched videos, searches, or typed text, and you can clear it locally.
+The options page can assemble a readable diagnostics log with general browser and device details, setting states, limited counts, and recent extension events. Review it, copy it, export it to a local Markdown file, or clear it locally. It is designed not to record watched videos, searches, or typed text.
 
 For playback behavior, see [The audio-only experience](/youtube-audio/guide/audio/). For network and storage details, see [Privacy](/youtube-audio/privacy/).

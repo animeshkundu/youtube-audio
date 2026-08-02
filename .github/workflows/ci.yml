@@ -131,9 +131,88 @@ jobs:
         env:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
 
+  upgrade-seed-139:
+    name: Seed persistent consent profiles (Firefox 139)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Developer Edition honors xpinstall.signatures.required=false, allowing the unsigned CI XPI
+      # to be installed non-temporarily in a persistent profile.
+      - name: Install Firefox 139 Developer Edition
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: devedition-139.0b10
+
+      - name: Seed and verify granted and revoked profiles
+        run: xvfb-run --auto-servernum node tests/e2e/bench/qualify-browser-upgrade.mjs
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          UPGRADE_PHASE: seed
+
+      - name: Upload persistent Firefox 139 profiles
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-139-consent-profiles
+          path: |
+            dist/upgrade-profiles
+            dist/youtube-audio-bench.xpi
+          if-no-files-found: error
+          retention-days: 1
+
+  upgrade-verify-140:
+    name: Verify 139 to 140 consent survival
+    needs: upgrade-seed-139
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download persistent Firefox 139 profiles
+        uses: actions/download-artifact@v4
+        with:
+          name: firefox-139-consent-profiles
+          path: dist
+
+      - name: Install Firefox 140 Developer Edition
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: devedition-140.0b9
+
+      # Reopens the exact profile directories. It reports the literal permission state and fails
+      # rather than inferring an answer if the persistent install cannot be measured.
+      - name: Measure granted and revoked outcomes after browser upgrade
+        run: xvfb-run --auto-servernum node tests/e2e/bench/qualify-browser-upgrade.mjs
+        env:
+          FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
+          UPGRADE_PHASE: verify
+
   release-on-merge:
     name: Publish GitHub Release and bump version
-    needs: [validate, build-mv3, bench, matrix]
+    needs: [validate, build-mv3, bench, matrix, upgrade-verify-140]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:

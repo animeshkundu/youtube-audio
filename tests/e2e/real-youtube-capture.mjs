@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, copyFileSync, rmSync, writeFileSync } from 'node:fs';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const binDir = join(repoRoot, 'node_modules', '.bin');
 const OUTPUT_DIR = join(repoRoot, '.output', 'firefox-mv2');
@@ -53,7 +55,6 @@ function buildProductionXpi() {
 function makeOptions() {
   const options = new firefox.Options();
   if (HEADLESS) options.addArguments('-headless');
-  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: PINNED_UUID }));
   options.setPreference('media.autoplay.default', 0);
@@ -94,11 +95,10 @@ async function main() {
     const addonId = await driver.installAddon(XPI, true);
     log('installed temporary add-on:', addonId);
 
-    // The install opens the onboarding options page in a NEW tab which steals focus. Close it and
-    // return to the work tab so it cannot hijack the YouTube navigation. Relies on DEFAULT_SETTINGS
-    // (enabled + audioOnlyEnabled + audioArtworkEnabled all on) so the audio-only toggle + artwork
-    // show; the download button defaults off and is intentionally not seeded here.
+    // The install opens an extension-owned page in a NEW tab which steals focus. Use it to seed
+    // explicit data consent, then close it and return to the work tab before YouTube navigation.
     await driver.sleep(1500);
+    await seedDataConsent(driver, OPTIONS_URL);
     for (const handle of await driver.getAllWindowHandles()) {
       if (handlesBefore.has(handle)) continue;
       await driver.switchTo().window(handle);
@@ -278,8 +278,130 @@ async function main() {
       );
     });
 
-    // Empirically answer "does ANDROID_VR return video, and is it ad-free / hijackable?" by running
-    // the same credentialless fetch the extension does, from the page context (real key + visitorData).
+    // Empirically compare the page's own WEB response with the ANDROID_VR response the extension
+    // requests. Read the real initial response first. If YouTube has already consumed it (common after
+    // SPA navigation), briefly wrap fetch/XHR and ask the native player to reload this same public VOD.
+    report.steps.webFormats = await driver.executeAsyncScript(function () {
+      const done = arguments[arguments.length - 1];
+      const summarize = (response, source) => {
+        if (!response || typeof response !== 'object') return null;
+        const streamingData = response.streamingData || {};
+        const mapFormat = (format) => ({
+          itag: format.itag,
+          mimeType: format.mimeType || null,
+          bitrate: format.bitrate || null,
+          audioQuality: format.audioQuality || null,
+          contentLength: format.contentLength || null,
+          directUrl: typeof format.url === 'string' && format.url.length > 0,
+          signatureCipher:
+            typeof format.signatureCipher === 'string' && format.signatureCipher.length > 0,
+          neither:
+            !(typeof format.url === 'string' && format.url.length > 0) &&
+            !(typeof format.signatureCipher === 'string' && format.signatureCipher.length > 0),
+        });
+        const adaptive = Array.isArray(streamingData.adaptiveFormats)
+          ? streamingData.adaptiveFormats
+          : [];
+        const progressive = Array.isArray(streamingData.formats) ? streamingData.formats : [];
+        return {
+          source,
+          playability: response.playabilityStatus && response.playabilityStatus.status,
+          serverAbrStreamingUrl: !!streamingData.serverAbrStreamingUrl,
+          audio: adaptive
+            .filter(
+              (format) =>
+                (format.mimeType || '').startsWith('audio/') || !!format.audioQuality
+            )
+            .map(mapFormat),
+          progressive: progressive.map(mapFormat),
+        };
+      };
+      const initial = summarize(window.ytInitialPlayerResponse, 'ytInitialPlayerResponse');
+      if (initial && (initial.audio.length || initial.progressive.length)) {
+        done(initial);
+        return;
+      }
+
+      const stateKey = '__ytaWebPlayerCapture';
+      const state = { response: null };
+      window[stateKey] = state;
+      const accept = (url, value, source) => {
+        if (!String(url || '').includes('/youtubei/v1/player')) return;
+        const summary = summarize(value, source);
+        if (summary && (summary.audio.length || summary.progressive.length)) state.response = summary;
+      };
+
+      const originalFetch = window.fetch;
+      const wrappedFetch = new Proxy(originalFetch, {
+        apply(target, thisArg, argumentsList) {
+          const request = argumentsList[0];
+          const url = typeof request === 'string' ? request : request && request.url;
+          const result = Reflect.apply(target, thisArg, argumentsList);
+          if (!String(url || '').includes('/youtubei/v1/player')) return result;
+          result
+            .then((response) => response.clone().json())
+            .then((value) => accept(url, value, 'fetch'), () => undefined);
+          return result;
+        },
+      });
+      window.fetch = wrappedFetch;
+
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const wrappedOpen = function (method, url) {
+        this.__ytaPlayerUrl = String(url || '');
+        this.addEventListener(
+          'load',
+          () => {
+            try {
+              const value =
+                this.responseType === 'json' ? this.response : JSON.parse(this.responseText || 'null');
+              accept(this.__ytaPlayerUrl, value, 'xhr');
+            } catch {
+              // A non-JSON or unreadable response is not the player response we need.
+            }
+          },
+          { once: true }
+        );
+        return Reflect.apply(originalOpen, this, arguments);
+      };
+      XMLHttpRequest.prototype.open = wrappedOpen;
+
+      const finish = (result) => {
+        if (window.fetch === wrappedFetch) window.fetch = originalFetch;
+        if (XMLHttpRequest.prototype.open === wrappedOpen) XMLHttpRequest.prototype.open = originalOpen;
+        delete window[stateKey];
+        done(result);
+      };
+      const deadline = Date.now() + 10000;
+      const poll = () => {
+        if (state.response) {
+          finish(state.response);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          finish({
+            source: 'unavailable',
+            error: 'No initial, fetch, or XHR WEB player response was captured within 10 seconds',
+          });
+          return;
+        }
+        setTimeout(poll, 100);
+      };
+
+      try {
+        const player = document.querySelector('#movie_player');
+        const videoId = new URLSearchParams(location.search).get('v');
+        if (player && typeof player.loadVideoById === 'function' && videoId) {
+          const video = document.querySelector('video');
+          player.loadVideoById({ videoId, startSeconds: video ? video.currentTime : 0 });
+        }
+      } catch {
+        // The wrappers can still capture a naturally occurring player refresh.
+      }
+      poll();
+    });
+
+    // Run the same credentialless fetch the extension does, from page context (real key + visitorData).
     report.steps.androidVrFormats = await driver.executeAsyncScript(function () {
       const done = arguments[arguments.length - 1];
       try {
@@ -315,17 +437,24 @@ async function main() {
             const sd = j.streamingData || {};
             const m = (f) => ({
               itag: f.itag,
-              q: f.qualityLabel || f.audioQuality,
-              mime: (f.mimeType || '').split(';')[0],
-              directUrl: !!f.url,
-              cipher: !!f.signatureCipher,
+              mimeType: f.mimeType || null,
+              bitrate: f.bitrate || null,
+              audioQuality: f.audioQuality || null,
+              contentLength: f.contentLength || null,
+              directUrl: typeof f.url === 'string' && f.url.length > 0,
+              signatureCipher:
+                typeof f.signatureCipher === 'string' && f.signatureCipher.length > 0,
+              neither:
+                !(typeof f.url === 'string' && f.url.length > 0) &&
+                !(typeof f.signatureCipher === 'string' && f.signatureCipher.length > 0),
             });
-            const adaptive = sd.adaptiveFormats || [];
+            const adaptive = Array.isArray(sd.adaptiveFormats) ? sd.adaptiveFormats : [];
             done({
               playability: j.playabilityStatus && j.playabilityStatus.status,
               adPlacements: 'adPlacements' in j,
               playerAds: 'playerAds' in j,
-              progressive: (sd.formats || []).map(m),
+              serverAbrStreamingUrl: !!sd.serverAbrStreamingUrl,
+              progressive: (Array.isArray(sd.formats) ? sd.formats : []).map(m),
               video: adaptive
                 .filter((f) => (f.mimeType || '').startsWith('video/'))
                 .map(m)
@@ -338,6 +467,42 @@ async function main() {
         done({ error: String(e) });
       }
     });
+
+    const formatCounts = (result) => {
+      const audio = result.audio || [];
+      const progressive = result.progressive || [];
+      return {
+        audio: {
+          total: audio.length,
+          directUrl: audio.filter((format) => format.directUrl).length,
+          signatureCipher: audio.filter((format) => format.signatureCipher).length,
+          neither: audio.filter((format) => format.neither).length,
+        },
+        progressive: {
+          total: progressive.length,
+          directUrl: progressive.filter((format) => format.directUrl).length,
+          signatureCipher: progressive.filter((format) => format.signatureCipher).length,
+          neither: progressive.filter((format) => format.neither).length,
+        },
+      };
+    };
+    report.steps.playerResponseComparison = {
+      web: {
+        source: report.steps.webFormats.source,
+        playability: report.steps.webFormats.playability || null,
+        serverAbrStreamingUrl: report.steps.webFormats.serverAbrStreamingUrl === true,
+        counts: formatCounts(report.steps.webFormats),
+      },
+      androidVr: {
+        playability: report.steps.androidVrFormats.playability || null,
+        serverAbrStreamingUrl: report.steps.androidVrFormats.serverAbrStreamingUrl === true,
+        counts: formatCounts(report.steps.androidVrFormats),
+      },
+    };
+    log(
+      'player response comparison:',
+      JSON.stringify(report.steps.playerResponseComparison, null, 2)
+    );
 
     await shot('10-real-player.png');
 

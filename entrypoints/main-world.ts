@@ -28,7 +28,6 @@ const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
 const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
-const TRACK_EVENT = 'yta:track';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
@@ -47,7 +46,6 @@ interface PageSettings {
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
-  lyricsEnabled: boolean;
   downloadEnabled: boolean;
 }
 
@@ -133,7 +131,6 @@ export default defineUnlistedScript(() => {
     loudnessNormalization: false,
     equalizerEnabled: false,
     equalizerBands: [],
-    lyricsEnabled: false,
     downloadEnabled: false,
   };
   player.navigate();
@@ -294,12 +291,7 @@ export default defineUnlistedScript(() => {
       emitStatus('disabled', operation);
       return;
     }
-    if (
-      settings.audioOnlyEnabled ||
-      settings.loudnessNormalization ||
-      settings.equalizerEnabled ||
-      settings.lyricsEnabled
-    ) {
+    if (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled) {
       void activateEnhancements(operation);
     } else {
       emitStatus('disabled', operation);
@@ -408,10 +400,7 @@ export default defineUnlistedScript(() => {
     qualityOfLifeCleanup = applyQualityOfLife(settings);
     if (
       settings.enabled &&
-      (settings.audioOnlyEnabled ||
-        settings.loudnessNormalization ||
-        settings.equalizerEnabled ||
-        settings.lyricsEnabled)
+      (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled)
     ) {
       void activateEnhancements(operation);
     } else {
@@ -539,7 +528,6 @@ export default defineUnlistedScript(() => {
       if (!mediaElement || operationGeneration !== player.generation) return;
       const responseData = playerResponse as PlayerResponse;
       armAudioGraph(mediaElement, responseData.playerConfig?.audioConfig?.loudnessDb);
-      emitTrack(responseData);
 
       if (!settings.audioOnlyEnabled) {
         emitStatus('disabled', operation);
@@ -619,32 +607,6 @@ export default defineUnlistedScript(() => {
         eqGains: graph.getEqualizerGains(),
       });
     }
-  }
-
-  function emitTrack(response: PlayerResponse): void {
-    if (!settings.lyricsEnabled) return;
-    const details = response.videoDetails;
-    const duration = Number(details?.lengthSeconds);
-    if (
-      typeof details?.videoId !== 'string' ||
-      typeof details.title !== 'string' ||
-      typeof details.author !== 'string' ||
-      !Number.isFinite(duration) ||
-      duration <= 0
-    ) {
-      return;
-    }
-    document.dispatchEvent(
-      new CustomEvent(TRACK_EVENT, {
-        // Firefox drops non-string detail across the MAIN to isolated boundary too.
-        detail: JSON.stringify({
-          videoId: details.videoId,
-          title: details.title.slice(0, 200),
-          artist: details.author.slice(0, 200),
-          duration,
-        }),
-      })
-    );
   }
 
   async function waitForVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
@@ -979,7 +941,6 @@ function parseSettings(value: unknown): PageSettings | null {
     !candidate.equalizerBands.every(
       (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
     ) ||
-    typeof candidate.lyricsEnabled !== 'boolean' ||
     typeof candidate.downloadEnabled !== 'boolean'
   ) {
     return null;
@@ -997,7 +958,6 @@ function parseSettings(value: unknown): PageSettings | null {
     loudnessNormalization: candidate.loudnessNormalization,
     equalizerEnabled: candidate.equalizerEnabled,
     equalizerBands: candidate.equalizerBands,
-    lyricsEnabled: candidate.lyricsEnabled,
     downloadEnabled: candidate.downloadEnabled,
   };
 }

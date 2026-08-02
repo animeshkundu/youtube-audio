@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { StoredEvent } from '../../src/shared/logger';
 import {
   assembleReport,
-  buildIssueUrl,
   formatDeltaBucket,
-  ISSUE_BASE_URL,
   sanitizeEnvironment,
   sanitizeSettingsSnapshot,
 } from '../../src/shared/report';
@@ -75,16 +73,6 @@ describe('formatDeltaBucket', () => {
     expect(formatDeltaBucket(10_000)).toBe('5-30s');
     expect(formatDeltaBucket(120_000)).toBe('30s-5m');
     expect(formatDeltaBucket(600_000)).toBe('>5m');
-  });
-});
-
-describe('buildIssueUrl', () => {
-  it('is a bare new-issue URL with only a static title and bug label', () => {
-    const url = buildIssueUrl();
-    expect(url.startsWith(ISSUE_BASE_URL)).toBe(true);
-    expect(url).toContain('labels=bug');
-    expect(url).not.toContain('body=');
-    expect(url.length).toBeLessThan(200);
   });
 });
 

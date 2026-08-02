@@ -26,7 +26,7 @@ publish or bump concurrently.
 
 ## CI (gating)
 
-Four parallel executable gate jobs must pass:
+Five executable gate outcomes must pass:
 
 1. **validate**: `npm ci` then `typecheck`, `lint` (eslint 0/0), `format:check`, `test` (vitest,
    90%+ coverage), `build` (MV2), and `web-ext lint` on `.output/firefox-mv2` (0 errors).
@@ -39,6 +39,33 @@ test:bench`. The bench builds its own `BENCH=1` XPI and drives it against the lo
    gate on.
 4. **matrix**: drives the real extension through the deterministic settings-permutation matrix in
    Firefox against the same hermetic fixture.
+5. **upgrade-verify-140**: after `upgrade-seed-139` creates granted and revoked non-temporary
+   Developer Edition profiles, Firefox 140 reopens the exact profile artifacts and reports the
+   literal `permissions.getAll()` state plus playback behavior.
+
+### Consent qualification lanes
+
+A temporary WebDriver install bypasses Firefox's native consent UI, but Firefox reports a manifest
+**required** category as granted through `permissions.getAll().data_collection`. The harnesses leave
+`extensions.dataCollectionPermissions.enabled` at its real default so modern treatment sessions
+exercise that built-in result. Every seeded session reads the literal permission object and fails
+loudly if consent does not resolve granted.
+
+The named `consent:fresh-unconsented-profile-fails-closed` bench case is deliberately different: its
+fresh profile suppresses the automatic required-category grant and receives no stored custom record.
+It verifies no audio hijack, extension player request, artwork marker, or artwork request.
+
+Firefox 128-139 still takes the custom branch, where the versioned local record supplies required
+consent. `FIREFOX_BIN` remains available for explicit old-version qualification; it is not the
+primary CI workaround.
+
+The browser-upgrade lane stages the packaged unsigned XPI into granted and revoked Firefox 139
+Developer Edition profiles with `xpinstall.signatures.required=false`, shuts them down cleanly, then
+opens the same profiles in Firefox 140 Developer Edition. This answers browser-version boundary
+survival. It does not simulate a 1.0.3-to-candidate extension update or click Firefox's native
+install/update consent UI; those remain separate qualification gaps documented in
+`docs/testing/amo-compliance-qualification-plan.md`. The upgrade job must produce an empirical
+`NOT BRICKED` result while preserving revocation; infrastructure failure is not a pass.
 
 The public website is a bespoke Astro project in `website/`, deployed to GitHub Pages by `pages.yml`
 on changes under `website/**` (see below). The engineering docs under `docs/` (specs, ADRs,
@@ -46,8 +73,9 @@ architecture, research, history) live in the repo and are not built into the pub
 
 ### GitHub Release after a merge to master
 
-On a `push` to `master` only, **release-on-merge** waits for `validate`, `build-mv3`, `bench`, and
-`matrix`. Once all four succeed it checks out the exact gated merge commit with full history, runs
+On a `push` to `master` only, **release-on-merge** waits for `validate`, `build-mv3`, `bench`,
+`matrix`, and `upgrade-verify-140`. Once every prerequisite succeeds it checks out the exact gated
+merge commit with full history, runs
 `npm ci` and `npm run build:ext`, copies the packaged artifact to
 `dist/youtube-audio-<version>.xpi`, and creates
 latest GitHub Release `v<version>`. It uses `docs/release-notes/NEXT.md` when present and generated

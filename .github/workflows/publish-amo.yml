@@ -72,6 +72,19 @@ jobs:
             echo "Input ref '${{ inputs.ref }}' must equal v$VERSION (the clean package version). Tag the tested commit as v$VERSION first." >&2
             exit 1
           fi
+          # AMO rejects an upload whose version already exists on the listed channel. 1.0.3 was
+          # rejected by review (data-collection consent), so that exact version can never be
+          # resubmitted: a corrected build must carry a higher version.
+          REJECTED_VERSION="1.0.3"
+          if [ "$VERSION" = "$REJECTED_VERSION" ]; then
+            echo "package.json version $VERSION was rejected by AMO review and cannot be resubmitted. Bump above $REJECTED_VERSION first." >&2
+            exit 1
+          fi
+          HIGHEST="$(printf '%s\n%s\n' "$REJECTED_VERSION" "$VERSION" | sort -V | tail -n1)"
+          if [ "$HIGHEST" != "$VERSION" ]; then
+            echo "package.json version $VERSION is not above the rejected $REJECTED_VERSION. Bump the version before publishing." >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing $VERSION to AMO (listed)"
 

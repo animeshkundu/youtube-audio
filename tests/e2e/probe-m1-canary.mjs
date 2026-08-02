@@ -10,11 +10,17 @@ import firefox from 'selenium-webdriver/firefox.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const xpi = resolve(root, 'dist', 'youtube-audio.xpi');
+const addonId = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
+const pinnedUuid = '11111111-2222-4333-8444-555555555555';
+const optionsUrl = `moz-extension://${pinnedUuid}/options.html`;
 const videoId = process.env.YT_VIDEO || 'dQw4w9WgXcQ';
 const options = new firefox.Options();
 if (process.env.HEADLESS !== '0') options.addArguments('-headless');
+options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [addonId]: pinnedUuid }));
 options.setPreference('media.autoplay.default', 0);
 options.setPreference('media.autoplay.blocking_policy', 0);
 options.setPreference('media.autoplay.allow-muted', true);
@@ -25,6 +31,7 @@ try {
   driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build();
   await driver.manage().setTimeouts({ script: 60000, pageLoad: 60000 });
   await driver.installAddon(xpi, true);
+  await seedDataConsent(driver, optionsUrl);
   await driver.get(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`);
   const observation = await driver.executeAsyncScript(function () {
     const done = arguments[arguments.length - 1];

@@ -39,7 +39,7 @@ export const FOOTER_LINKS = [
     links: [
       { label: 'Source on GitHub', href: SITE.repo },
       { label: 'Releases', href: SITE.releases },
-      { label: 'Report an issue', href: `${SITE.repo}/issues` },
+      { label: 'Issue tracker', href: `${SITE.repo}/issues` },
       { label: 'License (GPL-3.0)', href: `${SITE.repo}/blob/master/LICENSE` },
     ],
   },

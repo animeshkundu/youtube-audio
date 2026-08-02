@@ -1,20 +1,27 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 import { clearDiagnostics, requestDiagnosticsReport } from '../../src/shared/diagnostics';
-import { buildIssueUrl, type ReportBundle } from '../../src/shared/report';
+import type { ReportBundle } from '../../src/shared/report';
 import { SectionHeader } from './components';
 
 export type ReporterActions = {
   loadReport: () => Promise<ReportBundle | null>;
   copy: (text: string) => Promise<void>;
-  openIssue: (url: string) => void;
+  exportFile: (text: string) => void;
   clearLogs: () => Promise<void>;
 };
 
 export const defaultReporterActions: ReporterActions = {
   loadReport: () => requestDiagnosticsReport(),
   copy: (text) => navigator.clipboard.writeText(text),
-  openIssue: (url) => void browser.tabs.create({ url }),
+  exportFile: (text) => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'youtube-audio-diagnostics.md';
+    link.click();
+    URL.revokeObjectURL(url);
+  },
   clearLogs: () => clearDiagnostics(),
 };
 
@@ -68,11 +75,14 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
     }
   };
 
-  const openIssue = async () => {
+  const exportFile = () => {
     if (!hasReport) return;
-    // Copy first, and only open GitHub if the copy succeeded, so the user is never sent to the
-    // issue page believing the diagnostics are on their clipboard when they are not.
-    if (await copy()) actions.openIssue(buildIssueUrl());
+    try {
+      actions.exportFile(markdown);
+      setStatus({ kind: 'ok', message: 'Diagnostics exported to a local file.' });
+    } catch {
+      setStatus({ kind: 'error', message: 'Could not export the diagnostics file.' });
+    }
   };
 
   const clear = () => {
@@ -87,9 +97,8 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
       <SectionHeader>Help &amp; feedback</SectionHeader>
       <div class="settings-card issue-reporter">
         <p class="reporter-note">
-          This report is built on your device. It contains no video identifiers, URLs, or search
-          terms, only feature outcomes and your settings. Nothing is sent automatically: review it,
-          copy it, then open a GitHub issue and paste it in.
+          This log stays on your device. It contains no video identifiers, URLs, or search terms,
+          only feature outcomes and your settings. Review, copy, export, or clear it at any time.
         </p>
         <textarea
           ref={previewRef}
@@ -103,10 +112,10 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
           <button
             type="button"
             class="reporter-btn is-primary"
-            onClick={() => void openIssue()}
+            onClick={exportFile}
             disabled={!hasReport}
           >
-            Open a GitHub issue
+            Export diagnostics
           </button>
           <button
             type="button"

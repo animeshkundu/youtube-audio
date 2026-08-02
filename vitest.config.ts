@@ -17,7 +17,7 @@ export default defineConfig({
       include: [
         'src/shared/adblock.ts',
         'src/shared/audiograph.ts',
-        'src/shared/lyrics.ts',
+        'src/shared/consent.ts',
         'src/shared/innertube.ts',
         'src/shared/logger.ts',
         'src/shared/redact.ts',

@@ -15,7 +15,7 @@ M0 replaces the legacy JavaScript/WebExtension layout with a buildable, typed fo
 
 ## Non-Goals
 
-- No audio-source hijacking, ad or telemetry filtering, background-play workarounds, segment skipping, EQ, lyrics, downloads, or remote rescue-config behavior.
+- No audio-source hijacking, ad or telemetry filtering, background-play workarounds, segment skipping, EQ, downloads, or remote rescue-config behavior.
 - No Android device or AMO policy validation. Those remain Phase 0 S4/S5 gates.
 - No production network proxy or feature implementation beyond typed fail-open stubs.
 
@@ -30,7 +30,7 @@ WXT generates manifests and bundles from `entrypoints/`. The default production 
 - host access: `*://*.googlevideo.com/*`
 - Gecko ID `{580efa7d-66f9-474d-857a-8e2afc6b1181}` (the single permanent add-on ID, ADR-0006), minimum Firefox `128.0`, Android opt-in via `gecko_android: {}`, and `data_collection_permissions.required: ["none"]`
 
-Future optional origins are documented but not granted: `https://sponsor.ajay.app/*` and `https://lrclib.net/*`.
+The optional SponsorBlock origin is granted only for its explicit opt-in feature.
 
 ### Layers
 

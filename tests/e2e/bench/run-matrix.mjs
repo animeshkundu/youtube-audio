@@ -57,7 +57,6 @@ const TOGGLES = [
   'hideComments',
   'loudnessNormalization',
   'equalizerEnabled',
-  'lyricsEnabled',
   'downloadEnabled',
 ];
 
@@ -80,7 +79,6 @@ const BASE = Object.freeze({
   loudnessNormalization: false,
   equalizerEnabled: false,
   equalizerBands: [0, 0, 0, 0, 0],
-  lyricsEnabled: false,
   downloadEnabled: false,
 });
 
@@ -143,10 +141,6 @@ function checkFeature(feature, s, r, log) {
       return want ? (r.qol?.recsHidden === true ? null : 'hideRecs on: recs visible') : (r.qol?.recsHidden === false ? null : 'hideRecs off: recs not confirmed visible');
     case 'hideComments':
       return want ? (r.qol?.commentsHidden === true ? null : 'hideComments on: comments visible') : (r.qol?.commentsHidden === false ? null : 'hideComments off: comments not confirmed visible');
-    case 'lyricsEnabled':
-      // Lyrics was disabled and hidden (the config kill switch coerces the setting off), so it must
-      // never render, even when a combo seeds it true. Both seed states assert no rendered panel.
-      return r.lyrics === null ? null : 'lyrics disabled: rendered';
     case 'downloadEnabled':
       return want ? (r.downloadButtonVisible === true ? null : 'download on: button hidden') : (r.downloadButtonVisible !== true ? null : 'download off: button visible');
     case 'disableAutoplayNext':
@@ -325,7 +319,6 @@ async function main() {
       if (r.ytaArtwork !== null) failures.push('master-gate: artwork rendered');
       if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true) failures.push('master-gate: distractions hidden');
       if (r.audioGraph !== null) failures.push('master-gate: audio graph armed');
-      if (r.lyrics !== null) failures.push('master-gate: lyrics rendered');
       if (r.vis?.swallowed === true) failures.push('master-gate: visibility swallowed despite disabled');
       if (r.skipArmed === '1') failures.push('master-gate: segment skip armed despite disabled');
       if ((r.qol?.qualityCalls || []).length > 0) failures.push('master-gate: quality forced despite disabled');

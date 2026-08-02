@@ -150,10 +150,9 @@ initial focus, focus trapping, Escape dismissal, and fail-open persistence. See
 ### 4. Defaults: _Done_
 
 The shipped defaults provide value without setup: the extension, audio-only playback, artwork,
-background play, Ghost mode, ad blocking, segment skipping, and loudness normalization start on.
-Riskier or more specialized controls remain off until selected, including aggressive telemetry,
-quality capping, autoplay-next suppression, page decluttering, equalizer, lyrics, and audio
-download.
+background play, Ghost mode, ad blocking, and loudness normalization start on. Riskier or more
+specialized controls remain off until selected, including segment skipping, aggressive telemetry,
+quality capping, autoplay-next suppression, page decluttering, equalizer, and audio download.
 
 ## Hard-invariant compliance
 

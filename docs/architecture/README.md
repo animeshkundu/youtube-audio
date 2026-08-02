@@ -58,7 +58,7 @@ The MAIN-world entrypoint is the only layer intended to touch YouTube player API
 
 ### UI
 
-Popup and options are extension-owned documents built with Preact and `@preact/signals`. They share one storage-backed settings model and reusable tokenized control kit. The desktop popup is a focused quick-control surface; the responsive options page repeats those quick controls first for Firefox Android, then exposes every setting through searchable groups and progressive disclosure. A separate local flag records the one-time onboarding panel without changing feature settings. Preact is not used in background, content, or page-world code.
+Popup, options, and the custom consent page are extension-owned documents built with Preact and `@preact/signals`. They share one storage-backed settings model and reusable tokenized control kit. The desktop popup is a focused quick-control surface; the responsive options page repeats those quick controls first for Firefox Android, then exposes every setting through searchable groups and progressive disclosure. Firefox 128-139 receives a focused, single-page custom consent tab before extension-owned transmission; newer Firefox versions use built-in install consent. Options permanently exposes consent review and revocation. A separate local flag records the one-time onboarding panel without changing feature settings. Preact is not used in background, content, or page-world code.
 
 ## State Flow
 
@@ -97,12 +97,46 @@ sequenceDiagram
     end
 ```
 
+## Hybrid Consent Gate
+
+Consent resolution starts denied. The privileged background reads Firefox's version, platform, granted permissions, and extension-local decision, then answers a fixed content request. The isolated content script validates and awaits that response before injecting MAIN world; background unavailability or a malformed reply is denied, and `applyConsentToSettings()` disables every extension-originated media request. The background independently gates optional SponsorBlock fetches and pushes consent changes to running content scripts. Permission removal denies before re-resolution; permission addition only re-resolves, avoiding a transient startup denial. Firefox desktop 140+ and Android 142+ use built-in install consent and grant only when `permissions.getAll()` contains `websiteContent`; older supported versions require the extension-owned consent tab. Missing, malformed, unreadable, or undetectable state fails closed without falling back to a stored custom grant.
+
+```mermaid
+sequenceDiagram
+    participant Firefox
+    participant Background
+    participant Consent as Consent tab
+    participant Content
+    participant Main as MAIN world
+
+    Firefox->>Background: install or update
+    Background->>Firefox: getBrowserInfo + getPlatformInfo
+    alt desktop 140+ or Android 142+
+        Background->>Firefox: permissions.getAll()
+        Firefox-->>Background: grant array or pending/declined absence
+    else older supported Firefox
+        Background->>Consent: open focused active tab if no acceptance
+        Consent->>Firefox: store explicit acceptance
+    end
+    Content->>Background: yta:get-data-consent
+    Background->>Firefox: resolve capability + grant + local decision
+    Firefox-->>Background: privileged consent inputs
+    Background-->>Content: fixed resolved state
+    alt granted
+        Content->>Main: inject and send consent-filtered settings
+    else denied, unavailable, or malformed
+        Content--xMain: no extension transmission
+    end
+    Firefox->>Background: permission removed
+    Background-->>Content: push denied state before re-resolution
+```
+
 ## Security Boundaries
 
 - Page-world data is untrusted. No page-message handler exists in M0.
 - The background never accepts arbitrary URLs.
 - Only YouTube page patterns and `*.googlevideo.com` are granted.
-- SponsorBlock access is limited to `https://sponsor.ajay.app/*`; LRCLIB remains ungranted until its feature lands.
+- SponsorBlock access is limited to `https://sponsor.ajay.app/*` and runs only after explicit opt-in.
 - Feature failures must leave native YouTube behavior intact.
 
 ## M1 Playback Flow
@@ -202,26 +236,18 @@ The MAIN-world entrypoint separately applies a small static operation baseline f
 
 ## M4 YouTube Music Extras Flow
 
-The MAIN-world layer owns one shared Web Audio graph per media element. It reads YouTube's per-track loudness value from the already-requested player response, applies a bounded gain, and chains the user's five EQ bands in series. The isolated content layer requests lyrics only after explicit opt-in; background calls the fixed LRCLIB endpoint without credentials or referrer, and content renders timed text safely.
+The MAIN-world layer owns one shared Web Audio graph per media element. It reads YouTube's per-track loudness value from the already-requested player response, applies a bounded gain, and chains the user's five EQ bands in series.
 
 ```mermaid
 sequenceDiagram
     participant Main as MAIN world
     participant Video as Page video
-    participant Content as Isolated content
-    participant Background as Background
-    participant LRCLIB as LRCLIB
 
     Main->>Video: One MediaElementSource per element
     Main->>Video: EQ filters then normalized GainNode
-    Main->>Content: Bounded track metadata
-    Content->>Background: Opt-in lyrics request
-    Background->>LRCLIB: GET /api/get, credentials omitted
-    LRCLIB-->>Content: Timed LRC via background
-    Content->>Video: Sync text-only lyric lines to currentTime
 ```
 
-Any graph, metadata, bridge, remote, parse, or DOM failure is a no-op. Scrobbling is out of scope because it conflicts with ghost mode.
+Any graph or media failure is a no-op. Scrobbling is out of scope because it conflicts with ghost mode.
 
 ## M5 Audio Download Flow
 

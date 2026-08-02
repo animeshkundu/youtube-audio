@@ -33,6 +33,6 @@ Core playback sends YouTube a credentialless audio lookup, and the selected medi
 
 No. Firefox 128 or newer on desktop and Android is supported. The blocking features rely on Firefox network APIs unavailable in the required form on Chrome, Edge, or Safari.
 
-## How do I report a problem?
+## How do I collect diagnostics for a problem?
 
-Open options, go to **Help and feedback**, and review the local diagnostics preview. Copy it or open a [GitHub issue](https://github.com/animeshkundu/youtube-audio/issues). The preview is designed to omit what you watched, searched for, or typed.
+Open options, go to **Help and feedback**, and review the local diagnostics preview. You can copy it, export it to a local Markdown file, or clear it. The preview is designed to omit what you watched, searched for, or typed.

@@ -7,6 +7,8 @@ import Doc from '../layouts/Doc.astro';
   description="YouTube Audio has no account, no analytics, and no server of ours in the loop. Here is exactly what it does and does not send, in plain terms."
   intro="No account, no analytics, and no server of ours. Here is exactly what leaves your browser, and what never does."
 >
+  <p><small>Last updated: August 1, 2026</small></p>
+
   <h2>The short version</h2>
   <p>
     YouTube Audio is built for signed-out use. It does not need, read, or attach your YouTube login. Requests
@@ -35,19 +37,25 @@ import Doc from '../layouts/Doc.astro';
         <td>Audio lookup</td>
         <td>YouTube / InnerTube</td>
         <td>Credentialless request with the video ID and client metadata. Your IP address is visible to YouTube.</td>
-        <td>No. This is the core audio-only lookup.</td>
+        <td>Yes, by revoking data consent. The add-on stays installed but inactive.</td>
       </tr>
       <tr>
         <td>Media stream</td>
         <td>googlevideo</td>
         <td>Credentialless request for the selected audio stream. Your IP address is visible to Google's media host.</td>
-        <td>No. The media must be requested to play audio.</td>
+        <td>Yes, by revoking data consent. Transmission-dependent playback stops.</td>
+      </tr>
+      <tr>
+        <td>Artwork</td>
+        <td>YouTube thumbnails / i.ytimg.com</td>
+        <td>Credentialless request for the selected video thumbnail. Your IP address is visible to YouTube's thumbnail host.</td>
+        <td>Yes. Artwork is on by default and can be turned off in options.</td>
       </tr>
       <tr>
         <td>Segment skipping</td>
         <td><a href="https://sponsor.ajay.app/">SponsorBlock / sponsor.ajay.app</a></td>
         <td>Only a short four-character hash prefix, with no cookies or referrer. Exact matching happens on your device.</td>
-        <td>Yes. Turn off segment skipping in options.</td>
+        <td>Yes. It is off by default and contacts SponsorBlock only after you turn it on. Existing enabled choices remain enabled after an update.</td>
       </tr>
       <tr>
         <td>Add-on updates</td>
@@ -63,6 +71,25 @@ import Doc from '../layouts/Doc.astro';
       </tr>
     </tbody>
   </table>
+
+  <h2>Your consent and control</h2>
+  <p>
+    The add-on asks before it transmits anything. On Firefox 140 and later on desktop, and Firefox 142 and
+    later on Android, Firefox's built-in install prompt collects consent for the required
+    <code>websiteContent</code> data permission. On older supported versions (Firefox 128–139 on desktop and
+    128–141 on Android), a custom consent screen opens in a tab on install and on update. Nothing is
+    transmitted until you choose Allow.
+  </p>
+  <p>
+    If you decline on the custom screen, the add-on uninstalls because its core audio lookup cannot work
+    without sending the opened video's details to YouTube. You can revoke consent at any time from
+    <strong>Data &amp; consent</strong> in options. Revoking immediately stops all add-on transmission and
+    disables the features that depend on it; the add-on stays installed but inactive.
+  </p>
+  <p>
+    Startup fails closed. Until consent is resolved, the add-on applies an all-disabled state and does not
+    inject the code that can make these transmissions.
+  </p>
 
   <h2>Logged out only</h2>
   <p>
@@ -93,15 +120,18 @@ import Doc from '../layouts/Doc.astro';
   <p>
     A local diagnostics tool can assemble settings states, limited counts, general browser and device details,
     and recent extension events. It is designed not to record what you watched, searched for, or typed. You can
-    read the preview before copying it or choosing to open a GitHub issue, and you can clear it from your device.
+    view the preview, copy it, export it to a local file, or clear it from your device. Diagnostics are never
+    transmitted, and the add-on has no issue reporter.
   </p>
 
   <h2>The one optional exception, SponsorBlock</h2>
   <p>
-    If segment skipping is enabled, the add-on hashes the video ID and sends only the first four characters of
-    that hash to <a href="https://sponsor.ajay.app/">SponsorBlock</a>. A four-character prefix is shared by many
-    videos, so the service returns a bucket of possible matches. The extension finds the exact video locally.
-    The lookup omits credentials and a referrer.
+    Segment skipping is an explicit opt-in and is off by default for new installations. If you turn it on, the
+    add-on hashes the video ID and sends only the first four characters of that hash to
+    <a href="https://sponsor.ajay.app/">SponsorBlock</a>. A four-character prefix is shared by many videos, so
+    the service returns a bucket of possible matches. The extension finds the exact video locally. The lookup
+    omits credentials and a referrer. Existing users who already enabled segment skipping keep that choice
+    after an update.
   </p>
   <p>
     This request is optional. Turn off segment skipping in the options page to stop it. See

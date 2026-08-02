@@ -1,18 +1,8 @@
-# Specification: Diagnostics and Issue Reporter
+# Specification: Local Diagnostics
 
 ## Overview
 
-Users need an easy, in-extension way to report a problem, and the developer needs to
-know what the extension actually did when a report is filed. Today the extension keeps
-no persistent local logs, so a bug report carries no signal. This feature adds two
-things:
-
-1. A bounded, structured, privacy-preserving **local diagnostic log** shared across the
-   background, content, and page (main-world) contexts.
-2. A **user-initiated issue reporter** in the options page (and a lightweight entry in
-   the popup) that assembles the environment, the current settings snapshot, and recent
-   diagnostic events into a human-readable report, shows it verbatim for review, lets the
-   user copy it, and opens a prefilled-nothing GitHub "new issue" page.
+Users need an on-device signal for debugging Firefox desktop and Android failures. This feature keeps a bounded, structured, privacy-preserving **local diagnostic log** shared across the background, content, and page (main-world) contexts. The options page assembles the environment, current settings snapshot, and recent events into a human-readable view that the user can review, copy, export to a local Markdown file, or clear. It does not open or construct any remote issue-reporting URL.
 
 The hard requirement is that the log and the report contain **no personally identifying
 information** (no video IDs, no watch or signed-media URLs, no search queries, no page
@@ -21,10 +11,7 @@ eligibility fallback reasons, the credentialless `ANDROID_VR` fetch outcome, ad-
 telemetry-block behaviour, segment-skip and download outcomes, loudness/EQ application,
 SPA re-arm, and error classes).
 
-Nothing is ever transmitted automatically. The only ways data leaves the browser are the
-user explicitly copying the report to their clipboard and the user choosing to open and
-submit a GitHub issue. This upholds the manifest's `data_collection_permissions.required:
-['none']` declaration.
+The diagnostics feature performs no network transmission. Copy stays on the local clipboard and export creates a local file under direct user action.
 
 ## Goals
 
@@ -33,10 +20,8 @@ submit a GitHub issue. This upholds the manifest's `data_collection_permissions.
   capture an unbounded history.
 - Guarantee, by construction, that no PII enters the log or the report: every stored
   field is a fixed enum, a bounded integer, or a boolean, validated at a trusted boundary.
-- Make the reporter transparent: the user sees the exact text before anything leaves the
-  browser, and no diagnostics are auto-attached to any network request.
-- Work on Firefox desktop and Firefox for Android (the reporter lives in the options page,
-  which both platforms expose).
+- Make diagnostics transparent: the user sees the exact text and controls every local copy, export, and clear action.
+- Work on Firefox desktop and Firefox for Android through the options page.
 - Keep MV2 shipping and MV3 buildable; degrade the aggregator correctly under a
   non-persistent background.
 
@@ -63,8 +48,7 @@ are added to the coverage allowlist:
 - `redact.ts` — `redactText`, a targeted defensive scrub for known PII shapes (URLs,
   watch/embed/short/list/channel/handle forms, emails, IP addresses, extension UUIDs, and
   digit-bearing 11-character id tokens). It is a safety net, not the primary guarantee.
-- `report.ts` — `sanitizeEnvironment`, `sanitizeSettingsSnapshot`, `assembleReport`, and
-  `buildIssueUrl`. Produces the exact markdown the UI previews and the JSON mirror.
+- `report.ts` — `sanitizeEnvironment`, `sanitizeSettingsSnapshot`, and `assembleReport`. Produces the exact local Markdown the UI previews and exports, plus the JSON mirror.
 
 A fourth module, `diagnostics.ts`, is the thin browser-API glue (message-type constants,
 the background aggregator hub, and the page/content/options helpers). It depends on
@@ -160,17 +144,10 @@ the existing `OptionsActions` dependency-injection pattern used by the unit test
 shows the report verbatim in a read-only text area and offers:
 
 - **Copy diagnostics** — `await navigator.clipboard.writeText(markdown)`.
-- **Open a GitHub issue** — copies first; only if the copy resolves does it open
-  `https://github.com/animeshkundu/youtube-audio/issues/new?labels=bug` (a bare URL with a
-  static generic title, no body, no environment, no diagnostics in the query string). If
-  the copy fails or the clipboard is unavailable (possible on Firefox Android), it does not
-  open the tab; it shows an inline error and leaves the full report selected for manual
-  copy.
+- **Export diagnostics** — creates a local `youtube-audio-diagnostics.md` Blob download without contacting a remote service.
 - **Clear logs** — clears the buffer and storage.
 
-The popup gets a single lightweight "Report an issue" affordance that calls
-`browser.runtime.openOptionsPage()`; the full reporter lives only in the options page so it
-is identical on desktop and Android.
+The diagnostics surface lives in the options page and is identical on desktop and Android.
 
 ## Error Handling
 
@@ -191,11 +168,8 @@ cap. The reporter surfaces load, copy, and clear failures inline without blockin
   coercion to `'other'`, forged-secret string coerced away), the rate limiter, and the
   persister's single-flight ordering and generation-barrier clear using a deferred fake
   storage backend; `report.ts` for structure, absence of PII and absolute time, settings and
-  environment canonicalization, and the bare issue URL. The three pure modules meet the 90%
-  coverage bar.
-- Options reporter component test (jsdom): renders the preview, verifies Copy calls the
-  clipboard with the report, verifies Clear calls its action, and verifies a failed copy
-  does not open GitHub.
+  environment canonicalization. The three pure modules meet the 90% coverage bar.
+- Options diagnostics component test (jsdom): renders the preview, verifies Copy and local Export receive the report, verifies Clear calls its action, and verifies a failed copy leaves the preview available for manual selection.
 - Bench and matrix (real Firefox, hermetic 127.0.0.1 fixture): drive a fixture watch session
   so activation and outcomes occur, then open the real options page and read both the
   persisted `browser.storage.local` artifact and the real `yta:diagnostics-report` message
@@ -213,9 +187,7 @@ cap. The reporter surfaces load, copy, and clear failures inline without blockin
   (live, music, has-audio, loudness-present, playable, coarse duration) and never the video
   identity. The environment and settings snapshot are likewise closed-schema. `redact.ts` is an
   additional net over event detail and is independently tested.
-- **No automatic transmission.** There is no network egress in the feature. The report
-  travels only by the user's explicit clipboard copy and the user's own decision to open and
-  submit a GitHub issue. The GitHub URL carries no environment or diagnostics.
+- **Local-only delivery.** There is no network egress, remote issue URL, or browser-tab creation in the diagnostics feature. Viewing, clipboard copying, local-file export, and clearing are all explicit local actions.
 - **Forgeable page bridge (residual, disclosed).** The `yta:log` bridge lives only on the
   four YouTube hosts, and a script running inside a YouTube page can read the per-load nonce
   and emit schema-valid events. Because values are enum-only, it cannot inject a string, but

@@ -5,7 +5,8 @@
  * TEMPORARY add-on (no signing), and checks the core path on m.youtube.com:
  *   eligible VOD → audio-only hijack (currentSrc → googlevideo, videoWidth 0, ytaStatus active)
  *   live stream  → graceful fallback (not hijacked, ytaStatus fallback/live)
- * Defaults already have audioOnlyEnabled:true, so no settings seeding is required.
+ * The harness grants required data consent before loading the watch cases; default settings keep
+ * audioOnlyEnabled:true, so no feature-settings seeding is required.
  *
  * Usage: node tests/e2e/probe-mobile-fenix.mjs [xpi]
  */
@@ -13,7 +14,12 @@ import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 
+import { seedDataConsent } from './consent-helper.mjs';
+
 const XPI = process.argv[2] || 'dist/youtube-audio-bench.xpi';
+const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
+const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
+const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const GECKO = process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.fenix';
 const CASES = [
@@ -29,6 +35,7 @@ function options() {
   // Target Fenix via Marionette. Only one device is connected, so let geckodriver auto-detect the
   // serial (selenium's enableMobile emits a `deviceSerial` field geckodriver 0.37 rejects).
   v.enableMobile(FENIX_PACKAGE);
+  v.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: PINNED_UUID }));
   return v;
 }
 
@@ -46,6 +53,7 @@ try {
   const addonId = await driver.installAddon(XPI, true);
   report.installed = !!addonId;
   report.addonId = addonId;
+  await seedDataConsent(driver, OPTIONS_URL);
   await sleep(1500);
 
   for (const c of CASES) {

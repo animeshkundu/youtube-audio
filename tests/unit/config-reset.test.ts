@@ -67,12 +67,20 @@ describe('resetSettings', () => {
   });
 });
 
-describe('lyrics kill switch', () => {
-  it('coerces a stored lyricsEnabled:true to false so the disabled feature cannot run', async () => {
+describe('SponsorBlock opt-in migration', () => {
+  it('defaults segment skipping off for new installs', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+
+    await initializeSettings();
+
+    expect(getSettings().segmentSkipEnabled).toBe(false);
+  });
+
+  it('preserves an existing stored segment-skipping choice', async () => {
     vi.stubGlobal('browser', {
       storage: {
         local: {
-          get: vi.fn(async () => ({ settings: { enabled: true, lyricsEnabled: true } })),
+          get: vi.fn(async () => ({ settings: { segmentSkipEnabled: true } })),
           set: vi.fn(async () => undefined),
         },
         onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
@@ -81,8 +89,6 @@ describe('lyrics kill switch', () => {
 
     await initializeSettings();
 
-    // Lyrics were retired (YouTube Music has native lyrics). normalizeSettings coerces the setting
-    // off regardless of what is persisted, so a stale stored `true` can never run the feature.
-    expect(getSettings().lyricsEnabled).toBe(false);
+    expect(getSettings().segmentSkipEnabled).toBe(true);
   });
 });

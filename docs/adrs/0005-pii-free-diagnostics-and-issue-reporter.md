@@ -2,8 +2,10 @@
 
 ## Status
 
-**Accepted.** Implements the diagnostics and issue-reporter feature specified in
-SPEC-011.
+**Partially superseded by [ADR-0011](0011-minimize-extension-data-egress.md).** The
+PII-free local diagnostics architecture remains accepted. The serverless issue-delivery
+decision is superseded; diagnostics can now only be viewed, copied, exported locally, or
+cleared.
 
 ## Date
 

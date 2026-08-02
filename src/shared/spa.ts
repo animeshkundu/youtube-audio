@@ -83,7 +83,7 @@ export function observeYouTubeSpa(onNavigate: (navigation: SpaNavigation) => voi
   // YouTube Music changes songs via history.pushState/replaceState and frequently does NOT fire
   // `yt-navigate-finish`, while its shadow-DOM-heavy player update may not trip the light-DOM
   // MutationObserver below, so the `?v=` change would otherwise go undetected and per-song features
-  // (e.g. synced lyrics) would never re-arm. Wrap the history methods (and listen for popstate) to
+  // per-track enhancements would never re-arm. Wrap the history methods (and listen for popstate) to
   // run the URL check immediately. Fail-open: the page's original method is always invoked first.
   const wrapHistory = (name: 'pushState' | 'replaceState'): (() => void) => {
     const original = history[name];

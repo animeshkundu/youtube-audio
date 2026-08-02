@@ -6,7 +6,7 @@ M3a adds SponsorBlock-compatible automatic skipping through a minimal telemetry-
 
 ## Goals
 
-- Auto-skip enabled `sponsor` and `music_offtopic` segments by default.
+- Offer explicit opt-in skipping for `sponsor` and `music_offtopic` segments.
 - Query only `GET /api/skipSegments/<four-hex-prefix>` from the privileged background context.
 - Explicitly omit credentials and avoid identifying headers, referrers, view-count telemetry, submissions, and votes.
 - Merge overlapping ranges before scheduling and fail open on every malformed or failed path.
@@ -37,7 +37,7 @@ MAIN world resolves the page video independently of audio-only activation, then 
 
 ### Settings and UI
 
-`segmentSkipEnabled` defaults to `true`. `segmentSkipCategories` is normalized to a unique subset of the supported categories and defaults to `sponsor` plus `music_offtopic`. Popup and options expose the instant master toggle; options also expose the two category choices.
+`segmentSkipEnabled` defaults to `false` for new installs. A stored boolean is preserved during normalization, so existing users who explicitly have skipping on remain on after upgrade. `segmentSkipCategories` is normalized to a unique subset of the supported categories and defaults to `sponsor` plus `music_offtopic`. Popup and options expose the instant master toggle; options also expose the two category choices. The options row identifies `sponsor.ajay.app` as the recipient and explains that only a 16-bit SHA-256 prefix is sent.
 
 ## Error Handling
 
@@ -55,4 +55,4 @@ The production manifest adds only `https://sponsor.ajay.app/*`. The background f
 
 ## Rollout and Rollback
 
-Segment skipping defaults on and can be disabled instantly. Global disable also makes it inert. Any remote, parsing, bridge, or seek failure preserves normal YouTube playback.
+Segment skipping defaults off and can be enabled or disabled instantly. Existing stored `true` values remain enabled across upgrade. Global disable also makes it inert. Any remote, parsing, bridge, or seek failure preserves normal YouTube playback.

@@ -598,12 +598,6 @@ export function createFixtureServer() {
       const videoId = url.searchParams.get('videoID') || undefined;
       return sendJson(res, 200, fixtureSkipSegments(videoId));
     }
-    if (path === '/api/get') {
-      return sendJson(res, 200, {
-        syncedLyrics: '[00:00.00]Fixture opening\n[00:04.00]Fixture chorus',
-        plainLyrics: 'Fixture opening\nFixture chorus',
-      });
-    }
     if (/^\/vi\/[^/]+\/(?:hqdefault|maxresdefault)\.jpg$/.test(path)) {
       return sendText(res, 200, fixtureThumbnailSvg(), 'image/svg+xml; charset=utf-8');
     }
