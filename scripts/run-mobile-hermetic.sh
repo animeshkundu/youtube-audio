@@ -18,18 +18,48 @@ test -n "${fenix_package}"
 export FENIX_PACKAGE="${fenix_package}"
 echo "Driving Android package: ${FENIX_PACKAGE}"
 
-adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1 || true
+# Assign the browser role before Fenix launches, so Android does not overlay its first-run default
+# browser chooser over Fenix's own Remote debugging via USB setting.
+adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "${FENIX_PACKAGE}"
+adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\r' | grep -Fx "${FENIX_PACKAGE}"
+adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
 sleep 8
 
-# Fenix's first-run default-browser chooser is Android system UI. Dismiss it, then set the app-owned
-# remote-debugging preference while Fenix is stopped. Fenix ignores a supplied Gecko profile, but
-# Core reads this `fenix_preferences` key when it creates its GeckoView runtime.
-adb shell input keyevent 4
+sudo mkdir -p /opt/homebrew/share
+sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
+
+tap_when_present() {
+  label="$1"
+  attempts="$2"
+  attempt=1
+  while [ "${attempt}" -le "${attempts}" ]; do
+    result="$(python3 tests/e2e/android/ui.py tap "${label}")"
+    printf '%s\n' "${result}"
+    case "${result}" in
+      TAPPED*) return 0 ;;
+    esac
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+tap_when_present "more options" 15 || tap_when_present "menu" 15
+tap_when_present "settings" 15
+remote_debugging_enabled=false
+for _ in 1 2 3 4 5 6 7 8; do
+  if tap_when_present "remote debugging" 3; then
+    remote_debugging_enabled=true
+    break
+  fi
+  python3 tests/e2e/android/ui.py scroll down
+  sleep 1
+done
+test "${remote_debugging_enabled}" = true
+
+# Fenix applies the setting to GeckoView during startup. Restart after the toggle so the RDP socket is
+# created before the RDP add-ons actor is used.
 adb shell am force-stop "${FENIX_PACKAGE}"
-fenix_preferences="/data/user/0/${FENIX_PACKAGE}/shared_prefs/fenix_preferences.xml"
-adb shell test -f "${fenix_preferences}"
-adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}'; then sed -i 's#<boolean name=\"pref_key_remote_debugging\" value=\"false\" />#<boolean name=\"pref_key_remote_debugging\" value=\"true\" />#' '${fenix_preferences}'; else sed -i 's#</map>#<boolean name=\"pref_key_remote_debugging\" value=\"true\" /></map>#' '${fenix_preferences}'; fi"
-adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
 adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do

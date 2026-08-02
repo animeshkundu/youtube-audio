@@ -24,13 +24,12 @@ fixture content-script symptom.
   no-player, no-media, no-artwork, and no-thumbnail assertions continue to exercise a running
   fail-closed content script.
 - The Fenix fixture probe loads its temporary XPI through the Firefox Android Remote Debugging Protocol
-  add-ons actor. The runner dismisses the Android default-browser dialog, then writes Fenix's
-  app-owned `fenix_preferences/pref_key_remote_debugging` value while Fenix is stopped. Fenix reads
-  the value when creating GeckoView. The runner requires the package-owned debugger socket, stages the
-  XPI under the device artifact directory convention used by `web-ext`, waits for exactly one
-  package-owned debugger socket with the same bounded discovery window, and completes temporary
-  installation before Selenium attaches for the real extension-page consent and dynamic-registration
-  path.
+  add-ons actor. The runner assigns the disposable emulator's browser role to Fenix before launch, so
+  Android's default-browser dialog cannot block the supported Remote Debugging via USB UI. It restarts
+  Fenix after enabling that setting, requires the package-owned debugger socket, stages the XPI under
+  the device artifact directory convention used by `web-ext`, waits for exactly one package-owned
+  debugger socket with the same bounded discovery window, and completes temporary installation before
+  Selenium attaches for the real extension-page consent and dynamic-registration path.
 - `PlayerHandle` accepts the emulator's `10.0.2.2` fixture media URL only in a BENCH build. Production
   remains HTTPS-only.
 

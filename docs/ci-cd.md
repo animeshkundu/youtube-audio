@@ -185,17 +185,16 @@ computed APK URL, detected package, exports, and `set -eu` now share one process
 remains before emulator launch, and JDK 17 setup remains before the action.
 
 Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The runner dismisses the
-Android default-browser dialog, stops Fenix, and enables its app-owned
-`fenix_preferences/pref_key_remote_debugging` setting before relaunch. This is necessary because
-Fenix ignores an injected Gecko profile but reads that setting to create GeckoView with remote
-debugging enabled. The runner requires the package-owned debugger socket before the probe stages the
-XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's
-Remote Debugging Protocol add-ons actor, and loads the temporary add-on before Selenium attaches. It
-then seeds consent through the extension-owned options page and fails loudly if the resolved source
-remains denied. The fixture watch page must reach `active`, hold a `/videoplayback` source, and record
-a credentialless player request. No live YouTube traffic participates in this blocking check. This
-emulator-only gate cannot be executed on the local Apple Silicon host because its x86_64 guest has no
-hardware-virtualization path; GitHub Actions/KVM is the qualification surface.
+Android default-browser dialog by assigning the Fenix package the disposable emulator's browser role
+before its first launch. It then enables Fenix's supported Remote Debugging via USB setting through
+the developer-tools UI, restarts Fenix, and requires the package-owned debugger socket. The probe
+stages the XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox
+Android's Remote Debugging Protocol add-ons actor, and loads the temporary add-on before Selenium
+attaches. It then seeds consent through the extension-owned options page and fails loudly if the
+resolved source remains denied. The fixture watch page must reach `active`, hold a `/videoplayback`
+source, and record a credentialless player request. No live YouTube traffic participates in this
+blocking check. This emulator-only gate cannot be executed on the local Apple Silicon host because its
+x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is the qualification surface.
 
 ## Mobile Live E2E (non-gating, best-effort)
 
