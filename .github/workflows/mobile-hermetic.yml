@@ -62,10 +62,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # The emulator binary tries to connect to adb as soon as it launches. Starting the daemon here
-      # avoids the startup race seen when the action first invoked adb several seconds after launch.
+      # The emulator binary tries to connect to adb as soon as it launches, which logs a startup
+      # race. Pre-starting the daemon quiets it, but the Android SDK is only guaranteed on PATH
+      # once the emulator action runs, so resolve adb explicitly and never fail the job here: the
+      # race was cosmetic, and the runner script waits for the device before it does anything.
       - name: Start adb daemon
-        run: adb start-server
+        continue-on-error: true
+        run: |
+          ADB="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/platform-tools/adb"
+          if [ -x "$ADB" ]; then
+            "$ADB" start-server
+          else
+            echo "adb not present yet; the emulator action will start its own daemon"
+          fi
 
       - name: Run hermetic Fenix qualification
         uses: reactivecircus/android-emulator-runner@v2
