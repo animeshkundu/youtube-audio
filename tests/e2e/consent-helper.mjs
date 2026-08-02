@@ -34,7 +34,7 @@ export async function registerBenchContentScript(driver, extensionPageUrl, fixtu
                 return;
               }
               return browser.tabs
-                .executeScript(matches[0].id, { file: '/content-scripts/content.js' })
+                .executeScript(matches[0].id, { file: 'content-scripts/content.js' })
                 .then(() => done({ ok: true }))
                 .catch((error) => done({ ok: false, error: String(error) }));
             })

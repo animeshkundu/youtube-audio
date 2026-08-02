@@ -208,7 +208,7 @@ def main():
         raise RuntimeError(f"Fenix did not start: {PACKAGE}")
 
     dismiss_onboarding()
-    tap(wait_for(("More options",)))
+    tap(wait_for(("More options", "Menu")))
     tap(wait_for(("Settings",)))
     tap(scroll_to_label("About Firefox"))
     logo = firefox_wordmark()
