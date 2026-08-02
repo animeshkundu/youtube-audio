@@ -623,14 +623,14 @@ export function createFixtureServer() {
 
   return {
     server,
-    /** Start listening on an ephemeral 127.0.0.1 port. Resolves with { origin, port }. */
-    start() {
+    /** Start listening on an ephemeral port. Resolves with the caller-facing origin and port. */
+    start({ hostname = '127.0.0.1', publicHostname = hostname } = {}) {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(0, '127.0.0.1', () => {
+        server.listen(0, hostname, () => {
           const addr = server.address();
           const port = typeof addr === 'object' && addr ? addr.port : 0;
-          resolve({ origin: `http://127.0.0.1:${port}`, port });
+          resolve({ origin: `http://${publicHostname}:${port}`, port });
         });
       });
     },

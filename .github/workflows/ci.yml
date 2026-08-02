@@ -72,9 +72,15 @@ jobs:
         run: npm run build:mv3
 
   bench:
-    name: Hermetic Selenium Firefox bench
+    name: Hermetic bench (Firefox ${{ matrix.firefox }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # 128 is the support floor; 133 samples the custom lane; 139/140 straddle the desktop consent
+      # boundary; 142 samples a post-boundary release; latest catches current mainline drift.
+      matrix:
+        firefox: [128.0esr, '133.0', '139.0', '140.0', '142.0', latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -89,12 +95,12 @@ jobs:
         run: npm ci
 
       # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
-      # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
-      # latest mainline release (proven green): latest-esr regressed the seeded-settings
-      # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
-      - name: Install Firefox (non-snap)
+      # setup-firefox installs each real, non-snap matrix version and exposes its path.
+      - name: Install Firefox ${{ matrix.firefox }} (non-snap)
         id: firefox
         uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: ${{ matrix.firefox }}
 
       # Deterministic: local hermetic fixture, no live YouTube. Safe to gate on.
       - name: Run hermetic integration bench
@@ -103,9 +109,15 @@ jobs:
           FIREFOX_BIN: ${{ steps.firefox.outputs.firefox-path }}
 
   matrix:
-    name: Settings-permutation matrix (Firefox)
+    name: Settings matrix (Firefox ${{ matrix.firefox }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # Match the bench matrix so every functional permutation runs in the legacy custom lane,
+      # across the 139/140 boundary, on a post-boundary release, and on current mainline.
+      matrix:
+        firefox: [128.0esr, '133.0', '139.0', '140.0', '142.0', latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -119,9 +131,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Firefox (non-snap)
+      - name: Install Firefox ${{ matrix.firefox }} (non-snap)
         id: firefox
         uses: browser-actions/setup-firefox@v1
+        with:
+          firefox-version: ${{ matrix.firefox }}
 
       # Drives the real built add-on across the full toggle permutation space (all-off, each
       # toggle alone, a pairwise covering array, interaction pairs, quality/EQ/download/telemetry

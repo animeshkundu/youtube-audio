@@ -1,0 +1,106 @@
+name: Mobile Hermetic E2E
+
+# Blocking Android qualification uses only the local fixture. The separate mobile-e2e workflow keeps
+# the live m.youtube.com probe nightly and non-gating because datacenter IP and UI drift make it flaky.
+on:
+  pull_request:
+    branches: [main, master, rebuild]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fenix-fixture:
+    name: Hermetic fixture (Fenix ${{ matrix.fenix }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # 130/136/141 cover the custom-consent lane through its last release; 142 is the Android
+      # built-in-consent boundary; 145 verifies a later built-in implementation.
+      matrix:
+        fenix: ['130.0', '136.0', '141.0', '142.0', '145.0']
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build BENCH extension XPI
+        run: |
+          set -euo pipefail
+          BENCH=1 node_modules/.bin/wxt build -b firefox --mv2
+          rm -rf dist/bench-web-ext-artifacts
+          mkdir -p dist/bench-web-ext-artifacts dist
+          node_modules/.bin/web-ext build \
+            --source-dir=.output/firefox-mv2 \
+            --artifacts-dir=dist/bench-web-ext-artifacts \
+            --overwrite-dest
+          cp dist/bench-web-ext-artifacts/*.zip dist/youtube-audio-bench.xpi
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Run hermetic Fenix qualification
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          FENIX_VERSION: ${{ matrix.fenix }}
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            # android-emulator-runner executes under dash, so use portable fail-fast flags.
+            set -eu
+            adb wait-for-device
+            adb root || true
+            adb wait-for-device
+
+            FENIX_APK_URL="https://archive.mozilla.org/pub/fenix/releases/${FENIX_VERSION}/android/fenix-${FENIX_VERSION}-android-x86_64/fenix-${FENIX_VERSION}.multi.android-x86_64.apk"
+            echo "Installing x86_64 Fenix from: $FENIX_APK_URL"
+            curl -fL --retry 3 --retry-delay 5 -o /tmp/fenix.apk "$FENIX_APK_URL"
+            adb install -r -g /tmp/fenix.apk
+            FENIX_PACKAGE="$(adb shell pm list packages | grep -E '^package:org\.mozilla\.(fenix|firefox)$' | head -1 | cut -d: -f2 | tr -d '\r')"
+            test -n "$FENIX_PACKAGE"
+            export FENIX_PACKAGE
+            echo "Driving Android package: $FENIX_PACKAGE"
+
+            adb shell monkey -p "$FENIX_PACKAGE" -c android.intent.category.LAUNCHER 1 || true
+            sleep 8
+
+            sudo mkdir -p /opt/homebrew/share
+            sudo ln -sfn "${ANDROID_SDK_ROOT:-$ANDROID_HOME}" /opt/homebrew/share/android-commandlinetools
+            python3 tests/e2e/android/ui.py list || true
+            python3 tests/e2e/android/ui.py tap "more options" || python3 tests/e2e/android/ui.py tap "menu" || true
+            sleep 2
+            python3 tests/e2e/android/ui.py tap "settings" || true
+            sleep 2
+            python3 tests/e2e/android/ui.py scroll down || true
+            python3 tests/e2e/android/ui.py tap "remote debugging" || true
+            sleep 2
+
+            node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi
