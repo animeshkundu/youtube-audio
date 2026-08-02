@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 
+import { registerBenchContentScript } from '../consent-helper.mjs';
 import { buildBenchExtension } from './run-bench.mjs';
 import { createFixtureServer } from './fixture-server.mjs';
 
@@ -118,6 +119,7 @@ async function writeConsent(driver, decision) {
 }
 
 async function probePlayback(driver, fixture) {
+  await registerBenchContentScript(driver, optionsUrl, fixture.origin);
   fixture.reset();
   await driver.get(`${fixture.origin}/watch?v=FIXTURE0001`);
   await driver.wait(until.elementLocated(By.css('video')), 10000);

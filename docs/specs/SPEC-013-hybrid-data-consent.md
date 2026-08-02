@@ -82,9 +82,10 @@ A “Data & consent” section remains visible in settings. It summarizes the sa
   dynamic registration is the supported extension API that makes the test setup deterministic. BENCH
   therefore retains the local host permissions but does not add local origins to the static
   content-script declaration, avoiding double injection on browsers that activate both forms. The
-  content script itself, its background consent request, and its fail-closed behavior are unchanged:
-  the named fresh-profile case still proves that a running content script makes no player, artwork,
-  thumbnail, or media request without consent.
+  content script itself, its background consent request, and its fail-closed behavior are unchanged.
+  The persistent-profile upgrade qualification repeats the same registration in each browser phase
+  before its fixture navigation. The named fresh-profile case still proves that a running content
+  script makes no player, artwork, thumbnail, or media request without consent.
 - Blocking Android CI runs a hermetic Fenix matrix from the minimum supported Fenix 128 through current, including both sides of the Android 141/142 boundary. Its BENCH-only build permits the emulator host alias `10.0.2.2`, while production host permissions remain unchanged. Firefox Android temporary add-on installation uses its Remote Debugging Protocol add-ons actor after Marionette starts, rather than Marionette's desktop-only add-on endpoint, so Fenix 128 uses the same supported path. The emulator runner starts the host adb daemon before launch and invokes one checked-in shell script so state shared between setup commands cannot be lost across the action's per-line shells. The live-YouTube Android playback probe remains a separate non-gating nightly canary.
 - The hermetic bench keeps a named fresh-profile case that deliberately suppresses the automatic required-category grant and asserts no player hijack, player request, artwork marker, or artwork request before consent.
 - Resolver tests simulate native category addition and removal. A blocking persistent-profile qualification measures the Firefox 139-to-140 browser boundary for both granted and revoked custom records. The real native install/update prompt and live revocation path remain manual until stable browser-chrome automation covers them.
