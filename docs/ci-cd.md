@@ -192,8 +192,9 @@ before its first launch. It pins the emulator locale to English, opens **About F
 unique `wordmark` control five times to unlock the session-only **Secret settings** row, then drives
 the exact, state-verified **Remote debugging via USB** control. That invokes Fenix's live GeckoView
 setting, which direct preference-file writes do not reliably do across archived releases. The runner
-restarts Fenix once and opens a local `about:blank` tab so archived GeckoView releases apply the
-persisted setting while constructing their debugger server. The RDP installer accepts Fenix's abstract
+mirrors the matching Gecko debugger preferences in Fenix's real profile, then restarts Fenix once and
+opens a local `about:blank` tab so archived GeckoView releases apply the persisted settings while
+constructing their debugger server. The RDP installer accepts Fenix's abstract
 `@<package>/firefox-debugger-socket` form as well as a filesystem socket and waits up to the same
 three-minute bound as `web-ext`. Selenium creates the pinned add-on UUID mapping before the RDP
 install, so the extension page used for consent and dynamic fixture registration has the expected

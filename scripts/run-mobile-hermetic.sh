@@ -49,8 +49,12 @@ start_fenix
 # Remote debugging via USB control and leave this process running through RDP installation.
 python3 tests/e2e/android/enable-remote-debugging.py
 
-# The UI writes the setting through Fenix's runtime listener. Restart once so the archived GeckoView
-# engine applies the persisted value while constructing its debugging server.
+# The UI writes the setting through Fenix's runtime listener. Mirror the corresponding Gecko
+# preferences in Fenix's real profile, then restart once so archived GeckoView releases construct
+# their debugger server from the persisted runtime and Gecko settings together.
+fenix_gecko_prefs="$(adb shell find "/data/user/0/${FENIX_PACKAGE}/files/mozilla" -name prefs.js -print -quit | tr -d '\r')"
+test -n "${fenix_gecko_prefs}"
+adb shell "printf '\\nuser_pref(\"devtools.debugger.remote-enabled\", true);\\nuser_pref(\"devtools.debugger.force-local\", true);\\nuser_pref(\"devtools.debugger.prompt-connection\", false);\\nuser_pref(\"devtools.remote.usb.enabled\", true);\\n' >> '${fenix_gecko_prefs}'"
 adb shell am force-stop "${FENIX_PACKAGE}"
 start_fenix
 # Firefox Android creates its Gecko runtime when it owns a browser tab. A local about:blank tab keeps
