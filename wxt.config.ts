@@ -34,6 +34,9 @@ const YOUTUBE_MATCHES = [
 // navigation because Firefox 139-142 and Fenix can install a temporary add-on without activating a
 // static local HTTP match. Production builds (BENCH unset) never include these hosts.
 const BENCH = process.env.BENCH === '1';
+// Persistent-profile upgrade qualification needs the fixture declaration at install time. Ordinary
+// BENCH runs leave this false and register the script dynamically after temporary installation.
+const BENCH_STATIC_FIXTURE_MATCHES = BENCH && process.env.BENCH_STATIC_FIXTURE_MATCHES === '1';
 const BENCH_MATCHES = [
   'http://127.0.0.1/*',
   'http://localhost/*',
@@ -142,10 +145,12 @@ export default defineConfig({
         entry.matches?.some((match) => YOUTUBE_MATCHES.includes(match))
       );
       if (contentScript) {
-        // Keep static injection production-faithful. BENCH fixture injection is registered from the
-        // extension page after temporary installation, avoiding duplicate scripts where Firefox does
-        // activate both static and dynamic local matches.
-        contentScript.matches = YOUTUBE_MATCHES;
+        // Temporary BENCH runs register the fixture script dynamically, avoiding duplicate execution
+        // where Firefox honors static local matches. The persistent-profile upgrade qualification uses
+        // a dedicated BENCH artifact with local static matches at installation time.
+        contentScript.matches = BENCH_STATIC_FIXTURE_MATCHES
+          ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES]
+          : YOUTUBE_MATCHES;
       }
     },
   },

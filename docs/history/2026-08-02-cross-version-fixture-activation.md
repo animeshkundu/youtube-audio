@@ -17,8 +17,9 @@ fixture content-script symptom.
 
 - BENCH builds retain only local fixture host permissions. The harness registers the real packaged
   isolated content script for its exact fixture origin from an extension page before navigation.
-  The persistent-profile upgrade qualification repeats that registration in both browser phases.
-  Production keeps its four static YouTube content-script matches.
+  The persistent-profile upgrade qualification instead builds a dedicated BENCH artifact with the
+  static local fixture matches needed at installation time. Production keeps its four static YouTube
+  content-script matches.
 - The named fresh-unconsented bench session uses that same registration and remains unseeded, so its
   no-player, no-media, no-artwork, and no-thumbnail assertions continue to exercise a running
   fail-closed content script.

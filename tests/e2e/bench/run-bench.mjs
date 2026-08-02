@@ -77,11 +77,15 @@ function log(...a) {
 }
 
 /** Build the BENCH extension and package it into a temporary-installable XPI. */
-export function buildBenchExtension() {
+export function buildBenchExtension({ staticFixtureMatches = false } = {}) {
   log('building bench extension (BENCH=1 wxt build -b firefox --mv2)...');
   execFileSync(join(binDir, 'wxt'), ['build', '-b', 'firefox', '--mv2'], {
     cwd: repoRoot,
-    env: { ...process.env, BENCH: '1' },
+    env: {
+      ...process.env,
+      BENCH: '1',
+      ...(staticFixtureMatches ? { BENCH_STATIC_FIXTURE_MATCHES: '1' } : {}),
+    },
     stdio: 'inherit',
   });
 
