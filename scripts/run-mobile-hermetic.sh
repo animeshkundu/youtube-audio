@@ -25,42 +25,13 @@ adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\
 adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
 sleep 8
 
-sudo mkdir -p /opt/homebrew/share
-sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
-python3 tests/e2e/android/ui.py list
-
-tap_when_present() {
-  label="$1"
-  attempts="$2"
-  attempt=1
-  while [ "${attempt}" -le "${attempts}" ]; do
-    result="$(python3 tests/e2e/android/ui.py tap "${label}")"
-    printf '%s\n' "${result}"
-    case "${result}" in
-      TAPPED*) return 0 ;;
-    esac
-    sleep 1
-    attempt=$((attempt + 1))
-  done
-  return 1
-}
-
-tap_when_present "more options" 15 || tap_when_present "menu" 15
-tap_when_present "settings" 15
-remote_debugging_enabled=false
-for _ in 1 2 3 4 5 6 7 8; do
-  if tap_when_present "remote debugging" 3; then
-    remote_debugging_enabled=true
-    break
-  fi
-  python3 tests/e2e/android/ui.py scroll down
-  sleep 1
-done
-test "${remote_debugging_enabled}" = true
-
-# Fenix applies the setting to GeckoView during startup. Restart after the toggle so the RDP socket is
-# created before the RDP add-ons actor is used.
+# Fenix ignores an injected Gecko profile, but Core reads this app-owned setting when it creates
+# GeckoView. Set the source-defined preference while the disposable emulator's Fenix process is stopped.
 adb shell am force-stop "${FENIX_PACKAGE}"
+fenix_preferences="/data/user/0/${FENIX_PACKAGE}/shared_prefs/fenix_preferences.xml"
+adb shell test -f "${fenix_preferences}"
+adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}'; then sed -i 's#<boolean name=\"pref_key_remote_debugging\" value=\"false\" />#<boolean name=\"pref_key_remote_debugging\" value=\"true\" />#' '${fenix_preferences}'; else sed -i 's#</map>#<boolean name=\"pref_key_remote_debugging\" value=\"true\" /></map>#' '${fenix_preferences}'; fi"
+adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
 adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -69,6 +40,9 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   fi
   sleep 1
 done
-adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"
+FENIX_RDP_SOCKET="$(adb shell cat /proc/net/unix | awk -v suffix="/${FENIX_PACKAGE}/firefox-debugger-socket" '$NF ~ (suffix "$") { print $NF; exit }')"
+test -n "${FENIX_RDP_SOCKET}"
+export FENIX_RDP_SOCKET
+echo "Using Fenix RDP socket: ${FENIX_RDP_SOCKET}"
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

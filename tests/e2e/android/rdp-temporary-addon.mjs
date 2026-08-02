@@ -54,7 +54,10 @@ export async function installTemporaryAddonWithRdp(xpiPath, packageName) {
   adb(serial, ['push', xpiPath, deviceXpi]);
   adb(serial, ['shell', 'chmod', '644', deviceXpi]);
 
-  const socket = await waitForDebugSocket(serial, packageName);
+  const socket = process.env.FENIX_RDP_SOCKET || (await waitForDebugSocket(serial, packageName));
+  if (!socket.endsWith(`/${packageName}/firefox-debugger-socket`)) {
+    throw new Error(`unexpected Firefox Android remote debugging socket: ${socket}`);
+  }
   const { connectWithMaxRetries, findFreeTcpPort } = await import(RDP_MODULE);
   const port = await findFreeTcpPort();
   const remoteSocket = socket.startsWith('@')
