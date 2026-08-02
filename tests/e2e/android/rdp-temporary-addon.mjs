@@ -39,6 +39,17 @@ function discoveredDebugSockets(serial) {
     .filter((socket) => typeof socket === 'string' && socket.includes('firefox-debugger-socket'));
 }
 
+function relatedSockets(serial, packageName) {
+  return adb(serial, ['shell', 'cat', '/proc/net/unix'])
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/).at(-1))
+    .filter(
+      (socket) =>
+        typeof socket === 'string' &&
+        (socket.includes(packageName) || socket.toLowerCase().includes('debug'))
+    );
+}
+
 function socketDiagnostics(serial, packageName) {
   let processId;
   try {
@@ -50,6 +61,7 @@ function socketDiagnostics(serial, packageName) {
     expected: debuggerSocketSuffix(packageName),
     processId,
     debuggerSockets: discoveredDebugSockets(serial),
+    relatedSockets: relatedSockets(serial, packageName),
   });
 }
 
