@@ -22,7 +22,7 @@ echo "Driving Android package: ${FENIX_PACKAGE}"
 # browser chooser over Fenix's own Remote debugging via USB setting.
 adb shell cmd role add-role-holder --user 0 android.app.role.BROWSER "${FENIX_PACKAGE}"
 adb shell cmd role get-role-holders --user 0 android.app.role.BROWSER | tr -d '\r' | grep -Fx "${FENIX_PACKAGE}"
-adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
+adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
 sleep 8
 
 # Fenix ignores an injected Gecko profile, but Core reads this app-owned setting when it creates
@@ -32,7 +32,7 @@ fenix_preferences="/data/user/0/${FENIX_PACKAGE}/shared_prefs/fenix_preferences.
 adb shell test -f "${fenix_preferences}"
 adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}'; then sed -i 's#<boolean name=\"pref_key_remote_debugging\" value=\"false\" />#<boolean name=\"pref_key_remote_debugging\" value=\"true\" />#' '${fenix_preferences}'; else sed -i 's#</map>#<boolean name=\"pref_key_remote_debugging\" value=\"true\" /></map>#' '${fenix_preferences}'; fi"
 adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
-adb shell am start -W -a android.intent.action.VIEW -d about:blank "${FENIX_PACKAGE}"
+adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   if adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"; then
