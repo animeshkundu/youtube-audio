@@ -43,6 +43,19 @@ def matching_nodes(nodes, labels):
     ]
 
 
+def select_control(nodes, labels):
+    interactive = [
+        node
+        for node in nodes
+        if node.attrib.get("clickable") == "true" or node.attrib.get("checkable") == "true"
+    ]
+    if len(interactive) == 1:
+        return interactive[0]
+    if len(nodes) == 1:
+        return nodes[0]
+    raise RuntimeError(f"expected exactly one of {labels}, found {[node.attrib for node in nodes]}")
+
+
 def dismiss_pixel_launcher_anr(nodes):
     if len(matching_nodes(nodes, ("Pixel Launcher isn't responding",))) != 1:
         return False
@@ -90,8 +103,10 @@ def wait_for(labels, timeout=TIMEOUT_SECONDS):
             time.sleep(POLL_SECONDS)
             continue
         found = matching_nodes(nodes, labels)
-        if len(found) == 1:
-            return found[0]
+        try:
+            return select_control(found, labels)
+        except RuntimeError:
+            pass
         last = [node.attrib for node in found]
         time.sleep(POLL_SECONDS)
     raise RuntimeError(f"expected exactly one of {labels}, found {last}")
@@ -147,8 +162,11 @@ def remote_debugging_nodes():
     for _ in range(12):
         nodes = dump_nodes()
         found = matching_nodes(nodes, ("Remote debugging via USB",))
-        if len(found) == 1:
-            label = found[0]
+        try:
+            label = select_control(found, ("Remote debugging via USB",))
+        except RuntimeError:
+            label = None
+        if label is not None:
             if "checked" in label.attrib:
                 return label, label
             _, label_top, _, label_bottom = bounds_box(label)
@@ -164,8 +182,6 @@ def remote_debugging_nodes():
             raise RuntimeError(
                 f"expected one Remote debugging via USB switch, found {[node.attrib for node in controls]}"
             )
-        if len(found) > 1:
-            raise RuntimeError(f"multiple Remote debugging via USB controls: {[node.attrib for node in found]}")
         scroll_down()
         time.sleep(POLL_SECONDS)
     raise RuntimeError("Remote debugging via USB control was not found")
@@ -174,10 +190,10 @@ def remote_debugging_nodes():
 def scroll_to_label(label):
     for _ in range(12):
         found = matching_nodes(dump_nodes(), (label,))
-        if len(found) == 1:
-            return found[0]
-        if len(found) > 1:
-            raise RuntimeError(f"multiple {label} controls: {[node.attrib for node in found]}")
+        try:
+            return select_control(found, (label,))
+        except RuntimeError:
+            pass
         scroll_down()
         time.sleep(POLL_SECONDS)
     raise RuntimeError(f"{label} control was not found")
