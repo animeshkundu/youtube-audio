@@ -251,7 +251,6 @@ def main():
         tap(logo)
         time.sleep(POLL_SECONDS)
     adb("shell", "input", "keyevent", "BACK")
-    tap(scroll_to_label(("Secret settings", "Secret Settings")))
     remote_label, remote_switch, remote_row = remote_debugging_nodes()
     if remote_switch.attrib.get("checked") != "true":
         print(f"Enabling Remote debugging via USB with {remote_switch.attrib}")
@@ -265,6 +264,7 @@ def main():
     while time.monotonic() < deadline:
         remote_label, remote_switch, remote_row = remote_debugging_nodes()
         if remote_switch.attrib.get("checked") == "true":
+            scroll_to_label(("Secret settings", "Secret Settings"))
             print("Fenix Remote debugging via USB enabled")
             return
         time.sleep(POLL_SECONDS)
