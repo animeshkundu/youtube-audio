@@ -187,9 +187,10 @@ The blocking probe uses geckodriver's Android Marionette setup, not Fenix's Remo
 setting. A WebDriver New Session writes and activates the GeckoView debug configuration, then waits
 for the browser process to accept Marionette, so the runner neither launches Fenix early nor parses
 an unsettled uiautomator dump. This avoids release-specific settings labels and avoids a setting that
-geckodriver's app-data preparation can remove. Fenix 128 uses a downloaded, checksum-verified
-geckodriver 0.36.0 because the current driver's temporary add-on installation is incompatible with
-Gecko 128; Fenix 136 and later use the npm-provided driver.
+geckodriver's app-data preparation can remove. The session profile enables the Gecko debugger without
+using Fenix settings UI. The probe then waits for its debugger socket, pushes the XPI with adb, and
+installs it through Firefox Android's RDP add-ons actor. WebDriver's `installAddon` command remains
+desktop-only and is not used by any Fenix leg.
 
 The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
 fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
