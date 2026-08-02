@@ -78,6 +78,9 @@ try {
   const { origin } = await fixture.start({ hostname: '0.0.0.0', publicHostname: '10.0.2.2' });
   report.fixtureOrigin = origin;
 
+  temporaryAddon = await installTemporaryAddonWithRdp(XPI, FENIX_PACKAGE);
+  report.addonId = temporaryAddon.addonId;
+
   driver = await new Builder()
     .forBrowser('firefox')
     .setFirefoxOptions(firefoxOptions())
@@ -85,8 +88,6 @@ try {
     .build();
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
-  temporaryAddon = await installTemporaryAddonWithRdp(XPI, FENIX_PACKAGE);
-  report.addonId = temporaryAddon.addonId;
   await registerBenchContentScript(driver, OPTIONS_URL, origin);
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(`${origin}/watch?v=FIXTURE0001`);

@@ -190,12 +190,12 @@ Android default-browser dialog, stops Fenix, and enables its app-owned
 Fenix ignores an injected Gecko profile but reads that setting to create GeckoView with remote
 debugging enabled. The runner requires the package-owned debugger socket before the probe stages the
 XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's
-Remote Debugging Protocol add-ons actor, and loads a temporary add-on through that actor on every
-Fenix version. It then seeds consent through the extension-owned options page and fails loudly if the
-resolved source remains denied. The fixture watch page must reach `active`, hold a `/videoplayback`
-source, and record a credentialless player request. No live YouTube traffic participates in this
-blocking check. This emulator-only gate cannot be executed on the local Apple Silicon host because its
-x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is the qualification surface.
+Remote Debugging Protocol add-ons actor, and loads the temporary add-on before Selenium attaches. It
+then seeds consent through the extension-owned options page and fails loudly if the resolved source
+remains denied. The fixture watch page must reach `active`, hold a `/videoplayback` source, and record
+a credentialless player request. No live YouTube traffic participates in this blocking check. This
+emulator-only gate cannot be executed on the local Apple Silicon host because its x86_64 guest has no
+hardware-virtualization path; GitHub Actions/KVM is the qualification surface.
 
 ## Mobile Live E2E (non-gating, best-effort)
 
