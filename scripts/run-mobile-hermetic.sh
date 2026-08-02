@@ -34,13 +34,14 @@ adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}
 adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
 adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1
 
+FENIX_RDP_SOCKET=''
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  if adb shell cat /proc/net/unix | grep -q "${FENIX_PACKAGE}/firefox-debugger-socket"; then
+  FENIX_RDP_SOCKET="$(adb shell cat /proc/net/unix | awk -v suffix="/${FENIX_PACKAGE}/firefox-debugger-socket" '$NF ~ (suffix "$") { print $NF; exit }')"
+  if [ -n "${FENIX_RDP_SOCKET}" ]; then
     break
   fi
   sleep 1
 done
-FENIX_RDP_SOCKET="$(adb shell cat /proc/net/unix | awk -v suffix="/${FENIX_PACKAGE}/firefox-debugger-socket" '$NF ~ (suffix "$") { print $NF; exit }')"
 test -n "${FENIX_RDP_SOCKET}"
 export FENIX_RDP_SOCKET
 echo "Using Fenix RDP socket: ${FENIX_RDP_SOCKET}"
