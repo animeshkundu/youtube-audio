@@ -93,7 +93,7 @@ A “Data & consent” section remains visible in settings. It summarizes the sa
 
 ## Performance Considerations
 
-Background startup performs one browser-info query, one platform-info query, and one local-storage read. Content performs one internal message round trip before injection; subsequent permission or storage changes are pushed from background. The MAIN-world script is not injected until content has received and validated consent, avoiding speculative page-world work.
+Background startup performs one browser-info query, one platform-info query, one permissions query, and one local-storage read. Content performs one internal message round trip before injection; subsequent permission or storage changes are pushed from background. The MAIN-world script is not injected until content has received and validated consent, avoiding speculative page-world work.
 
 ## Dependencies
 
