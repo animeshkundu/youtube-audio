@@ -53,9 +53,7 @@ describe('pickArtworkUrl', () => {
     const response = responseWithThumbnails([
       { url: 'http://www.youtube.com:8080/vi/x/maxresdefault.jpg', width: 1280, height: 720 },
     ]);
-    expect(pickArtworkUrl(response)).toBe(
-      'http://www.youtube.com:8080/vi/x/maxresdefault.jpg'
-    );
+    expect(pickArtworkUrl(response)).toBe('http://www.youtube.com:8080/vi/x/maxresdefault.jpg');
     vi.unstubAllGlobals();
   });
 });
