@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyConsentToSettings,
+  consentStorageChangeGrants,
   consentStorageKey,
   createConsentStateController,
   createContentConsentState,
@@ -250,6 +251,19 @@ describe('hybrid data consent', () => {
     await expect(setSponsorBlockConsent(true)).rejects.toThrow(
       'Required data consent is not granted'
     );
+  });
+
+  it('classifies only a well-formed stored grant as additive', () => {
+    expect(consentStorageChangeGrants(grantedRecord)).toBe(true);
+    expect(
+      consentStorageChangeGrants({
+        version: 1,
+        decision: 'revoked',
+        sponsorBlockAllowed: false,
+      })
+    ).toBe(false);
+    expect(consentStorageChangeGrants({ ...grantedRecord, version: 99 })).toBe(false);
+    expect(consentStorageChangeGrants(undefined)).toBe(false);
   });
 
   it('accepts only well-formed background consent replies', () => {

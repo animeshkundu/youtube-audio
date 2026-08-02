@@ -132,6 +132,11 @@ export function consentStorageKey(): string {
   return CONSENT_STORAGE_KEY;
 }
 
+/** Returns true only when a storage change adds a well-formed explicit grant. */
+export function consentStorageChangeGrants(value: unknown): boolean {
+  return parseStoredConsent(value)?.decision === 'granted';
+}
+
 /** Parses the fixed background-to-content consent payload; malformed values deny consent. */
 export function parseDataConsentMessage(value: unknown): DataConsentState | null {
   if (typeof value !== 'object' || value === null) return null;

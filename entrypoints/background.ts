@@ -14,6 +14,7 @@ import {
 } from '../src/shared/config';
 import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import {
+  consentStorageChangeGrants,
   consentStorageKey,
   createConsentStateController,
   DATA_CONSENT_CHANGED_MESSAGE,
@@ -529,8 +530,13 @@ export default defineBackground({
         void consentController.denyThenResolve();
       };
       browser.storage.onChanged.addListener((changes) => {
-        if (!changes[consentStorageKey()]) return;
-        revokeThenReresolve();
+        const change = changes[consentStorageKey()];
+        if (!change) return;
+        // A well-formed grant is additive, like permissions.onAdded: resolve it without publishing
+        // a transient denial that can reach MAIN world after the granted snapshot. Removal,
+        // revocation, and malformed replacements remain deny-first.
+        if (consentStorageChangeGrants(change.newValue)) reresolveConsent();
+        else revokeThenReresolve();
       });
       // Firefox's add-on manager changes required data permission without writing extension storage.
       browser.permissions.onRemoved?.addListener(revokeThenReresolve);

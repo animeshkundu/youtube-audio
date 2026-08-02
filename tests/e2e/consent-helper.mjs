@@ -26,22 +26,19 @@ export async function seedDataConsent(
             browser.runtime.getPlatformInfo(),
           ])
         )
-        .then(([stored, permissions, browserInfo, platformInfo]) => {
-          const majorVersion = Number.parseInt(browserInfo.version, 10);
-          const builtInMinimum = platformInfo.os === 'android' ? 142 : 140;
-          const builtInSupported =
-            !Number.isFinite(majorVersion) || majorVersion >= builtInMinimum;
-          const requiredCategoryGranted =
-            Array.isArray(permissions.data_collection) &&
-            permissions.data_collection.includes('websiteContent');
+        .then(async ([stored, permissions, browserInfo, platformInfo]) => {
+          const deadline = Date.now() + 5000;
+          let resolved;
+          do {
+            resolved = await browser.runtime.sendMessage({ type: 'yta:get-data-consent' });
+            if (resolved?.granted) break;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          } while (Date.now() < deadline);
           done({
             ok: true,
             consent: stored[storageKey],
             resolved: {
-              granted: builtInSupported
-                ? requiredCategoryGranted
-                : stored[storageKey]?.decision === 'granted',
-              source: builtInSupported ? 'firefox' : 'custom',
+              ...resolved,
               dataCollection: permissions.data_collection ?? null,
               browserVersion: browserInfo.version,
               platform: platformInfo.os,
