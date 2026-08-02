@@ -32,11 +32,18 @@ adb shell cmd package resolve-activity --brief \
 start_fenix() {
   started=false
   for attempt in 1 2 3; do
-    if adb shell am start -W -n "${FENIX_PACKAGE}/.App"; then
-      started=true
+    adb shell am start -n "${FENIX_PACKAGE}/.App"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if adb shell pidof "${FENIX_PACKAGE}" >/dev/null; then
+        started=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "${started}" = true ]; then
       break
     fi
-    echo "Fenix launch attempt ${attempt} failed; retrying after device startup settles" >&2
+    echo "Fenix launch attempt ${attempt} did not create a process; retrying after device startup settles" >&2
     sleep 3
   done
   test "${started}" = true
@@ -59,7 +66,7 @@ adb shell am force-stop "${FENIX_PACKAGE}"
 start_fenix
 # Firefox Android creates its Gecko runtime when it owns a browser tab. A local about:blank tab keeps
 # this qualification hermetic while giving the restarted runtime a place to start its RDP server.
-adb shell am start -W \
+adb shell am start \
   -a android.intent.action.VIEW \
   -d 'about:blank' \
   -p "${FENIX_PACKAGE}"
