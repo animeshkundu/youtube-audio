@@ -185,8 +185,10 @@ computed APK URL, detected package, exports, and `set -eu` now share one process
 remains before emulator launch, and JDK 17 setup remains before the action.
 
 Fenix 128 does not support Marionette's desktop-only add-on install endpoint. The runner dismisses the
-Android default-browser dialog, then WebDriver starts Fenix with the Remote Debugging Protocol
-preferences used by `web-ext`, including Android's `devtools.remote.usb.enabled`. The probe stages the
+Android default-browser dialog, stops Fenix, and enables its app-owned
+`fenix_preferences/pref_key_remote_debugging` setting before relaunch. This is necessary because
+Fenix ignores an injected Gecko profile but reads that setting to create GeckoView with remote
+debugging enabled. The runner requires the package-owned debugger socket before the probe stages the
 XPI in the same device artifact directory scheme used by `web-ext`, connects to Firefox Android's
 Remote Debugging Protocol add-ons actor, and loads a temporary add-on through that actor on every
 Fenix version. It then seeds consent through the extension-owned options page and fails loudly if the
