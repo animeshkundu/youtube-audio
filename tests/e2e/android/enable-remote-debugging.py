@@ -170,7 +170,7 @@ def remote_debugging_nodes():
         except RuntimeError:
             label = None
         if label is not None:
-            if "checked" in label.attrib:
+            if label.attrib.get("checkable") == "true":
                 return label, label, None
             _, label_top, _, label_bottom = bounds_box(label)
             controls = [
