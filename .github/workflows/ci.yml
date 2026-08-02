@@ -255,6 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     concurrency:
       group: release-on-merge
       cancel-in-progress: false
@@ -267,6 +268,28 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
           persist-credentials: true
+
+      # The Fenix matrix is maintained as its own workflow because each emulator leg is expensive.
+      # Require the run triggered by this exact master push before releasing its bytes, so a direct
+      # master push cannot bypass Firefox Android qualification.
+      - name: Require Fenix hermetic qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          run_id=''
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            run_id="$(gh run list --workflow mobile-hermetic.yml --commit "$GITHUB_SHA" \
+              --json databaseId --jq '.[0].databaseId')"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 10
+          done
+          test -n "$run_id"
+          gh run watch "$run_id" --exit-status
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

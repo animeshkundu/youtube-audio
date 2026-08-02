@@ -5,6 +5,9 @@ set -eu
 
 : "${FENIX_VERSION:?FENIX_VERSION must name the Fenix release to qualify}"
 
+ADDON_ID='{580efa7d-66f9-474d-857a-8e2afc6b1181}'
+PINNED_UUID='11111111-2222-4333-8444-555555555555'
+
 adb wait-for-device
 adb root || true
 adb wait-for-device
@@ -34,19 +37,13 @@ adb shell "if grep -q 'name=\"pref_key_remote_debugging\"' '${fenix_preferences}
 adb shell "grep -q '<boolean name=\"pref_key_remote_debugging\" value=\"true\" />' '${fenix_preferences}'"
 fenix_gecko_prefs="$(adb shell find "/data/user/0/${FENIX_PACKAGE}/files/mozilla" -name prefs.js -print -quit | tr -d '\r')"
 test -n "${fenix_gecko_prefs}"
+uuid_quote="$(printf '\134\042')"
+uuid_mapping="{${uuid_quote}${ADDON_ID}${uuid_quote}:${uuid_quote}${PINNED_UUID}${uuid_quote}}"
+uuid_pref="$(printf 'user_pref("extensions.webextensions.uuids", "%s");\n' "${uuid_mapping}")"
+uuid_pref_base64="$(printf '%s' "${uuid_pref}" | base64 | tr -d '\n')"
+adb shell "printf '%s' '${uuid_pref_base64}' | base64 -d >> '${fenix_gecko_prefs}'"
 adb shell "printf '\\nuser_pref(\"devtools.debugger.remote-enabled\", true);\\nuser_pref(\"devtools.debugger.prompt-connection\", false);\\nuser_pref(\"devtools.remote.usb.enabled\", true);\\n' >> '${fenix_gecko_prefs}'"
+adb shell "grep -F 'extensions.webextensions.uuids' '${fenix_gecko_prefs}'"
 adb shell am start -W -n "${FENIX_PACKAGE}/.App"
-
-FENIX_RDP_SOCKET=''
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  FENIX_RDP_SOCKET="$(adb shell cat /proc/net/unix | awk -v suffix="/${FENIX_PACKAGE}/firefox-debugger-socket" '$NF ~ (suffix "$") { print $NF; exit }')"
-  if [ -n "${FENIX_RDP_SOCKET}" ]; then
-    break
-  fi
-  sleep 1
-done
-test -n "${FENIX_RDP_SOCKET}"
-export FENIX_RDP_SOCKET
-echo "Using Fenix RDP socket: ${FENIX_RDP_SOCKET}"
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

@@ -9,6 +9,7 @@ const RDP_MODULE = pathToFileURL(
 const DEVICE_ARTIFACTS_DIR = `/data/local/tmp/web-ext-artifacts-yta-${process.pid}`;
 const SOCKET_TIMEOUT_MS = 180_000;
 const SOCKET_POLL_MS = 3_000;
+const SOCKET_PROGRESS_MS = 15_000;
 
 function adb(serial, args) {
   return execFileSync(process.env.ADB_BIN || 'adb', ['-s', serial, ...args], {
@@ -22,22 +23,56 @@ function assertFenixPackage(packageName) {
   }
 }
 
+function debuggerSocketSuffix(packageName) {
+  return `${packageName}/firefox-debugger-socket`;
+}
+
+function isExpectedDebugSocket(socket, packageName) {
+  const suffix = debuggerSocketSuffix(packageName);
+  return socket === `@${suffix}` || socket.endsWith(`/${suffix}`);
+}
+
+function discoveredDebugSockets(serial) {
+  return adb(serial, ['shell', 'cat', '/proc/net/unix'])
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/).at(-1))
+    .filter((socket) => typeof socket === 'string' && socket.includes('firefox-debugger-socket'));
+}
+
+function socketDiagnostics(serial, packageName) {
+  let processId;
+  try {
+    processId = adb(serial, ['shell', 'pidof', packageName]).trim() || '<not running>';
+  } catch (error) {
+    processId = `<unavailable: ${String(error)}>`;
+  }
+  return JSON.stringify({
+    expected: debuggerSocketSuffix(packageName),
+    processId,
+    debuggerSockets: discoveredDebugSockets(serial),
+  });
+}
+
 async function waitForDebugSocket(serial, packageName) {
-  const suffix = `/${packageName}/firefox-debugger-socket`;
   const deadline = Date.now() + SOCKET_TIMEOUT_MS;
+  let nextProgressLog = Date.now();
   while (Date.now() < deadline) {
-    const sockets = adb(serial, ['shell', 'cat', '/proc/net/unix'])
-      .split('\n')
-      .filter((line) => line.trim().endsWith(suffix))
-      .map((line) => line.trim().split(/\s+/).at(-1))
-      .filter((socket) => typeof socket === 'string' && socket.length > 0);
+    const sockets = discoveredDebugSockets(serial).filter((socket) =>
+      isExpectedDebugSocket(socket, packageName)
+    );
     if (sockets.length > 1) {
       throw new Error(`multiple Firefox Android remote debugging sockets: ${sockets.join(', ')}`);
     }
     if (sockets.length === 1) return sockets[0];
+    if (Date.now() >= nextProgressLog) {
+      console.error(`waiting for Firefox Android remote debugging socket: ${socketDiagnostics(serial, packageName)}`);
+      nextProgressLog += SOCKET_PROGRESS_MS;
+    }
     await new Promise((resolveWait) => setTimeout(resolveWait, SOCKET_POLL_MS));
   }
-  throw new Error(`Firefox Android remote debugging socket was unavailable for ${packageName}`);
+  throw new Error(
+    `Firefox Android remote debugging socket was unavailable: ${socketDiagnostics(serial, packageName)}`
+  );
 }
 
 /**
@@ -55,7 +90,7 @@ export async function installTemporaryAddonWithRdp(xpiPath, packageName) {
   adb(serial, ['shell', 'chmod', '644', deviceXpi]);
 
   const socket = process.env.FENIX_RDP_SOCKET || (await waitForDebugSocket(serial, packageName));
-  if (!socket.endsWith(`/${packageName}/firefox-debugger-socket`)) {
+  if (!isExpectedDebugSocket(socket, packageName)) {
     throw new Error(`unexpected Firefox Android remote debugging socket: ${socket}`);
   }
   const { connectWithMaxRetries, findFreeTcpPort } = await import(RDP_MODULE);

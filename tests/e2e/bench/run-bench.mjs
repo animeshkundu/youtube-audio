@@ -393,7 +393,11 @@ export async function runSession({
         await driver.close();
       }
       await driver.switchTo().window(workHandle);
-      await registerBenchContentScript(driver, OPTIONS_URL, origin);
+      const registration = await registerBenchContentScript(driver, OPTIONS_URL, origin);
+      if (!(await driver.getAllWindowHandles()).includes(registration.registrationHandle)) {
+        throw new Error('BENCH content-script registration page closed before fixture navigation');
+      }
+      log('registered BENCH content script:', JSON.stringify(registration));
 
       if (seedConsent) {
         const consent = await seedDataConsent(driver, OPTIONS_URL, {

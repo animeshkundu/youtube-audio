@@ -3,6 +3,8 @@ name: Mobile Hermetic E2E
 # Blocking Android qualification uses only the local fixture. The separate mobile-e2e workflow keeps
 # the live m.youtube.com probe nightly and non-gating because datacenter IP and UI drift make it flaky.
 on:
+  push:
+    branches: [master]
   pull_request:
     branches: [main, master, rebuild]
   workflow_dispatch:

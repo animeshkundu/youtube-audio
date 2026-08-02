@@ -188,15 +188,24 @@ Fenix 128 does not support Marionette's desktop-only add-on install endpoint. Th
 Android default-browser dialog by assigning the Fenix package the disposable emulator's browser role
 before its first launch. It stops Fenix and sets its app-owned
 `fenix_preferences/pref_key_remote_debugging` value before relaunch, because Fenix reads that setting
-when creating GeckoView but ignores injected Gecko profiles. The runner requires and passes the exact
-package-owned debugger socket to the probe, which stages the XPI in the same device artifact directory
-scheme used by `web-ext`, connects to Firefox Android's Remote Debugging Protocol add-ons actor, and
-loads the temporary add-on before Selenium attaches. It then seeds consent through the
+when creating GeckoView but ignores injected Gecko profiles. It also writes the corresponding debugger
+preferences into Fenix's real profile before relaunch. The runner requires and passes the exact
+package-owned debugger socket to the RDP installer, accepting Fenix's abstract
+`@<package>/firefox-debugger-socket` form as well as a filesystem socket and waiting up to the
+same three-minute bound as `web-ext`. It writes the pinned add-on UUID into the same real profile
+before RDP installation, so the extension page used for consent and dynamic fixture registration has
+the expected origin. The installer stages the XPI in the same device artifact directory scheme used
+by `web-ext`, connects to Firefox Android's Remote Debugging Protocol add-ons actor, and loads the
+temporary add-on before Selenium attaches. It then seeds consent through the
 extension-owned options page and fails loudly if the resolved source remains denied. The fixture watch
 page must reach `active`, hold a `/videoplayback` source, and record a credentialless player request.
 No live YouTube traffic participates in this blocking check. This emulator-only gate cannot be
 executed on the local Apple Silicon host because its x86_64 guest has no hardware-virtualization path;
 GitHub Actions/KVM is the qualification surface.
+
+The mobile workflow runs for pull requests and master pushes. `release-on-merge` waits for the
+same-commit Fenix workflow to succeed before publishing its archive artifact, so all supported
+desktop and Android compatibility lanes qualify every released master commit.
 
 ## Mobile Live E2E (non-gating, best-effort)
 

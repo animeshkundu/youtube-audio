@@ -21,6 +21,14 @@ const GECKO = process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriv
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function errorDetail(error) {
+  const primary = String(error?.stack || error);
+  if (!(error instanceof AggregateError)) return primary;
+  return [primary, ...error.errors.map((cause) => String(cause?.stack || cause))].join(
+    '\nCaused by:\n'
+  );
+}
+
 function firefoxOptions() {
   const options = new firefox.Options();
   options.enableMobile(FENIX_PACKAGE);
@@ -88,7 +96,10 @@ try {
     .build();
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
-  await registerBenchContentScript(driver, OPTIONS_URL, origin);
+  const registration = await registerBenchContentScript(driver, OPTIONS_URL, origin);
+  if (!(await driver.getAllWindowHandles()).includes(registration.registrationHandle)) {
+    throw new Error('BENCH content-script registration page closed before fixture navigation');
+  }
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(`${origin}/watch?v=FIXTURE0001`);
   report.snapshot = await waitForTerminalState(driver);
@@ -103,7 +114,7 @@ try {
       ? 'PASS'
       : 'FAIL';
 } catch (error) {
-  report.error = String(error?.stack || error);
+  report.error = errorDetail(error);
 } finally {
   if (driver) {
     try {
