@@ -53,5 +53,11 @@ python3 tests/e2e/android/enable-remote-debugging.py
 # engine applies the persisted value while constructing its debugging server.
 adb shell am force-stop "${FENIX_PACKAGE}"
 start_fenix
+# Firefox Android creates its Gecko runtime when it owns a browser tab. A local about:blank tab keeps
+# this qualification hermetic while giving the restarted runtime a place to start its RDP server.
+adb shell am start -W \
+  -a android.intent.action.VIEW \
+  -d 'about:blank' \
+  -p "${FENIX_PACKAGE}"
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi
