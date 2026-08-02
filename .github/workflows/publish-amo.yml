@@ -42,7 +42,7 @@ jobs:
       FIREFOX_EXTENSION_ID: '{580efa7d-66f9-474d-857a-8e2afc6b1181}'
     steps:
       - name: Checkout the requested ref
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
