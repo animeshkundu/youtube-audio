@@ -188,15 +188,16 @@ def remote_debugging_nodes():
 
 
 def scroll_to_label(label):
+    labels = (label,) if isinstance(label, str) else label
     for _ in range(12):
-        found = matching_nodes(dump_nodes(), (label,))
+        found = matching_nodes(dump_nodes(), labels)
         try:
-            return select_control(found, (label,))
+            return select_control(found, labels)
         except RuntimeError:
             pass
         scroll_down()
         time.sleep(POLL_SECONDS)
-    raise RuntimeError(f"{label} control was not found")
+    raise RuntimeError(f"{labels} control was not found")
 
 
 def firefox_wordmark():
@@ -232,7 +233,6 @@ def main():
         tap(logo)
         time.sleep(POLL_SECONDS)
     adb("shell", "input", "keyevent", "BACK")
-    tap(scroll_to_label("Secret settings"))
     remote_label, remote_switch = remote_debugging_nodes()
     if remote_switch.attrib.get("checked") != "true":
         tap(remote_label)
@@ -240,6 +240,7 @@ def main():
     while time.monotonic() < deadline:
         remote_label, remote_switch = remote_debugging_nodes()
         if remote_switch.attrib.get("checked") == "true":
+            scroll_to_label(("Secret settings", "Secret Settings"))
             print("Fenix Remote debugging via USB enabled")
             return
         time.sleep(POLL_SECONDS)
