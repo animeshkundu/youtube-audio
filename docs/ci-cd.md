@@ -156,18 +156,28 @@ Release asset and no self-hosted `updates.json`. The recommended human gate is a
 
 ## Mobile Hermetic E2E (gating)
 
-Every pull request runs the BENCH extension against the local fixture in Fenix `130.0`, `136.0`,
-`141.0`, `142.0`, and `145.0` on an API-34 x86_64 emulator. The first three versions cover the
-custom-consent lane through its last release; 142 is the Android built-in-consent boundary; 145
-proves a later built-in implementation. Legs run independently with `fail-fast: false` and the Fenix
-version appears in each job name.
+Every pull request runs the BENCH extension against the local fixture in Fenix `128.0`, `136.0`,
+`141.0`, `142.0`, and `145.0` on an API-34 x86_64 emulator. Version 128 is the declared support
+floor; 136 and 141 sample the custom-consent lane through its last release; 142 is the Android
+built-in-consent boundary; 145 proves a later built-in implementation. Mozilla publishes x86_64
+release APKs at the pinned archive URLs for all five versions. Legs run independently with
+`fail-fast: false`, and the Fenix version appears in each job name.
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
 Only `BENCH=1` builds add that alias to content-script and host permissions; production retains
-exactly the four YouTube content-script matches. The probe installs the temporary XPI, seeds consent
-through the extension-owned options page, and fails loudly if the resolved source remains denied. It
-then requires the fixture watch page to reach `active`, hold a `/videoplayback` source, and record a
-credentialless player request. No live YouTube traffic participates in this blocking check.
+exactly the four YouTube content-script matches. Before emulator launch the workflow starts the host
+adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
+parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
+checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
+share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
+the action.
+
+The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
+fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
+`active`, hold a `/videoplayback` source, and record a credentialless player request. No live YouTube
+traffic participates in this blocking check. This emulator-only gate cannot be executed on the local
+Apple Silicon host because its x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is
+the qualification surface.
 
 ## Mobile Live E2E (non-gating, best-effort)
 
