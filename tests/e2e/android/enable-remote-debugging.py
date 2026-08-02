@@ -2,6 +2,7 @@
 """Enable and verify Fenix's secret Remote debugging via USB setting through its own UI."""
 
 import os
+import json
 import re
 import subprocess
 import sys
@@ -216,9 +217,31 @@ def main():
     raise RuntimeError("Remote debugging via USB did not become checked")
 
 
+def ui_diagnostics():
+    try:
+        fields = (
+            "text",
+            "content-desc",
+            "resource-id",
+            "class",
+            "clickable",
+            "checkable",
+            "checked",
+            "bounds",
+        )
+        return [
+            {field: node.attrib.get(field, "") for field in fields}
+            for node in dump_nodes()
+            if node.attrib.get("text") or node.attrib.get("content-desc")
+        ]
+    except Exception as error:
+        return [{"diagnostic_error": str(error)}]
+
+
 if __name__ == "__main__":
     try:
         main()
     except Exception as error:
         print(f"Remote debugging setup failed: {error}", file=sys.stderr)
+        print(json.dumps(ui_diagnostics()), file=sys.stderr)
         raise
