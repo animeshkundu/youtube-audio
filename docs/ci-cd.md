@@ -192,18 +192,19 @@ before its first launch. It pins the emulator locale to English, opens **About F
 unique `wordmark` control five times to unlock the session-only **Secret settings** row, then drives
 the exact, state-verified **Remote debugging via USB** control. That invokes Fenix's live GeckoView
 setting, which direct preference-file writes do not reliably do across archived releases. The runner
-leaves that process running through WebDriver creation and RDP temporary installation. The RDP
-installer accepts Fenix's abstract `@<package>/firefox-debugger-socket` form as well as a filesystem
-socket and waits up to the same three-minute bound as `web-ext`. Selenium creates the pinned add-on
-UUID mapping before the RDP install, so the extension page used for consent and dynamic fixture
-registration has the expected origin. The installer stages the XPI in the same device artifact
-directory scheme used by `web-ext`, connects to Firefox Android's Remote Debugging Protocol add-ons
-actor, and loads the temporary add-on after WebDriver attaches. It then seeds consent through the
-extension-owned options page and fails loudly if the resolved source remains denied. The fixture watch
-page must reach `active`, hold a `/videoplayback` source, and record a credentialless player request.
-No live YouTube traffic participates in this blocking check. This emulator-only gate cannot be
-executed on the local Apple Silicon host because its x86_64 guest has no hardware-virtualization path;
-GitHub Actions/KVM is the qualification surface.
+restarts Fenix once so archived GeckoView releases apply the persisted setting while constructing
+their debugger server. The RDP installer accepts Fenix's abstract
+`@<package>/firefox-debugger-socket` form as well as a filesystem socket and waits up to the same
+three-minute bound as `web-ext`. Selenium creates the pinned add-on UUID mapping before the RDP
+install, so the extension page used for consent and dynamic fixture registration has the expected
+origin. The installer stages the XPI in the same device artifact directory scheme used by `web-ext`,
+connects to Firefox Android's Remote Debugging Protocol add-ons actor, and loads the temporary add-on
+after WebDriver attaches. It then seeds consent through the extension-owned options page and fails
+loudly if the resolved source remains denied. The fixture watch page must reach `active`, hold a
+`/videoplayback` source, and record a credentialless player request. No live YouTube traffic
+participates in this blocking check. This emulator-only gate cannot be executed on the local Apple
+Silicon host because its x86_64 guest has no hardware-virtualization path; GitHub Actions/KVM is the
+qualification surface.
 
 The mobile workflow runs for pull requests and master pushes. `release-on-merge` waits for the
 same-commit Fenix workflow to succeed before publishing its archive artifact, so all supported

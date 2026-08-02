@@ -9,6 +9,8 @@ adb wait-for-device
 adb root || true
 adb wait-for-device
 adb shell settings put system system_locales en-US
+adb shell settings put global adb_enabled 1
+adb shell settings get global adb_enabled | tr -d '\r' | grep -Fx 1
 
 fenix_apk_url="https://archive.mozilla.org/pub/fenix/releases/${FENIX_VERSION}/android/fenix-${FENIX_VERSION}-android-x86_64/fenix-${FENIX_VERSION}.multi.android-x86_64.apk"
 echo "Installing x86_64 Fenix from: ${fenix_apk_url}"
@@ -27,20 +29,29 @@ adb shell cmd package resolve-activity --brief \
   -a android.intent.action.MAIN \
   -c android.intent.category.LAUNCHER \
   "${FENIX_PACKAGE}"
-started=false
-for attempt in 1 2 3; do
-  if adb shell am start -W -n "${FENIX_PACKAGE}/.App"; then
-    started=true
-    break
-  fi
-  echo "Fenix launch attempt ${attempt} failed; retrying after device startup settles" >&2
-  sleep 3
-done
-test "${started}" = true
+start_fenix() {
+  started=false
+  for attempt in 1 2 3; do
+    if adb shell am start -W -n "${FENIX_PACKAGE}/.App"; then
+      started=true
+      break
+    fi
+    echo "Fenix launch attempt ${attempt} failed; retrying after device startup settles" >&2
+    sleep 3
+  done
+  test "${started}" = true
+}
+
+start_fenix
 
 # Fenix starts its DevTools server through its live GeckoView runtime setting. Writing backing
 # preference files bypasses that listener on some archived releases, so use the app's own checked
 # Remote debugging via USB control and leave this process running through RDP installation.
 python3 tests/e2e/android/enable-remote-debugging.py
+
+# The UI writes the setting through Fenix's runtime listener. Restart once so the archived GeckoView
+# engine applies the persisted value while constructing its debugging server.
+adb shell am force-stop "${FENIX_PACKAGE}"
+start_fenix
 
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi

@@ -37,12 +37,12 @@ its live GeckoView remote-debugging setter on archived releases.
   add-ons actor. The runner assigns the disposable emulator's browser role to Fenix before launch, so
   Android's default-browser dialog cannot block initialization. It unlocks Fenix's Secret settings by
   tapping the About Firefox `wordmark` five times under the app's English locale, enables the exact,
-  state-verified Remote debugging via USB control, leaves that Fenix process running through WebDriver
-  creation, requires the package-owned debugger socket, stages the XPI under the device artifact
-  directory convention used by `web-ext`, accepts the socket's abstract or filesystem form with the
-  same three-minute wait as `web-ext`, forwards that exact socket to the RDP add-ons actor, and
-  completes temporary installation after Selenium attaches for the real extension-page consent and
-  dynamic-registration path.
+  state-verified Remote debugging via USB control, restarts Fenix once so archived GeckoView releases
+  construct their debugger server from the persisted value, requires the package-owned debugger socket,
+  stages the XPI under the device artifact directory convention used by `web-ext`, accepts the socket's
+  abstract or filesystem form with the same three-minute wait as `web-ext`, forwards that exact socket
+  to the RDP add-ons actor, and completes temporary installation after Selenium attaches for the real
+  extension-page consent and dynamic-registration path.
 - `PlayerHandle` accepts the emulator's `10.0.2.2` fixture media URL only in a BENCH build. Production
   remains HTTPS-only.
 - The mobile workflow also runs on master pushes. The release job waits for the matching Fenix workflow
