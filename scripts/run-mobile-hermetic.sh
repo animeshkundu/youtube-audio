@@ -18,18 +18,8 @@ test -n "${fenix_package}"
 export FENIX_PACKAGE="${fenix_package}"
 echo "Driving Android package: ${FENIX_PACKAGE}"
 
-adb shell monkey -p "${FENIX_PACKAGE}" -c android.intent.category.LAUNCHER 1 || true
-sleep 8
-
-sudo mkdir -p /opt/homebrew/share
-sudo ln -sfn "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}" /opt/homebrew/share/android-commandlinetools
-python3 tests/e2e/android/ui.py list || true
-python3 tests/e2e/android/ui.py tap "more options" || python3 tests/e2e/android/ui.py tap "menu" || true
-sleep 2
-python3 tests/e2e/android/ui.py tap "settings" || true
-sleep 2
-python3 tests/e2e/android/ui.py scroll down || true
-python3 tests/e2e/android/ui.py tap "remote debugging" || true
-sleep 2
-
+# Geckodriver writes Fenix's GeckoView Marionette configuration and waits for New Session. Do not
+# launch Fenix or toggle Remote debugging via USB here: that RDP-only setting is release-specific and
+# geckodriver's app-data setup can clear it before the fixture probe connects.
+echo "Fenix readiness is established by the geckodriver Marionette New Session."
 node tests/e2e/android/probe-hermetic-fixture.mjs dist/youtube-audio-bench.xpi
