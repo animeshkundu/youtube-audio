@@ -33,5 +33,10 @@ used by the add-ons actor.
 - Exercised malformed and absent uiautomator dump retries with a local command stub.
 - Ran `npm run validate` successfully: lint, typecheck, formatting, 278 unit tests, MV2 build and
   package lint, and MV3 build.
-- The API-34 x86_64 Fenix matrix is the required integration qualification for this emulator-only
-  change.
+- Mobile Hermetic E2E runs `30775691447` and `30776002762` reached remote-debugging enablement and
+  RDP temporary XPI installation on Fenix 128, 136, 141, 142, and 145. The probe then consistently
+  found the BENCH marker but no terminal status, `/videoplayback` source, or fixture player request.
+- The second run recorded zero `yta:settings` messages while the MAIN-world script had already
+  consumed the bridge nonce. This is an entrypoint startup-handshake failure, not a UI or adb
+  readiness failure. The probe assertions remain strict. Repairing the one-shot bridge requires an
+  `entrypoints/` change, which is outside this Android-CI-only scope.
