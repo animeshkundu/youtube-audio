@@ -151,6 +151,7 @@ async function snapshot(driver) {
       status: document.documentElement.dataset.ytaStatus || null,
       reason: document.documentElement.dataset.ytaReason || null,
       bridgeNonce: document.documentElement.dataset.ytaBridge || null,
+      pageErrors: Array.isArray(window.__fixtureErrors) ? window.__fixtureErrors : null,
       currentSrc: currentSrc.slice(0, 160),
       hijacked: currentSrc.includes('/videoplayback'),
       readyState: video?.readyState ?? null,
