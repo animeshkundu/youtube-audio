@@ -41,6 +41,7 @@ const SESSION_RETRY_ERROR =
   /^Could not launch Android [\w.]+\/org\.mozilla\.fenix\.IntentReceiverActivity: Resource temporarily unavailable \(os error 11\)$/;
 const MAX_SESSION_ATTEMPTS = 3;
 const MAX_FIXTURE_NAVIGATIONS = 3;
+const FIXTURE_ACTIVATION_TIMEOUT_MS = 15_000;
 const RDP_SOCKET_WAIT_MS = 30_000;
 const RDP_CONNECT_RETRIES = 150;
 const RDP_CONNECT_RETRY_INTERVAL_MS = 200;
@@ -100,9 +101,16 @@ async function waitForDebuggerSocket() {
   const expectedSuffix = `${FENIX_PACKAGE}/firefox-debugger-socket`;
   const deadline = Date.now() + RDP_SOCKET_WAIT_MS;
   let lastSockets = '';
+  let lastAdbFailure = '';
 
   while (Date.now() < deadline) {
-    lastSockets = await adb('shell', 'cat', '/proc/net/unix');
+    try {
+      lastSockets = await adb('shell', 'cat', '/proc/net/unix');
+    } catch (error) {
+      lastAdbFailure = [error?.message, error?.stdout, error?.stderr].filter(Boolean).join('\n');
+      await sleep(200);
+      continue;
+    }
     const line = lastSockets
       .split('\n')
       .find((candidate) => candidate.trim().endsWith(expectedSuffix));
@@ -111,7 +119,8 @@ async function waitForDebuggerSocket() {
   }
 
   throw new Error(
-    `Firefox Android did not expose ${expectedSuffix} within ${RDP_SOCKET_WAIT_MS}ms: ${lastSockets}`
+    `Firefox Android did not expose ${expectedSuffix} within ${RDP_SOCKET_WAIT_MS}ms: ` +
+      `${lastSockets}\nlast adb failure:\n${lastAdbFailure}`
   );
 }
 
@@ -162,32 +171,22 @@ async function snapshot(driver) {
   });
 }
 
-async function navigateUntilContentScriptAttached(driver, fixtureUrl, report) {
+async function navigateUntilTerminalState(driver, fixtureUrl, report) {
   let last = null;
   for (let attempt = 1; attempt <= MAX_FIXTURE_NAVIGATIONS; attempt += 1) {
     report.fixtureNavigations = attempt;
     await driver.get(fixtureUrl);
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + FIXTURE_ACTIVATION_TIMEOUT_MS;
     while (Date.now() < deadline) {
       last = await snapshot(driver);
-      if (last.marker === '1') return;
+      if (last.marker === '1' && ['active', 'fallback', 'disabled'].includes(last.status)) return last;
       await sleep(250);
     }
   }
   throw new Error(
-    `fixture content script did not attach after ${MAX_FIXTURE_NAVIGATIONS} navigations: ${JSON.stringify(last)}`
+    `fixture did not reach a terminal extension state after ${MAX_FIXTURE_NAVIGATIONS} navigations: ` +
+      `${JSON.stringify(last)}`
   );
-}
-
-async function waitForTerminalState(driver) {
-  const deadline = Date.now() + 60_000;
-  let last = null;
-  while (Date.now() < deadline) {
-    last = await snapshot(driver);
-    if (last.marker === '1' && ['active', 'fallback', 'disabled'].includes(last.status)) return last;
-    await sleep(500);
-  }
-  throw new Error(`fixture did not reach a terminal extension state: ${JSON.stringify(last)}`);
 }
 
 const report = {
@@ -227,8 +226,11 @@ try {
       contentScriptMatches: manifest.content_scripts?.map((contentScript) => contentScript.matches) ?? [],
     };
   });
-  await navigateUntilContentScriptAttached(driver, `${origin}/watch?v=FIXTURE0001`, report);
-  report.snapshot = await waitForTerminalState(driver);
+  report.snapshot = await navigateUntilTerminalState(
+    driver,
+    `${origin}/watch?v=FIXTURE0001`,
+    report
+  );
   report.playerRequests = fixture
     .getRequests()
     .filter((request) => request.method === 'POST' && request.path === '/youtubei/v1/player').length;

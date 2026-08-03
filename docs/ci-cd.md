@@ -188,11 +188,14 @@ GeckoView configuration and completes app-data preparation. It then enables Feni
 debugging via USB setting with a uiautomator helper that waits for a valid hierarchy rather than a
 fixed launch delay. The helper accepts the known menu-layout variants, retries command failures,
 missing dumps, and malformed XML with backoff, checks that the dump file exists before parsing, and
-prints raw command/dump output on failure. Once the native setting creates the debugger socket, the
-probe pushes the XPI with adb and installs it through Firefox Android's RDP add-ons actor. The
-non-UI Marionette command is deliberately not used: Fenix 128 reports that it supports desktop
-applications only, and later tested Fenix releases returned an add-on ID without attaching the
-extension content script to the fixture.
+prints raw command/dump output on failure. The socket wait similarly retries a transient adb failure
+and includes its final output on timeout. Once the native setting creates the debugger socket, the
+probe pushes the XPI with adb and installs it through Firefox Android's RDP add-ons actor. It repeats
+the local fixture navigation only when a page never reaches a terminal extension state; the final
+attempt still must prove `active`, `/videoplayback`, and a player POST. The non-UI Marionette command
+is deliberately not used: Fenix 128 reports that it supports desktop applications only, and later
+tested Fenix releases returned an add-on ID without attaching the extension content script to the
+fixture.
 
 The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
 fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
