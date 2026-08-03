@@ -20,6 +20,9 @@ secure-context condition before testing playback.
 - Loopback also supplies a secure context without a browser policy override. After each navigation,
   the probe fails with the observed origin and context state unless `crypto.randomUUID` is available.
   The existing consent, `active`, `/videoplayback`, and player-POST assertions remain mandatory.
+- Fenix 136 briefly reported the MAIN-world default `disabled` status before the consent-filtered
+  settings message reached it. The probe now waits for the required `active` state instead of
+  treating any intermediate terminal-looking status as success or failure.
 - The earlier action-owned `adb: device offline` exit-code-1 messages occur while it polls
   `sys.boot_completed`; each completed boot before the checked-in runner began. They are a benign
   emulator bootstrap race, not a Fenix UI or fixture failure.

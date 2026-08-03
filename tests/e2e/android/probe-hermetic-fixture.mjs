@@ -212,15 +212,15 @@ async function navigateUntilContentScriptAttached(driver, fixtureUrl, report) {
   );
 }
 
-async function waitForTerminalState(driver) {
+async function waitForActiveState(driver) {
   const deadline = Date.now() + 60_000;
   let last = null;
   while (Date.now() < deadline) {
     last = await snapshot(driver);
-    if (last.marker === '1' && ['active', 'fallback', 'disabled'].includes(last.status)) return last;
+    if (last.marker === '1' && last.status === 'active') return last;
     await sleep(500);
   }
-  throw new Error(`fixture did not reach a terminal extension state: ${JSON.stringify(last)}`);
+  throw new Error(`fixture did not reach the required active state: ${JSON.stringify(last)}`);
 }
 
 const report = {
@@ -267,7 +267,7 @@ try {
     };
   });
   await navigateUntilContentScriptAttached(driver, `${origin}/watch?v=FIXTURE0001`, report);
-  report.snapshot = await waitForTerminalState(driver);
+  report.snapshot = await waitForActiveState(driver);
   report.playerRequests = fixture
     .getRequests()
     .filter((request) => request.method === 'POST' && request.path === '/youtubei/v1/player').length;
