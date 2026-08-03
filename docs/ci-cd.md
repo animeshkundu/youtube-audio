@@ -176,12 +176,15 @@ release APKs at the pinned archive URLs for all five versions. Legs run independ
 
 The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
 Only `BENCH=1` builds add that alias to content-script and host permissions; production retains
-exactly the four YouTube content-script matches. Before emulator launch the workflow starts the host
-adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
-parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
-checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
-share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
-the action.
+exactly the four YouTube content-script matches. Because `10.0.2.2` is not loopback inside the
+emulator, the ephemeral WebDriver profile allowlists that hostname as a secure context before loading
+the fixture. The probe verifies `isSecureContext` and `crypto.randomUUID` at the exact fixture origin
+before it expects the nonce-authenticated bridge to initialize. Before emulator launch the workflow
+starts the host adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The
+upstream action parses multiline `script:` input into separate `sh -c` invocations, so the workflow
+invokes one checked-in portable shell script; its computed APK URL, detected package, exports, and
+`set -eu` now share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup
+remains before the action.
 
 The blocking probe establishes geckodriver's Android Marionette session first, which creates Fenix's
 GeckoView configuration and completes app-data preparation. It then enables Fenix's native Remote

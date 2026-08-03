@@ -36,6 +36,7 @@ const UI_SCRIPT = fileURLToPath(new URL('./ui.py', import.meta.url));
 const GECKO =
   process.env.GECKODRIVER_BIN || process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
+const FIXTURE_HOST = '10.0.2.2';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SESSION_RETRY_ERROR =
   /^Could not launch Android [\w.]+\/org\.mozilla\.fenix\.IntentReceiverActivity: Resource temporarily unavailable \(os error 11\)$/;
@@ -53,6 +54,9 @@ function firefoxOptions() {
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
+  // The emulator host alias is HTTP, unlike desktop's loopback fixture. This test-profile-only
+  // allowlist keeps the content script's secure-context nonce available without changing production.
+  options.setPreference('dom.securecontext.allowlist', FIXTURE_HOST);
   return options;
 }
 
@@ -170,11 +174,35 @@ async function snapshot(driver) {
   });
 }
 
+async function verifyFixtureSecurityContext(driver, fixtureUrl) {
+  const expectedOrigin = new URL(fixtureUrl).origin;
+  const context = await driver.executeScript(function () {
+    return {
+      origin: location.origin,
+      isSecureContext,
+      hasRandomUuid: typeof crypto.randomUUID === 'function',
+    };
+  });
+
+  if (
+    context?.origin !== expectedOrigin ||
+    context.isSecureContext !== true ||
+    context.hasRandomUuid !== true
+  ) {
+    throw new Error(
+      `fixture did not expose the required secure context: ${JSON.stringify({ expectedOrigin, context })}`
+    );
+  }
+
+  return context;
+}
+
 async function navigateUntilContentScriptAttached(driver, fixtureUrl, report) {
   let last = null;
   for (let attempt = 1; attempt <= MAX_FIXTURE_NAVIGATIONS; attempt += 1) {
     report.fixtureNavigations = attempt;
     await driver.get(fixtureUrl);
+    report.fixtureSecurity = await verifyFixtureSecurityContext(driver, fixtureUrl);
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       last = await snapshot(driver);
@@ -205,6 +233,7 @@ const report = {
   sessionAttempts: 0,
   fixtureNavigations: 0,
   fixtureOrigin: null,
+  fixtureSecurity: null,
   addonId: null,
   remoteDebugging: null,
   rdp: null,
