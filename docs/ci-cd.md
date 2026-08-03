@@ -183,14 +183,14 @@ checked-in portable shell script; its computed APK URL, detected package, export
 share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
 the action.
 
-The blocking probe uses geckodriver's Android Marionette setup, not Fenix's Remote debugging via USB
-setting. A WebDriver New Session writes and activates the GeckoView debug configuration, then waits
-for the browser process to accept Marionette, so the runner neither launches Fenix early nor parses
-an unsettled uiautomator dump. This avoids release-specific settings labels and avoids a setting that
-geckodriver's app-data preparation can remove. The session profile enables the Gecko debugger without
-using Fenix settings UI. The probe then waits for its debugger socket, pushes the XPI with adb, and
-installs it through Firefox Android's RDP add-ons actor. WebDriver's `installAddon` command remains
-desktop-only and is not used by any Fenix leg.
+The blocking probe establishes geckodriver's Android Marionette session first, which creates Fenix's
+GeckoView configuration, completes app-data preparation, and proves the browser is ready. It then
+enables Fenix's native Remote debugging via USB setting with a retrying uiautomator helper. The helper
+accepts the known menu-label variants, retries dumps until they are well-formed XML, checks that the
+dump file exists before parsing, and prints raw command/dump output on failure. Once the native setting
+creates the debugger socket, the probe pushes the XPI with adb and installs it through Firefox
+Android's RDP add-ons actor. WebDriver's `installAddon` command remains desktop-only and is not used by
+any Fenix leg.
 
 The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
 fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
@@ -227,13 +227,8 @@ version in the workflow `env` when it ages out.
 - **This job is best-effort and its first CI runs need observation/tuning.** It is
   `continue-on-error: true` and never blocks a merge.
 - **Remote debugging enable flow.** `tests/e2e/android/ui.py` drives Fenix's UI via uiautomator to
-  toggle "Remote debugging via USB". The exact menu labels are Fenix-version-specific and are the
-  most likely thing to need adjustment; the workflow dumps the UI tree to the log and guards each
-  tap so failures are visible without aborting.
-- **SDK path shim.** `ui.py` hardcodes a macOS Homebrew SDK path
-  (`/opt/homebrew/share/android-commandlinetools`). The Linux job symlinks that path to the
-  runner's `ANDROID_SDK_ROOT` so its `adb` calls resolve. (Do not "fix" `ui.py` for this; the shim
-  keeps the local macOS default intact.)
+  toggle "Remote debugging via USB". It resolves `adb` from `ADB` or `PATH`, retries until a dump
+  both exists and parses as XML, and surfaces the raw output when a version's UI cannot be found.
 - **geckodriver ↔ GeckoView.** The npm `geckodriver` must be compatible with the installed Fenix
   build; a large version gap between them is a likely early failure mode.
 - **Live network.** The probe hits real `m.youtube.com` logged-out, so YouTube bot-flagging can

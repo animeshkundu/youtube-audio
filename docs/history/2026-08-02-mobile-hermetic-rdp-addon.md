@@ -16,11 +16,18 @@ add-ons actor while retaining geckodriver Marionette for browser control.
   seeded consent were present, so this was not an APK, consent, or fixture-origin failure.
 - Firefox Android's supported temporary-install channel is the Remote Debugging Protocol add-ons
   actor used by `web-ext`. The Marionette-created Gecko profile can enable the debugger directly with
-  `devtools.debugger.remote-enabled` and `devtools.debugger.prompt-connection=false`; this needs no
-  Fenix UI interaction or release-specific label.
+  `devtools.debugger.remote-enabled` and `devtools.debugger.prompt-connection=false`, but run
+  `30773218195` proved those Gecko preferences do not create Fenix's native debugger socket.
+- Fenix reads `pref_key_remote_debugging` to configure its Gecko runtime. The setting must change after
+  geckodriver clears app data, so the probe enables it only after a successful Marionette session.
 
 ## Changes
 
+- The uiautomator helper retries command failures, missing dump files, and malformed XML with backoff;
+  it includes the raw command and dump output when the UI never stabilizes.
+- Its combined enable command tolerates the menu labels used across supported Fenix releases, verifies
+  the toggle when the UI exposes its checked state, and relies on the subsequent debugger socket as
+  the final readiness proof.
 - The probe waits for Fenix's debugger socket and includes the raw socket listing in its failure
   output if it never appears.
 - It uploads the XPI to the emulator, forwards the Unix debugger socket, and installs through the

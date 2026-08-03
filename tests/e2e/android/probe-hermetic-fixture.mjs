@@ -9,7 +9,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Builder } from 'selenium-webdriver';
 import firefox from 'selenium-webdriver/firefox.js';
 import { ServiceBuilder } from 'selenium-webdriver/firefox.js';
@@ -31,6 +31,8 @@ const ADDON_ID = '{580efa7d-66f9-474d-857a-8e2afc6b1181}';
 const PINNED_UUID = '11111111-2222-4333-8444-555555555555';
 const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const ADB = process.env.ADB || 'adb';
+const PYTHON = process.env.PYTHON || 'python3';
+const UI_SCRIPT = fileURLToPath(new URL('./ui.py', import.meta.url));
 const GECKO =
   process.env.GECKODRIVER_BIN || process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
@@ -48,11 +50,6 @@ function firefoxOptions() {
   const options = new firefox.Options();
   options.enableMobile(FENIX_PACKAGE);
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [ADDON_ID]: PINNED_UUID }));
-  // Firefox Android exposes temporary add-on installation through the RDP add-ons actor, not
-  // WebDriver's desktop-only installAddon command. These preferences make that actor's socket
-  // available in the same Gecko profile geckodriver creates for Marionette.
-  options.setPreference('devtools.debugger.remote-enabled', true);
-  options.setPreference('devtools.debugger.prompt-connection', false);
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
@@ -86,6 +83,19 @@ async function adb(...args) {
   return stdout;
 }
 
+async function enableRemoteDebugging() {
+  try {
+    const { stdout } = await execFile(PYTHON, [UI_SCRIPT, 'enable-remote-debugging'], {
+      env: { ...process.env, ADB },
+      timeout: 90_000,
+    });
+    return JSON.parse(stdout);
+  } catch (error) {
+    const output = [error?.stdout, error?.stderr].filter(Boolean).join('\n');
+    throw new Error(`Fenix Remote debugging setup failed: ${output || String(error)}`);
+  }
+}
+
 async function waitForDebuggerSocket() {
   const expectedSuffix = `${FENIX_PACKAGE}/firefox-debugger-socket`;
   const deadline = Date.now() + RDP_SOCKET_WAIT_MS;
@@ -109,7 +119,10 @@ async function installAndroidAddonViaRdp() {
   await adb('push', XPI, REMOTE_XPI_PATH);
   const socket = await waitForDebuggerSocket();
   const port = await findFreeTcpPort();
-  await adb('forward', `tcp:${port}`, `localfilesystem:${socket}`);
+  const socketTarget = socket.startsWith('@')
+    ? `localabstract:${socket.slice(1)}`
+    : `localfilesystem:${socket}`;
+  await adb('forward', `tcp:${port}`, socketTarget);
 
   let remoteFirefox;
   try {
@@ -180,6 +193,7 @@ const report = {
   fixtureNavigations: 0,
   fixtureOrigin: null,
   addonId: null,
+  remoteDebugging: null,
   rdp: null,
   snapshot: null,
   playerRequests: 0,
@@ -197,6 +211,7 @@ try {
   driver = await startAndroidSession(report);
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
 
+  report.remoteDebugging = await enableRemoteDebugging();
   report.rdp = await installAndroidAddonViaRdp();
   report.addonId = report.rdp.addonId;
   report.consent = await seedDataConsent(driver, OPTIONS_URL);
