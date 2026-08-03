@@ -174,14 +174,29 @@ built-in-consent boundary; 145 proves a later built-in implementation. Mozilla p
 release APKs at the pinned archive URLs for all five versions. Legs run independently with
 `fail-fast: false`, and the Fenix version appears in each job name.
 
-The fixture binds on the runner's network interfaces and advertises Android's `10.0.2.2` host alias.
-Only `BENCH=1` builds add that alias to content-script and host permissions; production retains
-exactly the four YouTube content-script matches. Before emulator launch the workflow starts the host
-adb daemon, avoiding the emulator/adb startup race seen in the first matrix run. The upstream action
-parses multiline `script:` input into separate `sh -c` invocations, so the workflow invokes one
-checked-in portable shell script; its computed APK URL, detected package, exports, and `set -eu` now
-share one process. The KVM udev rule remains before emulator launch, and JDK 17 setup remains before
-the action.
+The fixture binds on the runner's network interfaces. The probe maps its unique port back to the
+runner with `adb reverse`, then loads the fixture through emulator `localhost`; this keeps fixture
+media inside the existing BENCH-only loopback allowance and gives the nonce-authenticated bridge a
+secure context. The `10.0.2.2` BENCH match remains available for the emulator-host route, while
+production retains exactly the four YouTube content-script matches. The probe verifies
+`isSecureContext` and `crypto.randomUUID` at the exact fixture origin before it expects the bridge to
+initialize. Before emulator launch the workflow starts the host adb daemon, avoiding the emulator/adb
+startup race seen in the first matrix run. The upstream action parses multiline `script:` input into
+separate `sh -c` invocations, so the workflow invokes one checked-in portable shell script; its
+computed APK URL, detected package, exports, and `set -eu` now share one process. The KVM udev rule
+remains before emulator launch, and JDK 17 setup remains before the action.
+
+The blocking probe establishes geckodriver's Android Marionette session first, which creates Fenix's
+GeckoView configuration and completes app-data preparation. It then enables Fenix's native Remote
+debugging via USB setting with a uiautomator helper that waits for a valid hierarchy rather than a
+fixed launch delay. The helper accepts the known menu-layout variants, retries command failures, missing dumps, malformed
+XML, and the full menu-to-Settings route with backoff, checks that the dump file exists before parsing,
+and prints raw command/dump output on failure. The socket wait similarly retries a transient adb
+failure and includes its final output on timeout. Once the native setting creates the debugger socket,
+the probe pushes the XPI with adb and installs it through Firefox Android's RDP add-ons actor. The
+non-UI Marionette command is deliberately not used: Fenix 128 reports that it supports desktop
+applications only, and later tested Fenix releases returned an add-on ID without attaching the
+extension content script to the fixture.
 
 The probe installs the temporary XPI, seeds consent through the extension-owned options page, and
 fails loudly if the resolved source remains denied. It then requires the fixture watch page to reach
@@ -218,13 +233,8 @@ version in the workflow `env` when it ages out.
 - **This job is best-effort and its first CI runs need observation/tuning.** It is
   `continue-on-error: true` and never blocks a merge.
 - **Remote debugging enable flow.** `tests/e2e/android/ui.py` drives Fenix's UI via uiautomator to
-  toggle "Remote debugging via USB". The exact menu labels are Fenix-version-specific and are the
-  most likely thing to need adjustment; the workflow dumps the UI tree to the log and guards each
-  tap so failures are visible without aborting.
-- **SDK path shim.** `ui.py` hardcodes a macOS Homebrew SDK path
-  (`/opt/homebrew/share/android-commandlinetools`). The Linux job symlinks that path to the
-  runner's `ANDROID_SDK_ROOT` so its `adb` calls resolve. (Do not "fix" `ui.py` for this; the shim
-  keeps the local macOS default intact.)
+  toggle "Remote debugging via USB". It resolves `adb` from `ADB` or `PATH`, retries until a dump
+  both exists and parses as XML, and surfaces the raw output when a version's UI cannot be found.
 - **geckodriver ↔ GeckoView.** The npm `geckodriver` must be compatible with the installed Fenix
   build; a large version gap between them is a likely early failure mode.
 - **Live network.** The probe hits real `m.youtube.com` logged-out, so YouTube bot-flagging can
