@@ -88,7 +88,7 @@ async function enableRemoteDebugging() {
   try {
     const { stdout } = await execFile(PYTHON, [UI_SCRIPT, 'enable-remote-debugging'], {
       env: { ...process.env, ADB },
-      timeout: 90_000,
+      timeout: 300_000,
     });
     return JSON.parse(stdout);
   } catch (error) {

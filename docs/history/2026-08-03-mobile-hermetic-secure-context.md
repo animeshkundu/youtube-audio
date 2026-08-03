@@ -23,6 +23,9 @@ secure-context condition before testing playback.
 - Fenix 136 briefly reported the MAIN-world default `disabled` status before the consent-filtered
   settings message reached it. The probe now waits for the required `active` state instead of
   treating any intermediate terminal-looking status as success or failure.
+- A Fenix menu tap can leave the browser chrome unchanged while its initial activity settles. The UI
+  driver now retries the whole menu-to-Settings route with a fresh accessibility hierarchy and keeps
+  the final raw dump if every route fails.
 - The earlier action-owned `adb: device offline` exit-code-1 messages occur while it polls
   `sys.boot_completed`; each completed boot before the checked-in runner began. They are a benign
   emulator bootstrap race, not a Fenix UI or fixture failure.

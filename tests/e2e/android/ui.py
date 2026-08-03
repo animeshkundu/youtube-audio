@@ -19,12 +19,15 @@ import xml.etree.ElementTree as ET
 
 ADB = os.environ.get("ADB", "adb")
 UI_DUMP_PATH = "/sdcard/yta-ui.xml"
-UI_READY_TIMEOUT = 60
-UI_DUMP_ATTEMPT_TIMEOUT = 5
+UI_READY_TIMEOUT = 90
+UI_DUMP_ATTEMPT_TIMEOUT = 10
 UI_DUMP_INITIAL_DELAY = 0.25
 UI_DUMP_MAX_DELAY = 2
 UI_DUMP_FAILURES_TO_REPORT = 5
 ADB_COMMAND_TIMEOUT = 15
+SETTINGS_ROUTE_ATTEMPTS = 3
+SETTINGS_MENU_TIMEOUT = 45
+SETTINGS_ITEM_TIMEOUT = 30
 
 
 def adb(*args, timeout=ADB_COMMAND_TIMEOUT):
@@ -267,6 +270,35 @@ def scroll_to_top(scrolls=20):
         time.sleep(0.15)
 
 
+def open_settings():
+    last_error = ""
+    for attempt in range(SETTINGS_ROUTE_ATTEMPTS):
+        nodes, _ = wait_for_ui_ready()
+        if dismiss_system_dialog(nodes):
+            time.sleep(0.5)
+            continue
+        settings = first_match(nodes, ("settings",))
+        if settings is not None:
+            return settings
+
+        try:
+            menu, _ = wait_for_node(("more options", "menu"), SETTINGS_MENU_TIMEOUT)
+            tap_node(menu)
+            settings, _ = wait_for_node(("settings",), SETTINGS_ITEM_TIMEOUT)
+            return settings
+        except RuntimeError as error:
+            last_error = str(error)
+            try:
+                press_back()
+            except RuntimeError as back_error:
+                last_error += f"\nback navigation after menu route failed: {back_error}"
+            time.sleep(0.5 * (attempt + 1))
+
+    raise RuntimeError(
+        f"Fenix did not expose Settings after {SETTINGS_ROUTE_ATTEMPTS} menu routes:\n{last_error}"
+    )
+
+
 def open_secret_settings():
     scroll_to_top()
     about, _, raw = find_after_scrolling(("about firefox", "about"), 20)
@@ -297,11 +329,7 @@ def enable_remote_debugging():
         nodes, raw = wait_for_ui_ready()
     remote = first_match(nodes, remote_labels)
     if remote is None:
-        settings = first_match(nodes, ("settings",))
-        if settings is None:
-            menu, _ = wait_for_node(("more options", "menu"), 45)
-            tap_node(menu)
-            settings, _ = wait_for_node(("settings",), 20)
+        settings = open_settings()
         tap_node(settings)
 
         remote, nodes, raw = find_after_scrolling(remote_labels)
