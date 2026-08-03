@@ -25,7 +25,9 @@ the temporary BENCH XPI through the Firefox Android RDP add-ons actor.
 
 ## Validation
 
-- Static validation covers the Python syntax, JavaScript syntax, shell syntax, workflow YAML, and the
-  repository quality gates.
-- The API-34 x86_64 Fenix matrix remains the required integration qualification for this emulator-only
-  path.
+- `npm run validate` passed: lint, typecheck, formatting, 278 unit tests, MV2 build and package lint,
+  and MV3 build.
+- Mobile Hermetic E2E run
+  [`30780566139`](https://github.com/animeshkundu/youtube-audio/actions/runs/30780566139) passed each
+  Fenix 128.0, 136.0, 141.0, 142.0, and 145.0 leg. Every probe reported granted consent, `active`,
+  `/videoplayback` hijack, and at least one fixture player POST.
