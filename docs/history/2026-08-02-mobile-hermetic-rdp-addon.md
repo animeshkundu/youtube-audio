@@ -28,8 +28,8 @@ add-ons actor while retaining geckodriver Marionette for browser control.
 - Its combined enable command tolerates the menu labels used across supported Fenix releases, verifies
   the toggle when the UI exposes its checked state, and relies on the subsequent debugger socket as
   the final readiness proof.
-- It dismisses Android's transient "isn't responding" dialog with its `Wait` action before looking
-  for Fenix controls, so a launcher stall cannot be mistaken for a missing browser menu.
+- It dismisses Android's transient "isn't responding" dialog with its `Close app` action before
+  looking for Fenix controls, so a stalled launcher cannot be mistaken for a missing browser menu.
 - The probe waits for Fenix's debugger socket and includes the raw socket listing in its failure
   output if it never appears.
 - It uploads the XPI to the emulator, forwards the Unix debugger socket, and installs through the

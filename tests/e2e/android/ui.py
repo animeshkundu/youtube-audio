@@ -124,10 +124,10 @@ def remote_debugging_state(nodes, remote):
 
 def dismiss_system_dialog(nodes):
     title = first_match(nodes, ("isn't responding", "is not responding"))
-    wait = first_match(nodes, ("wait",))
-    if title is None or wait is None:
+    close = first_match(nodes, ("close app",))
+    if title is None or close is None:
         return False
-    tap_node(wait)
+    tap_node(close)
     return True
 
 
