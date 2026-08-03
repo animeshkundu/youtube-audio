@@ -109,6 +109,19 @@ def first_match(nodes, queries):
     )
 
 
+def remote_debugging_state(nodes, remote):
+    if remote["center"] is None:
+        return None
+    remote_y = remote["center"][1]
+    for node in nodes:
+        if node["checked"] == "true" and node["center"] is not None:
+            if abs(node["center"][1] - remote_y) <= 80:
+                return True
+    if remote["checked"] == "false":
+        return False
+    return None
+
+
 def tap_node(node):
     if node["center"] is None:
         raise RuntimeError(f"node has no bounds: {node}")
@@ -163,7 +176,7 @@ def enable_remote_debugging():
                 f"Fenix settings did not expose Remote debugging after scrolling:\nraw dump:\n{raw}"
             )
 
-    if remote["checked"] == "true":
+    if remote_debugging_state(nodes, remote) is True:
         return {"enabled": True, "changed": False, "label": remote["text"] or remote["desc"]}
 
     tap_node(remote)
@@ -175,9 +188,10 @@ def enable_remote_debugging():
         if remote is None:
             time.sleep(0.25)
             continue
-        if remote["checked"] == "true":
+        state = remote_debugging_state(nodes, remote)
+        if state is True:
             return {"enabled": True, "changed": True, "label": remote["text"] or remote["desc"]}
-        if remote["checked"] == "":
+        if state is None:
             return {
                 "enabled": None,
                 "changed": True,
