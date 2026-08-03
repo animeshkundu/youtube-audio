@@ -48,6 +48,11 @@ Five executable gate outcomes must pass:
    128-133 but its add-on-install command returns an empty `InvalidArgumentError` before any test
    runs. Geckodriver 0.36.0 installs the same XPI on both releases. The Firefox-side breakpoint is
    exact: the current driver fails on 133 and succeeds on 134, with 134-139 all confirmed installable.
+   Both drivers receive the bench XPI through geckodriver's absolute-path `install addon` command.
+   Selenium's base64 `installAddon()` transport can activate the add-on on Firefox 138-143 while the
+   content process silently fails to load its declarative content script from the decoded
+   temporary-profile XPI. The path command preserves the temporary install and add-on ID while
+   keeping both desktop suites operational across the version matrix.
 5. **upgrade-verify-140**: after `upgrade-seed-139` creates granted and revoked non-temporary
    Developer Edition profiles, Firefox 140 reopens the exact profile artifacts and reports the
    literal `permissions.getAll()` state plus playback behavior.

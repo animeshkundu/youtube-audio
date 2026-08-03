@@ -296,3 +296,11 @@ flowchart LR
 - `.output/firefox-mv3/`: Firefox MV3 capability directory.
 - `dist/youtube-audio.xpi`: stable packaged MV2 artifact consumed by the Selenium harness.
 - `dist/youtube-audio-<version>-signed.xpi`: Mozilla-signed unlisted release artifact (created only with AMO credentials).
+
+## Desktop Hermetic Harness
+
+The hermetic bench and settings-permutation matrix share `runSession` and install the same
+`dist/youtube-audio-bench.xpi` as a temporary add-on through geckodriver's absolute-path command.
+This avoids Selenium's base64 transport, whose decoded temporary-profile XPI can activate without
+loading declarative content scripts in Firefox 138-143. Installation remains temporary and returns
+the permanent add-on ID used by the existing onboarding-tab cleanup and teardown.
