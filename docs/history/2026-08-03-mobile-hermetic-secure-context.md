@@ -4,27 +4,27 @@
 
 ## Summary
 
-The blocking Fenix fixture probe now makes the emulator's local host alias a secure context in its
-ephemeral WebDriver profile and proves that condition before testing playback.
+The blocking Fenix fixture probe now maps its local fixture through emulator loopback and proves the
+secure-context condition before testing playback.
 
 ## Root cause and change
 
-- All five Fenix releases installed the temporary XPI, resolved data consent as granted, and ran the
-  isolated content script. The BENCH marker was present, but the bridge nonce, settings message,
-  playback status, media hijack, and fixture player request were absent.
-- The local Android fixture uses `http://10.0.2.2:<port>`. Unlike the desktop loopback fixture, that
-  hostname is not potentially trustworthy by default. Content initialization calls
-  `crypto.randomUUID()` to make its bridge nonce, so it stopped before injecting MAIN world.
-- The probe now sets `dom.securecontext.allowlist=10.0.2.2` only in the throwaway Fenix automation
-  profile. Firefox's implementation applies this comma-separated preference to HTTP and WebSocket
-  hostnames; it deliberately does not require or accept a port.
-- After each fixture navigation, the probe fails with the observed origin and context state unless the
-  document is secure and exposes `crypto.randomUUID`. The existing consent, `active`,
-  `/videoplayback`, and player-POST assertions remain mandatory.
+- All five Fenix releases installed the temporary XPI, resolved data consent as granted, ran the
+  isolated content script, and recorded the fixture player POST. The first pass reached
+  `fallback`/`media-attach-failed` because `10.0.2.2` is intentionally outside the existing BENCH
+  media safety allowlist, which accepts only loopback fixture media.
+- The probe starts the fixture on the runner, then uses `adb reverse tcp:<port> tcp:<port>` to make the
+  same server available as emulator `localhost:<port>`. The page, player response, and media request
+  now use that established BENCH-only loopback route; no production match, permission, or playback
+  source policy changes.
+- Loopback also supplies a secure context without a browser policy override. After each navigation,
+  the probe fails with the observed origin and context state unless `crypto.randomUUID` is available.
+  The existing consent, `active`, `/videoplayback`, and player-POST assertions remain mandatory.
+- The earlier action-owned `adb: device offline` exit-code-1 messages occur while it polls
+  `sys.boot_completed`; each completed boot before the checked-in runner began. They are a benign
+  emulator bootstrap race, not a Fenix UI or fixture failure.
 
 ## References
 
-- Firefox implementation: `dom/security/nsMixedContentBlocker.cpp`,
-  `IsPotentiallyTrustworthyOrigin`
-- Firefox preference coverage: `dom/security/test/unit/test_isOriginPotentiallyTrustworthy.js`
+- Android Debug Bridge reverse port forwarding
 - Web Cryptography `Crypto.randomUUID()` secure-context requirement

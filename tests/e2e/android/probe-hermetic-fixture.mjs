@@ -36,7 +36,7 @@ const UI_SCRIPT = fileURLToPath(new URL('./ui.py', import.meta.url));
 const GECKO =
   process.env.GECKODRIVER_BIN || process.env.GECKO || `${process.cwd()}/node_modules/.bin/geckodriver`;
 const FENIX_PACKAGE = process.env.FENIX_PACKAGE || 'org.mozilla.firefox';
-const FIXTURE_HOST = '10.0.2.2';
+const FIXTURE_HOST = 'localhost';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SESSION_RETRY_ERROR =
   /^Could not launch Android [\w.]+\/org\.mozilla\.fenix\.IntentReceiverActivity: Resource temporarily unavailable \(os error 11\)$/;
@@ -54,9 +54,6 @@ function firefoxOptions() {
   options.setPreference('media.autoplay.default', 0);
   options.setPreference('media.autoplay.blocking_policy', 0);
   options.setPreference('media.autoplay.allow-muted', true);
-  // The emulator host alias is HTTP, unlike desktop's loopback fixture. This test-profile-only
-  // allowlist keeps the content script's secure-context nonce available without changing production.
-  options.setPreference('dom.securecontext.allowlist', FIXTURE_HOST);
   return options;
 }
 
@@ -234,6 +231,7 @@ const report = {
   fixtureNavigations: 0,
   fixtureOrigin: null,
   fixtureSecurity: null,
+  fixtureReverse: null,
   addonId: null,
   remoteDebugging: null,
   rdp: null,
@@ -246,9 +244,13 @@ const report = {
 
 const fixture = createFixtureServer();
 let driver;
+let fixtureReversePort;
 try {
-  const { origin } = await fixture.start({ hostname: '0.0.0.0', publicHostname: '10.0.2.2' });
+  const { origin, port } = await fixture.start({ hostname: '0.0.0.0', publicHostname: FIXTURE_HOST });
   report.fixtureOrigin = origin;
+  await adb('reverse', `tcp:${port}`, `tcp:${port}`);
+  fixtureReversePort = port;
+  report.fixtureReverse = { device: `tcp:${port}`, host: `tcp:${port}` };
 
   driver = await startAndroidSession(report);
   await driver.manage().setTimeouts({ script: 60_000, pageLoad: 90_000 });
@@ -280,6 +282,9 @@ try {
   report.error = String(error?.stack || error);
 } finally {
   if (driver) await driver.quit().catch(() => undefined);
+  if (fixtureReversePort) {
+    await adb('reverse', '--remove', `tcp:${fixtureReversePort}`).catch(() => undefined);
+  }
   await fixture.close().catch(() => undefined);
 }
 
