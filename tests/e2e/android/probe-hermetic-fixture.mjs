@@ -41,7 +41,6 @@ const SESSION_RETRY_ERROR =
   /^Could not launch Android [\w.]+\/org\.mozilla\.fenix\.IntentReceiverActivity: Resource temporarily unavailable \(os error 11\)$/;
 const MAX_SESSION_ATTEMPTS = 3;
 const MAX_FIXTURE_NAVIGATIONS = 3;
-const FIXTURE_ACTIVATION_TIMEOUT_MS = 15_000;
 const RDP_SOCKET_WAIT_MS = 30_000;
 const RDP_CONNECT_RETRIES = 150;
 const RDP_CONNECT_RETRY_INTERVAL_MS = 200;
@@ -171,22 +170,32 @@ async function snapshot(driver) {
   });
 }
 
-async function navigateUntilTerminalState(driver, fixtureUrl, report) {
+async function navigateUntilContentScriptAttached(driver, fixtureUrl, report) {
   let last = null;
   for (let attempt = 1; attempt <= MAX_FIXTURE_NAVIGATIONS; attempt += 1) {
     report.fixtureNavigations = attempt;
     await driver.get(fixtureUrl);
-    const deadline = Date.now() + FIXTURE_ACTIVATION_TIMEOUT_MS;
+    const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       last = await snapshot(driver);
-      if (last.marker === '1' && ['active', 'fallback', 'disabled'].includes(last.status)) return last;
+      if (last.marker === '1') return;
       await sleep(250);
     }
   }
   throw new Error(
-    `fixture did not reach a terminal extension state after ${MAX_FIXTURE_NAVIGATIONS} navigations: ` +
-      `${JSON.stringify(last)}`
+    `fixture content script did not attach after ${MAX_FIXTURE_NAVIGATIONS} navigations: ${JSON.stringify(last)}`
   );
+}
+
+async function waitForTerminalState(driver) {
+  const deadline = Date.now() + 60_000;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await snapshot(driver);
+    if (last.marker === '1' && ['active', 'fallback', 'disabled'].includes(last.status)) return last;
+    await sleep(500);
+  }
+  throw new Error(`fixture did not reach a terminal extension state: ${JSON.stringify(last)}`);
 }
 
 const report = {
@@ -226,11 +235,8 @@ try {
       contentScriptMatches: manifest.content_scripts?.map((contentScript) => contentScript.matches) ?? [],
     };
   });
-  report.snapshot = await navigateUntilTerminalState(
-    driver,
-    `${origin}/watch?v=FIXTURE0001`,
-    report
-  );
+  await navigateUntilContentScriptAttached(driver, `${origin}/watch?v=FIXTURE0001`, report);
+  report.snapshot = await waitForTerminalState(driver);
   report.playerRequests = fixture
     .getRequests()
     .filter((request) => request.method === 'POST' && request.path === '/youtubei/v1/player').length;

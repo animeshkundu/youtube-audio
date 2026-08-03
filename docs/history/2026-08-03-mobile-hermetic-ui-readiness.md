@@ -23,6 +23,8 @@ used by the add-ons actor.
 - Failed dump attempts include the `uiautomator dump`, file-size check, file-read result, and raw
   output. The final error preserves the most recent attempts rather than exposing an unadorned XML
   parser error.
+- The RDP socket wait retries transient adb command failures and includes its final command output
+  when the debugger socket does not appear.
 - Settings navigation accepts direct Settings access, the More options/Menu routes, and the
   About Firefox secret-settings layout used by supported Fenix releases.
 - The fixture assertions remain unchanged: temporary XPI installation, consent seeding, `active`
