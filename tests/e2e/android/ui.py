@@ -122,6 +122,15 @@ def remote_debugging_state(nodes, remote):
     return None
 
 
+def dismiss_system_dialog(nodes):
+    title = first_match(nodes, ("isn't responding", "is not responding"))
+    wait = first_match(nodes, ("wait",))
+    if title is None or wait is None:
+        return False
+    tap_node(wait)
+    return True
+
+
 def tap_node(node):
     if node["center"] is None:
         raise RuntimeError(f"node has no bounds: {node}")
@@ -145,6 +154,9 @@ def wait_for_node(queries, timeout):
     last_raw = ""
     while time.monotonic() < deadline:
         nodes, last_raw = dump_nodes()
+        if dismiss_system_dialog(nodes):
+            time.sleep(0.5)
+            continue
         node = first_match(nodes, queries)
         if node is not None:
             return node, last_raw
@@ -157,6 +169,8 @@ def wait_for_node(queries, timeout):
 def enable_remote_debugging():
     remote_labels = ("remote debugging via usb", "remote debugging")
     nodes, raw = dump_nodes()
+    if dismiss_system_dialog(nodes):
+        nodes, raw = dump_nodes()
     remote = first_match(nodes, remote_labels)
     if remote is None:
         menu, _ = wait_for_node(("more options", "menu"), 45)
@@ -166,6 +180,9 @@ def enable_remote_debugging():
 
         for _ in range(16):
             nodes, raw = dump_nodes()
+            if dismiss_system_dialog(nodes):
+                time.sleep(0.5)
+                continue
             remote = first_match(nodes, remote_labels)
             if remote is not None:
                 break
@@ -184,6 +201,9 @@ def enable_remote_debugging():
     last_raw = raw
     while time.monotonic() < deadline:
         nodes, last_raw = dump_nodes()
+        if dismiss_system_dialog(nodes):
+            time.sleep(0.5)
+            continue
         remote = first_match(nodes, remote_labels)
         if remote is None:
             time.sleep(0.25)
