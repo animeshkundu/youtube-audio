@@ -19,11 +19,27 @@ import xml.etree.ElementTree as ET
 
 ADB = os.environ.get("ADB", "adb")
 UI_DUMP_PATH = "/sdcard/yta-ui.xml"
-RETRY_DELAYS = (0.2, 0.4, 0.8, 1.0, 1.0, 1.0)
+UI_READY_TIMEOUT = 60
+UI_DUMP_ATTEMPT_TIMEOUT = 5
+UI_DUMP_INITIAL_DELAY = 0.25
+UI_DUMP_MAX_DELAY = 2
+UI_DUMP_FAILURES_TO_REPORT = 5
+ADB_COMMAND_TIMEOUT = 15
 
 
-def adb(*args):
-    return subprocess.run([ADB, *args], capture_output=True, text=True)
+def adb(*args, timeout=ADB_COMMAND_TIMEOUT):
+    command = [ADB, *args]
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else error.stdout or ""
+        stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr or ""
+        return subprocess.CompletedProcess(
+            command,
+            124,
+            stdout,
+            f"{stderr}\ncommand exceeded its {timeout:.2f}s timeout",
+        )
 
 
 def command_output(result):
@@ -36,6 +52,18 @@ def command_output(result):
     )
 
 
+def command_before(deadline, *args):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return subprocess.CompletedProcess(
+            [ADB, *args],
+            125,
+            "",
+            "command skipped because the uiautomator attempt deadline elapsed",
+        )
+    return adb(*args, timeout=remaining)
+
+
 def node_center(bounds):
     match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds or "")
     if match is None:
@@ -46,16 +74,21 @@ def node_center(bounds):
     )
 
 
-def dump_nodes():
+def dump_nodes(timeout=UI_DUMP_ATTEMPT_TIMEOUT):
+    deadline = time.monotonic() + timeout
     failures = []
-    for delay in RETRY_DELAYS:
-        adb("shell", "rm", "-f", UI_DUMP_PATH)
-        dumped = adb("shell", "uiautomator", "dump", UI_DUMP_PATH)
-        landed = adb("shell", "test", "-s", UI_DUMP_PATH)
-        read = adb("shell", "cat", UI_DUMP_PATH)
+    delay = UI_DUMP_INITIAL_DELAY
+    attempts = 0
+    while True:
+        attempts += 1
+        cleared = command_before(deadline, "shell", "rm", "-f", UI_DUMP_PATH)
+        dumped = command_before(deadline, "shell", "uiautomator", "dump", UI_DUMP_PATH)
+        landed = command_before(deadline, "shell", "test", "-s", UI_DUMP_PATH)
+        read = command_before(deadline, "shell", "cat", UI_DUMP_PATH)
         raw = read.stdout
         details = "\n\n".join(
             (
+                command_output(cleared),
                 command_output(dumped),
                 command_output(landed),
                 command_output(read),
@@ -63,7 +96,12 @@ def dump_nodes():
             )
         )
 
-        if dumped.returncode == 0 and landed.returncode == 0 and read.returncode == 0:
+        if (
+            cleared.returncode == 0
+            and dumped.returncode == 0
+            and landed.returncode == 0
+            and read.returncode == 0
+        ):
             try:
                 root = ET.fromstring(raw)
                 if root.tag != "hierarchy":
@@ -86,9 +124,18 @@ def dump_nodes():
                 failures.append(f"uiautomator XML parse failure: {error}\n{details}")
         else:
             failures.append(f"uiautomator dump did not land\n{details}")
-        time.sleep(delay)
+
+        if len(failures) > UI_DUMP_FAILURES_TO_REPORT:
+            failures.pop(0)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, UI_DUMP_MAX_DELAY)
+
     raise RuntimeError(
-        "uiautomator did not produce well-formed XML after retries:\n\n"
+        f"uiautomator did not produce well-formed XML after {attempts} attempts "
+        f"within {timeout}s; showing the last {len(failures)} attempt(s):\n\n"
         + "\n\n--- retry ---\n\n".join(failures)
     )
 
@@ -149,11 +196,24 @@ def swipe(direction):
         raise RuntimeError(f"scroll failed\n{command_output(result)}")
 
 
+def press_back():
+    result = adb("shell", "input", "keyevent", "4")
+    if result.returncode != 0:
+        raise RuntimeError(f"back navigation failed\n{command_output(result)}")
+
+
 def wait_for_node(queries, timeout):
     deadline = time.monotonic() + timeout
     last_raw = ""
+    last_error = ""
     while time.monotonic() < deadline:
-        nodes, last_raw = dump_nodes()
+        remaining = deadline - time.monotonic()
+        try:
+            nodes, last_raw = dump_nodes(min(UI_DUMP_ATTEMPT_TIMEOUT, remaining))
+        except RuntimeError as error:
+            last_error = str(error)
+            time.sleep(min(UI_DUMP_INITIAL_DELAY, max(0, deadline - time.monotonic())))
+            continue
         if dismiss_system_dialog(nodes):
             time.sleep(0.5)
             continue
@@ -162,33 +222,93 @@ def wait_for_node(queries, timeout):
             return node, last_raw
         time.sleep(0.25)
     raise RuntimeError(
-        f"Fenix UI did not expose any of {queries!r} within {timeout}s:\nraw dump:\n{last_raw}"
+        f"Fenix UI did not expose any of {queries!r} within {timeout}s:\n"
+        f"raw dump:\n{last_raw}\n\nlast dump failure:\n{last_error}"
     )
+
+
+def wait_for_ui_ready(timeout=UI_READY_TIMEOUT):
+    deadline = time.monotonic() + timeout
+    last_error = ""
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            nodes, raw = dump_nodes(min(UI_DUMP_ATTEMPT_TIMEOUT, remaining))
+        except RuntimeError as error:
+            last_error = str(error)
+            time.sleep(min(UI_DUMP_INITIAL_DELAY, max(0, deadline - time.monotonic())))
+            continue
+        if nodes:
+            return nodes, raw
+        time.sleep(UI_DUMP_INITIAL_DELAY)
+    raise RuntimeError(
+        f"Fenix did not expose a usable accessibility hierarchy within {timeout}s:\n{last_error}"
+    )
+
+
+def find_after_scrolling(queries, scrolls=16):
+    last_raw = ""
+    for _ in range(scrolls):
+        nodes, last_raw = wait_for_ui_ready()
+        if dismiss_system_dialog(nodes):
+            time.sleep(0.5)
+            continue
+        node = first_match(nodes, queries)
+        if node is not None:
+            return node, nodes, last_raw
+        swipe("down")
+        time.sleep(0.25)
+    return None, None, last_raw
+
+
+def scroll_to_top(scrolls=20):
+    for _ in range(scrolls):
+        swipe("up")
+        time.sleep(0.15)
+
+
+def open_secret_settings():
+    scroll_to_top()
+    about, _, raw = find_after_scrolling(("about firefox", "about"), 20)
+    if about is None:
+        raise RuntimeError(f"Fenix settings did not expose About Firefox:\nraw dump:\n{raw}")
+    tap_node(about)
+
+    remote, _, _ = find_after_scrolling(("remote debugging via usb", "remote debugging"), 8)
+    if remote is not None:
+        return
+
+    scroll_to_top()
+    logo, _ = wait_for_node(("firefox logo",), 20)
+    for _ in range(5):
+        tap_node(logo)
+        time.sleep(0.15)
+
+    press_back()
+    wait_for_node(("settings",), 20)
+    secret, _ = wait_for_node(("secret settings", "developer settings", "debug settings"), 20)
+    tap_node(secret)
 
 
 def enable_remote_debugging():
     remote_labels = ("remote debugging via usb", "remote debugging")
-    nodes, raw = dump_nodes()
+    nodes, raw = wait_for_ui_ready()
     if dismiss_system_dialog(nodes):
-        nodes, raw = dump_nodes()
+        nodes, raw = wait_for_ui_ready()
     remote = first_match(nodes, remote_labels)
     if remote is None:
-        menu, _ = wait_for_node(("more options", "menu"), 45)
-        tap_node(menu)
-        settings, _ = wait_for_node(("settings",), 20)
+        settings = first_match(nodes, ("settings",))
+        if settings is None:
+            menu, _ = wait_for_node(("more options", "menu"), 45)
+            tap_node(menu)
+            settings, _ = wait_for_node(("settings",), 20)
         tap_node(settings)
 
-        for _ in range(16):
-            nodes, raw = dump_nodes()
-            if dismiss_system_dialog(nodes):
-                time.sleep(0.5)
-                continue
-            remote = first_match(nodes, remote_labels)
-            if remote is not None:
-                break
-            swipe("down")
-            time.sleep(0.25)
-        else:
+        remote, nodes, raw = find_after_scrolling(remote_labels)
+        if remote is None:
+            open_secret_settings()
+            remote, nodes, raw = find_after_scrolling(remote_labels)
+        if remote is None:
             raise RuntimeError(
                 f"Fenix settings did not expose Remote debugging after scrolling:\nraw dump:\n{raw}"
             )
@@ -200,7 +320,7 @@ def enable_remote_debugging():
     deadline = time.monotonic() + 15
     last_raw = raw
     while time.monotonic() < deadline:
-        nodes, last_raw = dump_nodes()
+        nodes, last_raw = wait_for_ui_ready()
         if dismiss_system_dialog(nodes):
             time.sleep(0.5)
             continue
@@ -267,6 +387,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (IndexError, RuntimeError) as error:
+    except (IndexError, RuntimeError, ET.ParseError) as error:
         print(f"Fenix UI automation failed: {error}", file=sys.stderr)
         raise SystemExit(1)
