@@ -207,11 +207,20 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
     playerAds: [{ playerLegacyDesktopWatchAdsRenderer: { id: 'fixture-player-ad' } }],
   };
   window.__fixtureErrors = [];
+  window.__fixtureSettingsMessages = [];
   window.addEventListener('error', function (event) {
     window.__fixtureErrors.push(String(event.error || event.message || 'page-error'));
   });
   window.addEventListener('unhandledrejection', function (event) {
     window.__fixtureErrors.push(String(event.reason || 'unhandled-rejection'));
+  });
+  window.addEventListener('message', function (event) {
+    if (!event.data || event.data.channel !== 'yta:settings') return;
+    window.__fixtureSettingsMessages.push({
+      origin: event.origin,
+      sourceIsWindow: event.source === window,
+      hasNonce: typeof event.data.nonce === 'string',
+    });
   });
 </script>
 </head>
