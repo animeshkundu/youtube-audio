@@ -17,6 +17,9 @@ the temporary BENCH XPI through the Firefox Android RDP add-ons actor.
 - The probe fails closed unless Fenix creates its native debugger socket. It then forwards that socket
   and uses the RDP add-ons actor, because Fenix 128 rejects WebDriver temporary installation and later
   releases did not attach content scripts after the WebDriver command.
+- A direct preference write is not a reliable substitute: Fenix's preference-change listener updates
+  both its stored preference and the live Gecko runtime setting, so storage alone does not enable RDP
+  in the running app.
 - The fixture is mapped to emulator loopback with `adb reverse`, which supplies both the BENCH media
   allowlist route and the secure context required by the bridge. The probe still requires granted
   consent, `active` status, a `/videoplayback` source, and a fixture player POST.
