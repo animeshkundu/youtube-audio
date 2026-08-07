@@ -128,10 +128,14 @@ async function installAndroidAddonViaRdp() {
   const socketTarget = socket.startsWith('@')
     ? `localabstract:${socket.slice(1)}`
     : `localfilesystem:${socket}`;
-  await adb('forward', `tcp:${port}`, socketTarget);
 
   let remoteFirefox;
+  let forwarded = false;
+  let primaryError;
+  let installResult;
   try {
+    await adb('forward', `tcp:${port}`, socketTarget);
+    forwarded = true;
     remoteFirefox = await connectWithMaxRetries({
       port,
       maxRetries: RDP_CONNECT_RETRIES,
@@ -142,10 +146,41 @@ async function installAndroidAddonViaRdp() {
     if (addonId !== ADDON_ID) {
       throw new Error(`RDP installed unexpected add-on: ${JSON.stringify(result)}`);
     }
-    return { addonId, socket, port };
-  } finally {
-    remoteFirefox?.disconnect();
+    installResult = { addonId, socket, port };
+  } catch (error) {
+    primaryError = error;
   }
+
+  const cleanupErrors = [];
+  try {
+    await remoteFirefox?.disconnect();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (forwarded) {
+    try {
+      await adb('forward', '--remove', `tcp:${port}`);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+
+  if (primaryError) {
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [primaryError, ...cleanupErrors],
+        `Fenix RDP failed and its adb forward tcp:${port} could not be removed`
+      );
+    }
+    throw primaryError;
+  }
+  if (cleanupErrors.length === 1) {
+    throw cleanupErrors[0];
+  }
+  if (cleanupErrors.length > 1) {
+    throw new AggregateError(cleanupErrors, `Fenix RDP cleanup failed for adb forward tcp:${port}`);
+  }
+  return installResult;
 }
 
 async function snapshot(driver) {
