@@ -8,6 +8,10 @@ Accepted.
 
 2026-08-10
 
+## Revised
+
+2026-08-11
+
 ## Context
 
 The existing marketing site used a dark-only coral identity, a partial token set, and a
@@ -16,15 +20,26 @@ benefit, support boundary, and direct installation path. Secondary routes shared
 visual shell, so replacing only the hero would leave the public experience inconsistent.
 
 The extension already has a mature neutral surface system with an aqua active-state
-accent. The public site should feel related to the shipped product without copying the
-extension UI or preserving the previous site's layout.
+accent. The public site should feel intentional without copying the extension UI or
+preserving the previous site's layout. The marketing identity needs a separate red and
+black palette that gives its primary install action clear visual priority.
 
 ## Decision
 
 Rebuild the website token layer, shared shell, and landing page from scratch around neutral
-surfaces and the extension's aqua accent. Aqua may carry primary marketing actions in
-addition to active-state meaning. Rebuild the logo and favicon with the same role-based
-identity.
+surfaces. The website uses red and black as its marketing identity: near-black and
+black-derived neutrals carry structure, while full-strength red is reserved for the primary
+install action and true brand moments. Secondary accent roles remain neutral so repeated
+labels, links, markers, and icons do not compete with the install action.
+
+Light and dark themes use independently chosen ramp steps. Focus indicators remain neutral
+and meet the all-surface contrast contract, including against the near-black product frame.
+Status roles remain semantically distinct from brand red and retain text or icon cues so
+meaning never depends on hue alone.
+
+The light focus indicator depends on a positive outline offset to keep the neutral ring
+adjacent to the surrounding surface instead of the red control fill. Removing that offset is
+an accessibility-breaking token change and requires renewed contrast validation.
 
 Restyle the how-it-works, privacy, guide index, and guide-entry routes through the new
 shared layouts and tokens while preserving their routes and information architecture.
@@ -44,7 +59,7 @@ token matrix and rendered boundaries so a valid token pair cannot mask an invali
 
 ### Positive
 
-- The marketing site and extension share a recognizable product identity.
+- The marketing site has a disciplined red and black identity with one dominant action.
 - Every route receives the same accessible light and dark visual system.
 - The install path works in static HTML and remains available from every page.
 - The landing page can be evaluated as one visitor journey rather than unrelated sections.
@@ -54,6 +69,9 @@ token matrix and rendered boundaries so a valid token pair cannot mask an invali
 - Existing site-specific visual choices are intentionally discarded.
 - Shared component and prose styles must be updated together.
 - Dark extension screenshots require deliberate framing on the light website theme.
+- The aqua extension interface, static favicon, and social preview remain visibly separate
+  from the website palette because this website-only token change does not alter extension
+  artwork or raw asset colours.
 
 ## Related
 

@@ -12,6 +12,8 @@ const LONG_HEADLINE = process.env.LONG_HEADLINE;
 const VALIDATE = process.env.VALIDATE === '1';
 const USER_AGENT = process.env.UA;
 const FOCUS_TARGET = process.env.FOCUS_TARGET;
+const FOCUS_CROP = process.env.FOCUS_CROP === '1';
+const FOCUS_CROP_PADDING = Number(process.env.FOCUS_CROP_PAD || 16);
 const HOVER_TARGET = process.env.HOVER_TARGET;
 const DEVICE_SCALE_FACTOR = Number(process.env.DSF || 2);
 
@@ -119,6 +121,12 @@ const parseRenderedColor = (value) => {
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
+
+assert(!FOCUS_CROP || FOCUS_TARGET, 'FOCUS_CROP requires FOCUS_TARGET');
+assert(
+  Number.isFinite(FOCUS_CROP_PADDING) && FOCUS_CROP_PADDING >= 0,
+  'FOCUS_CROP_PAD must be a non-negative number',
+);
 
 async function validatePage(page, path, viewport, theme) {
   const structure = await page.evaluate(() => {
@@ -288,6 +296,12 @@ async function validatePage(page, path, viewport, theme) {
       ]);
     }
   }
+  contrastChecks.push([
+    '--color-focus on --color-image-surface',
+    tokens['--color-focus'],
+    tokens['--color-image-surface'],
+    3,
+  ]);
 
   for (const [name, foreground, background, minimum] of contrastChecks) {
     const ratio = contrast(foreground, background);
@@ -479,7 +493,36 @@ for (const theme of THEMES) {
         .join('-');
       const filename = [TAG, label, viewport.name, theme, state].filter(Boolean).join('-');
       const output = `${OUT}/${filename}.png`;
-      await page.screenshot({ path: output, fullPage: true });
+      if (FOCUS_CROP) {
+        const target = page.locator(FOCUS_TARGET).first();
+        await target.scrollIntoViewIfNeeded();
+        const box = await target.boundingBox();
+        assert(box, `${path}: focused target ${FOCUS_TARGET} has no visible bounding box`);
+        const requiredPadding = await target.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return Number.parseFloat(style.outlineWidth) + Math.abs(Number.parseFloat(style.outlineOffset));
+        });
+        const padding = Math.max(FOCUS_CROP_PADDING, requiredPadding);
+        const viewport = page.viewportSize();
+        assert(viewport, `${path}: focused target crop requires a fixed viewport`);
+        const x = Math.max(0, box.x - padding);
+        const y = Math.max(0, box.y - padding);
+        const right = Math.min(
+          viewport.width,
+          box.x + box.width + padding,
+        );
+        const bottom = Math.min(
+          viewport.height,
+          box.y + box.height + padding,
+        );
+        assert(right > x && bottom > y, `${path}: focused target crop is empty`);
+        await page.screenshot({
+          path: output,
+          clip: { x, y, width: right - x, height: bottom - y },
+        });
+      } else {
+        await page.screenshot({ path: output, fullPage: true });
+      }
       console.log('shot', output);
     }
 

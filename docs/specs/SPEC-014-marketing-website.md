@@ -63,9 +63,12 @@ shell without a client script.
 - radii, elevation, layout widths, focus rings, state colors, durations, and easing;
 - light values by default and dark values under `prefers-color-scheme: dark`.
 
-Components consume only role tokens. Aqua is the primary accent so the marketing site
-matches the shipped extension. Product screenshots retain their dark application surface
-inside a neutral, tokenized frame in either website theme.
+Components consume only role tokens. Red and black define the marketing identity:
+black-derived neutrals carry surfaces, structure, borders, and secondary content, while
+full-strength red is reserved for the primary install action and true brand moments.
+Repeated labels, links, markers, and icons use neutral secondary accent roles. Product
+screenshots retain their dark application surface inside a neutral, tokenized frame in
+either website theme; the extension itself remains unchanged.
 
 `--color-border` is the component-boundary token and must maintain at least 3:1 contrast
 against every canvas and surface role in both themes. `--color-border-subtle` is decorative
@@ -94,9 +97,12 @@ labelled as illustrative arithmetic. It also states that actual audio streams va
 
 The existing `shoot.mjs`, `shoot-el.mjs`, and `shoot-detail.mjs` accept environment-driven
 color scheme, user agent, JavaScript, and viewport options. `shoot.mjs` additionally accepts
-long-headline and interaction-state options, continues to produce full-page screenshots, and
-can run structural, accessibility, contrast, reduced-motion, no-JavaScript, first-viewport,
-and overflow assertions.
+long-headline and interaction-state options, continues to produce full-page screenshots by
+default, and can run structural, accessibility, contrast, reduced-motion, no-JavaScript,
+first-viewport, and overflow assertions. An opt-in `FOCUS_CROP=1` mode requires
+`FOCUS_TARGET` and captures a padded close-up of the keyboard-focused target without
+changing the existing full-page focus capture contract. `FOCUS_CROP_PAD` controls the
+padding in CSS pixels and defaults to 16.
 
 ## Error Handling
 
