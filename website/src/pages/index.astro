@@ -3,305 +3,269 @@ import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
 import InstallButton from '../components/InstallButton.astro';
 import WindowFrame from '../components/WindowFrame.astro';
-import FeatureRow from '../components/FeatureRow.astro';
-import { url, SITE } from '../consts';
+import PhoneFrame from '../components/PhoneFrame.astro';
+import { SITE, url } from '../consts';
 
-const benefits = [
-  { icon: 'battery', label: 'Longer battery' },
-  { icon: 'bolt', label: 'Less mobile data' },
-  { icon: 'moon', label: 'Plays in the background' },
-  { icon: 'shield', label: 'No ads, no tracking' },
+const defaultFeatures = [
+  'Audio-only playback',
+  'Background play',
+  'In-player artwork',
+  'Ghost telemetry blocking',
+  'Ad descriptor blocking',
+  'Music loudness normalization',
 ];
 
-const cards = [
+const optionalFeatures = [
+  'Sponsor and non-music skipping',
+  'Five-band EQ',
+  'Audio download',
+  'Video quality cap',
+  'Shorts, comments and recommendation cleaner',
+];
+
+const limits = [
   {
-    icon: 'moon',
-    title: 'Background and lock-screen play',
-    body: 'Lock the phone or switch tabs and the audio carries on, with your usual OS and lock-screen media controls.',
+    icon: 'compass',
+    title: 'Firefox only',
+    text: 'Firefox 128+ on desktop and Firefox for Android are supported. Chrome, Edge and Safari are not.',
   },
   {
-    icon: 'download',
-    title: 'Save a track',
-    body: 'Download the current audio as a single, tidy .m4a file that plays just about anywhere. Off until you turn it on.',
-  },
-  {
-    icon: 'sparkles',
-    title: 'A tidier YouTube',
-    body: 'Optionally hide Shorts, recommendations, or comments, cap the video quality, or switch off autoplay-next.',
-  },
-  {
-    icon: 'smartphone',
-    title: 'Made for your phone',
-    body: 'Firefox for Android is a first-class target, not an afterthought, with touch-friendly controls and full feature parity.',
-  },
-  {
-    icon: 'eyeoff',
-    title: 'Collects nothing about you',
-    body: 'No analytics, no phone-home, and no server of ours in the loop. Turn on skipping and only a short anonymized hash leaves your browser.',
+    icon: 'lock',
+    title: 'Signed-out playback',
+    text: 'The extension never uses your YouTube account or cookies. Videos that require a login play normally.',
   },
   {
     icon: 'lifebuoy',
-    title: 'Honest diagnostics',
-    body: 'If something breaks, a built-in local log gives you a readable record to check word for word. Nothing personal is in it.',
+    title: 'Fallback is a feature',
+    text: 'Live or DVR streams, made-for-kids videos, age restrictions, members-only uploads and any failed lookup stay with normal YouTube.',
   },
-];
-
-const promises = [
-  ['Logged out, always.', 'Everything works while signed out, on purpose. The extension never attaches your YouTube login.'],
-  ['No cookies on the wire.', 'Every request it makes to fetch your audio goes out without them.'],
-  ['No server of ours.', 'There is no account and no analytics, so there is nothing to leak and nothing to sell.'],
-  ['Falls back gracefully.', 'Anything it cannot play as audio only just hands you back to normal YouTube.'],
+  {
+    icon: 'shield',
+    title: 'Blocking is bounded',
+    text: 'It prunes known ad descriptors and selected telemetry endpoints. It does not promise to remove every server-inserted ad.',
+  },
 ];
 ---
 
 <Base>
-  <!-- ================= HERO ================= -->
-  <section class="hero">
+  <section class="hero" aria-labelledby="hero-title">
     <div class="shell hero__grid">
       <div class="hero__copy">
-        <span class="eyebrow"><Icon name="headphones" size={15} stroke={2} /> Firefox · Desktop &amp; Android</span>
-        <h1 class="hero__title">YouTube, <span class="accent">just the sound.</span></h1>
-        <p class="lead hero__lead">
-          A Firefox add-on that plays YouTube and YouTube Music as audio only, so your battery and mobile data can
-          last a lot longer. No account, no sign-in, nothing to configure to get started.
+        <p class="eyebrow"><Icon name="headphones" size={15} stroke={2} /> Firefox desktop + Android</p>
+        <h1 id="hero-title" class="hero__title">YouTube and YouTube Music. <span>Just the audio.</span></h1>
+        <p class="hero__lead">
+          YouTube Audio swaps the page player to a direct audio stream. It stops requesting new video
+          segments, so listening uses less data and avoids video decoding your battery does not need.
         </p>
-        <div class="cluster hero__cta">
-          <InstallButton size="lg" />
-          <a class="btn btn--ghost btn--lg" href={url('/guide/')}>
-            <Icon name="compass" size={18} /> Take the tour
-          </a>
+        <div class="cluster hero__actions">
+          <InstallButton size="large" label="Add to Firefox — free" />
+          <a class="btn btn--large" href="#experience">See it in action <Icon name="arrow" size={17} /></a>
         </div>
-        <ul class="hero__points">
-          <li><Icon name="check" size={16} stroke={2.4} /> Free and open source</li>
-          <li><Icon name="check" size={16} stroke={2.4} /> Firefox {SITE.minFirefox} and up</li>
-          <li><Icon name="check" size={16} stroke={2.4} /> Runs while you are signed out</li>
-        </ul>
+        <p class="hero__note">
+          Firefox {SITE.minFirefox}+ · desktop and Android · signed-out use · open source
+        </p>
       </div>
 
-      <div class="hero__media">
-        <div class="hero__popup">
-          <WindowFrame
-            src="/screenshots/popup-panel-active.png"
-            alt="The YouTube Audio popup showing audio-only active for the current video, background play on, and ads and trackers blocked."
-            label="Audio on · this video"
-            glow="coral"
-            eager={true}
-          />
+      <div class="hero__visual">
+        <div class="hero__signal">
+          <span class="hero__signal-dot"></span>
+          Audio only is active
         </div>
-      </div>
-    </div>
-
-    <div class="shell">
-      <ul class="benefits">
-        {
-          benefits.map((b) => (
-            <li class="benefit">
-              <span class="benefit__icon"><Icon name={b.icon} size={19} /></span>
-              {b.label}
-            </li>
-          ))
-        }
-      </ul>
-    </div>
-  </section>
-
-  <!-- ================= STATEMENT ================= -->
-  <section class="statement">
-    <div class="shell shell--narrow text-center">
-      <p class="statement__text">
-        Play a three hour mix in a tab you never look at, and normally YouTube keeps shovelling video down your
-        connection the whole time. Install this, and that stops. The picture goes, the sound stays.
-      </p>
-      <p class="statement__quote">Let YouTube be the <span class="accent">radio</span> it always wanted to be.</p>
-    </div>
-  </section>
-
-  <!-- ================= FEATURES ================= -->
-  <section class="section">
-    <div class="shell">
-      <div class="features">
-        <FeatureRow>
-        <Fragment slot="copy">
-          <span class="eyebrow">Simple by default</span>
-          <h2 class="frow__title">On the moment you install it</h2>
-          <p class="frow__body">
-            Audio-only, background play, and ad blocking are on out of the box. There is nothing to set up and
-            nothing to sign into. Segment skipping is available when you choose to turn it on. Open a video and the
-            picture drops away, the sound keeps going, and your laptop
-            stops decoding video it will never show.
-          </p>
-          <p class="frow__body">
-            When you do want the picture back, one tap in the player brings it back at the exact spot you were
-            listening, playing or paused.
-          </p>
-        </Fragment>
-        <Fragment slot="media">
-          <WindowFrame
-            src="/screenshots/onboarding.png"
-            alt="The onboarding screen: You're all set. Audio-only, background play, and ad blocking are on. Nothing to set up."
-            label="Welcome"
-            glow="teal"
-          />
-        </Fragment>
-      </FeatureRow>
-
-      <FeatureRow reversed>
-        <Fragment slot="copy">
-          <span class="eyebrow">Quiet by design</span>
-          <h2 class="frow__title">No ads, no tracking</h2>
-          <p class="frow__body">
-            Ads and tracking pings get blocked before they leave your browser, quietly, without you asking. Ghost
-            mode drops YouTube's telemetry, and the ad blocker strips ad slots out of the player response so the
-            native player has nothing to play.
-          </p>
-          <p class="frow__body">
-            Both fail open. If anything ever looks off, playback falls straight back to normal YouTube. No broken
-            player, ever.
-          </p>
-        </Fragment>
-        <Fragment slot="media">
-          <WindowFrame
-            src="/screenshots/options-privacy.png"
-            alt="The Privacy and Blocking settings: block ads, Ghost mode, and aggressive telemetry blocking."
-            label="Privacy &amp; blocking"
-            glow="coral"
-          />
-        </Fragment>
-      </FeatureRow>
-
-      <FeatureRow>
-        <Fragment slot="copy">
-          <span class="eyebrow">Segment skipping</span>
-          <h2 class="frow__title">Skip the boring bits</h2>
-          <p class="frow__body">
-            Auto-skip glides past sponsor reads and off-topic intros. It is community-powered: it uses the
-            crowd-sourced SponsorBlock database, so it works on the videos other people have already marked.
-          </p>
-          <p class="frow__body">
-            The clever part is the privacy. Only a tiny four-character hash of the video ever leaves your machine to
-            look segments up, a hash shared by thousands of other videos, so nobody learns what you are watching.
-          </p>
-        </Fragment>
-        <Fragment slot="media">
-          <WindowFrame
-            src="/screenshots/options-skipping.png"
-            alt="The Skipping settings: skip segments, with sponsored and non-music categories."
-            label="Skipping"
-            glow="teal"
-          />
-        </Fragment>
-      </FeatureRow>
-
-      <FeatureRow reversed>
-        <Fragment slot="copy">
-          <span class="eyebrow">YouTube Music</span>
-          <h2 class="frow__title">Leveled up for listening</h2>
-          <p class="frow__body">
-            Loudness normalization evens out the loud-and-quiet track problem, so you are not forever reaching for
-            the volume knob between songs. A five-band equalizer lets you shape the sound to taste: more bass,
-            brighter highs, whatever you like.
-          </p>
-          <p class="frow__body">Both are one click away in settings, and they only touch YouTube Music.</p>
-        </Fragment>
-        <Fragment slot="media">
-          <WindowFrame
-            src="/screenshots/options-music.png"
-            alt="The Music settings: normalize loudness and a five-band equalizer at 60 Hz, 250 Hz, 1 kHz, 4 kHz, and 12 kHz."
-            label="Music"
-            glow="coral"
-          />
-        </Fragment>
-      </FeatureRow>
-      </div>
-    </div>
-  </section>
-
-  <!-- ================= HONEST STATUS ================= -->
-  <section class="section honest">
-    <div class="shell text-center honest__head">
-      <span class="eyebrow" style="justify-content:center">Honest status</span>
-      <h2 class="section__title">The popup tells you the truth</h2>
-      <p class="lead mx-auto" style="max-width:44rem">
-        The status you see is the real state of the current video, pulled from what actually happened on the page,
-        not from a setting you flipped once. When a video cannot play as audio only, the popup says so instead of
-        showing a green light that is lying.
-      </p>
-    </div>
-    <div class="shell honest__pair">
-      <div class="honest__card">
         <WindowFrame
           src="/screenshots/popup-panel-active.png"
-          alt="The popup: audio-only on for this video."
-          label="Regular video"
-          glow="teal"
+          alt="Extension popup confirming audio-only playback is active, with background play, ad blocking and Ghost mode enabled."
+          width={320}
+          height={384}
+          eager={true}
         />
-        <p class="honest__cap"><span class="state"><span class="state__dot"></span>Audio on</span></p>
-      </div>
-      <div class="honest__card">
-        <WindowFrame
-          src="/screenshots/popup-panel-fallback.png"
-          alt="The popup being honest: this is a live stream, so it is playing normally."
-          label="Live stream"
-          glow="none"
-        />
-        <p class="honest__cap">
-          <span class="state state--muted"><span class="state__dot"></span>Playing normally</span>
-        </p>
       </div>
     </div>
   </section>
 
-  <!-- ================= HOW IT WORKS ================= -->
-  <section class="section works">
+  <section id="experience" class="section experience" aria-labelledby="experience-title">
     <div class="shell">
-      <div class="works__head">
+      <header class="section-heading">
+        <p class="eyebrow">What it is and who it is for</p>
+        <h2 id="experience-title">Keep the player you know. Drop the picture you are not watching.</h2>
+        <p>
+          Built for mixes, podcasts, lectures and music playing in another tab or behind a locked phone.
+          The YouTube timeline and controls remain; the extension changes the media source, not the whole player.
+        </p>
+      </header>
+
+      <div class="experience__showcase">
+        <article class="experience__main card">
+          <div>
+            <p class="eyebrow">Current-video status</p>
+            <h3>It reports what actually happened</h3>
+            <p>
+              The popup distinguishes successful audio-only playback from a fallback. A live stream, for
+              example, stays on normal YouTube instead of showing a misleading active state.
+            </p>
+          </div>
+          <div class="experience__pair">
+            <figure>
+              <WindowFrame
+                src="/screenshots/popup-panel-active.png"
+                alt="Popup showing audio-only active for a supported video."
+                width={320}
+                height={384}
+              />
+              <figcaption><span class="status-dot status-dot--on"></span> Audio only</figcaption>
+            </figure>
+            <figure>
+              <WindowFrame
+                src="/screenshots/popup-panel-fallback.png"
+                alt="Popup explaining that a live stream is playing normally instead of using audio-only mode."
+                width={320}
+                height={382}
+              />
+              <figcaption><span class="status-dot"></span> Normal playback</figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="experience__mobile card">
+          <div>
+            <p class="eyebrow">Made for listening</p>
+            <h3>Settings on a narrow screen</h3>
+            <p>
+              The options page stacks its controls for a narrow Firefox window. Audio can keep playing
+              when you switch apps or lock Android, while YouTube's own media session continues handling
+              play, pause and seeking.
+            </p>
+          </div>
+          <PhoneFrame
+            src="/screenshots/options-mobile.png"
+            alt="Mobile options screen with touch-friendly quick controls for audio-only and background playback."
+          />
+        </article>
+      </div>
+
+      <div class="feature-defaults">
         <div>
-          <span class="eyebrow">How it works</span>
-          <h2 class="section__title">No magic, and no server of ours</h2>
+          <h3>On by default</h3>
+          <ul>
+            {defaultFeatures.map((feature) => <li><Icon name="check" size={16} /> {feature}</li>)}
+          </ul>
         </div>
-        <p class="lead works__intro">
-          The add-on asks YouTube's own player for a plain audio stream, without your cookies, and quietly points
-          the page's video element at it. Everything else is a small layer that gets out of the way the moment it
-          cannot help.
-        </p>
+        <div>
+          <h3>Available when you opt in</h3>
+          <ul>
+            {optionalFeatures.map((feature) => <li><Icon name="plus" size={16} /> {feature}</li>)}
+          </ul>
+        </div>
       </div>
-      <ol class="steps">
-        <li class="step">
-          <span class="step__num">1</span>
-          <h3>Ask YouTube for audio</h3>
-          <p>A quiet, cookie-free request for a direct audio stream, the moment you open a video.</p>
-        </li>
-        <li class="step">
-          <span class="step__num">2</span>
-          <h3>Swap the page player</h3>
-          <p>The native player gets pointed at that stream. Same controls, same shortcuts, nothing rebuilt.</p>
-        </li>
-        <li class="step">
-          <span class="step__num">3</span>
-          <h3>Video download stops</h3>
-          <p>YouTube stops sending the video. The sound keeps playing, and your battery and data can both last longer.</p>
-        </li>
-      </ol>
-      <a class="btn btn--ghost works__link" href={url('/how-it-works/')}>
-        Read how it works, with diagrams <Icon name="arrow" size={17} />
-      </a>
     </div>
   </section>
 
-  <!-- ================= EVERYTHING ELSE ================= -->
-  <section class="section">
-    <div class="shell">
-      <div class="text-center" style="margin-bottom:clamp(2.5rem,5vw,3.5rem)">
-        <span class="eyebrow" style="justify-content:center">Powerful on demand</span>
-        <h2 class="section__title">Everything else it does</h2>
+  <section id="savings" class="section savings" aria-labelledby="savings-title">
+    <div class="shell savings__grid">
+      <div class="savings__copy">
+        <p class="eyebrow">Why it saves battery and bandwidth</p>
+        <h2 id="savings-title">One audio stream instead of audio plus video.</h2>
+        <p>
+          On a successful switch, the page uses a direct audio format and stops requesting new video
+          segments. The browser also has no video track to decode and paint while the tab sits out of sight.
+          That is the saving: less media transferred, and less work performed.
+        </p>
+        <a href={url('/how-it-works/')}>Read the exact playback sequence <Icon name="arrow" size={16} /></a>
       </div>
-      <ul class="cards">
+
+      <div class="savings__proof">
+        <article class="metric card">
+          <span>Illustrative audio stream</span>
+          <strong>58–72 MB / hour</strong>
+          <p>128 kbit/s is about 58 MB per hour; 160 kbit/s is about 72 MB per hour.</p>
+        </article>
+        <article class="metric metric--mechanism card">
+          <span>Measured repository signal</span>
+          <strong>No new video segments</strong>
+          <p>Observed during the successful audio-only hijack window in the project spike.</p>
+        </article>
+        <p class="savings__caveat">
+          These figures are arithmetic examples, not a guaranteed saving. Actual audio formats vary,
+          roughly 50–160 kbit/s in project research, and normal YouTube traffic returns during fallback.
+          Battery benefit is not stated as a number because it has not been measured.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="section install" aria-labelledby="install-title">
+    <div class="shell">
+      <header class="section-heading">
+        <p class="eyebrow">Install in Firefox</p>
+        <h2 id="install-title">One add-on, two supported places.</h2>
+        <p>
+          The same Mozilla Add-ons listing installs on Firefox desktop and Firefox for Android.
+          Firefox 128 or newer is required.
+        </p>
+      </header>
+
+      <div class="install__cards">
+        <article class="install-card card">
+          <span class="install-card__icon"><Icon name="compass" size={24} /></span>
+          <p class="install-card__step">Desktop</p>
+          <h3>Firefox on Windows, macOS or Linux</h3>
+          <ol>
+            <li>Open the Mozilla Add-ons listing in Firefox.</li>
+            <li>Select <strong>Add to Firefox</strong> and approve the requested access.</li>
+            <li>Open YouTube while signed out and play a supported video.</li>
+          </ol>
+          <InstallButton label="Install for Firefox desktop" />
+        </article>
+
+        <article class="install-card card">
+          <span class="install-card__icon"><Icon name="smartphone" size={24} /></span>
+          <p class="install-card__step">Android</p>
+          <h3>Firefox for Android</h3>
+          <ol>
+            <li>Open this page in Firefox for Android.</li>
+            <li>Use the same Mozilla Add-ons listing and confirm installation.</li>
+            <li>Open YouTube or YouTube Music while signed out.</li>
+          </ol>
+          <InstallButton label="Install for Firefox Android" />
+        </article>
+      </div>
+
+      <aside class="browser-note" aria-label="Browser support note">
+        <Icon name="lifebuoy" size={21} />
+        <div>
+          <h3>Reading this in Chrome, Edge or Safari?</h3>
+          <p>
+            The add-on requires Firefox network APIs. Open this page in Firefox 128+ to install it.
+            The install link stays available so you can copy or send it to the right browser.
+          </p>
+        </div>
+        <InstallButton variant="secondary" label="Open Mozilla Add-ons" />
+      </aside>
+
+      <p class="alternate-install">
+        Prefer a file? Regular release <code>.xpi</code> files are available on
+        <a href={SITE.releases}>GitHub Releases</a>. Developers can also load a source build through
+        <code>about:debugging</code>, but that temporary installation disappears when Firefox closes.
+      </p>
+    </div>
+  </section>
+
+  <section id="limits" class="section limits" aria-labelledby="limits-title">
+    <div class="shell">
+      <header class="section-heading">
+        <p class="eyebrow">What it does not do</p>
+        <h2 id="limits-title">Clear boundaries, not fine print.</h2>
+        <p>
+          YouTube Audio is deliberately narrow: signed-out, credentialless audio playback that hands
+          control back whenever it cannot work safely.
+        </p>
+      </header>
+      <ul class="limits__grid">
         {
-          cards.map((c) => (
-            <li class="card">
-              <span class="card__icon"><Icon name={c.icon} size={21} /></span>
-              <h3 class="card__title">{c.title}</h3>
-              <p class="card__body">{c.body}</p>
+          limits.map((limit) => (
+            <li class="limit-card card">
+              <Icon name={limit.icon} size={22} />
+              <h3>{limit.title}</h3>
+              <p>{limit.text}</p>
             </li>
           ))
         }
@@ -309,437 +273,617 @@ const promises = [
     </div>
   </section>
 
-  <!-- ================= PRIVACY PROMISE ================= -->
-  <section class="section promise-wrap">
-    <div class="shell">
-      <div class="promise">
-        <div class="promise__intro">
-          <span class="eyebrow">Built for you, not for data</span>
-          <h2 class="section__title">The whole privacy story, in plain terms</h2>
-          <p class="frow__body">
-            There is no account, no server of ours, and no analytics. Here is exactly what that means.
-          </p>
-          <a class="btn btn--ghost" href={url('/privacy/')}>Read the full privacy page <Icon name="arrow" size={17} /></a>
-        </div>
-        <ul class="promise__list">
-          {
-            promises.map(([t, b]) => (
-              <li>
-                <Icon name="check" size={18} stroke={2.4} class="promise__check" />
-                <span><strong>{t}</strong> {b}</span>
-              </li>
-            ))
-          }
-        </ul>
+  <section id="privacy" class="section privacy" aria-labelledby="privacy-title">
+    <div class="shell privacy__panel">
+      <div class="privacy__intro">
+        <p class="eyebrow">What it does with your data</p>
+        <h2 id="privacy-title">No project analytics. No developer server. No YouTube login.</h2>
+        <p>
+          Extension requests use <code>credentials: 'omit'</code>. The project receives no playback,
+          browsing or settings data, while the services providing the requested media still see the
+          limited requests sent directly to them.
+        </p>
+        <a class="btn" href={url('/privacy/')}>Read the full privacy page <Icon name="arrow" size={16} /></a>
       </div>
+
+      <dl class="data-list">
+        <div>
+          <dt>www.youtube.com</dt>
+          <dd>Video ID, page visitor data and the ANDROID_VR client descriptor for the audio lookup.</dd>
+        </div>
+        <div>
+          <dt>*.googlevideo.com</dt>
+          <dd>The selected credentialless audio stream, or audio bytes for an optional download.</dd>
+        </div>
+        <div>
+          <dt>i.ytimg.com</dt>
+          <dd>The thumbnail used only as decorative artwork inside the page player.</dd>
+        </div>
+        <div>
+          <dt>sponsor.ajay.app · optional</dt>
+          <dd>
+            Only after separate opt-in: the first 16 bits of SHA-256(video ID). Exact matching stays local.
+          </dd>
+        </div>
+        <div>
+          <dt>Your device</dt>
+          <dd>Settings and redacted diagnostics stay local. Diagnostics are never transmitted.</dd>
+        </div>
+      </dl>
     </div>
   </section>
 
-  <!-- ================= FINAL CTA ================= -->
-  <section class="section--tight">
-    <div class="shell">
-      <div class="cta">
-        <h2 class="cta__title">Give it a spin</h2>
-        <p class="lead cta__lead">
-          Put your headphones on and let that playlist run without cooking your battery. The essentials are on out
-          of the box. The rest waits until you ask.
-        </p>
-        <div class="cluster cta__row">
-          <InstallButton size="lg" />
-          <a class="btn btn--ghost btn--lg" href={url('/guide/install/')}>Install on Android <Icon name="arrow" size={17} /></a>
-        </div>
-        <p class="cta__note">Firefox {SITE.minFirefox} and up, on desktop and Android.</p>
+  <section class="section--compact final-cta" aria-labelledby="final-cta-title">
+    <div class="shell final-cta__panel">
+      <div>
+        <p class="eyebrow">Ready to listen?</p>
+        <h2 id="final-cta-title">Make the next YouTube tab audio only.</h2>
       </div>
+      <InstallButton size="large" label="Add YouTube Audio to Firefox" />
     </div>
   </section>
 </Base>
 
 <style>
-  /* ---------- hero ---------- */
   .hero {
-    padding-top: clamp(2.5rem, 6vw, 5rem);
-    padding-bottom: clamp(2.5rem, 5vw, 4rem);
+    display: grid;
+    min-height: calc(100svh - var(--header-height));
+    align-items: center;
+    padding-block: var(--space-fluid-sm);
   }
+
   .hero__grid {
     display: grid;
-    grid-template-columns: 1.05fr 0.95fr;
-    gap: clamp(2rem, 6vw, 5rem);
+    grid-template-columns: minmax(0, 1.25fr) minmax(19rem, 0.65fr);
     align-items: center;
+    gap: var(--space-fluid-md);
   }
-  @media (max-width: 860px) {
-    .hero__grid {
-      grid-template-columns: 1fr;
-      gap: 2.75rem;
-    }
+
+  .hero__copy {
+    position: relative;
+    z-index: 1;
   }
+
   .hero__title {
-    font-size: clamp(2.7rem, 6.4vw, 4.5rem);
-    font-weight: 680;
-    letter-spacing: -0.035em;
-    line-height: 1.02;
-    margin-top: 1.1rem;
+    max-width: 18ch;
+    margin-top: var(--space-4);
+    font-size: var(--text-display);
+    line-height: var(--leading-tight);
   }
+
+  .hero__title span {
+    color: var(--color-accent-strong);
+  }
+
   .hero__lead {
-    margin-top: 1.35rem;
-    max-width: 33rem;
-    font-size: clamp(1.08rem, 1.5vw, 1.24rem);
+    max-width: 39rem;
+    margin-top: var(--space-5);
+    color: var(--color-content-muted);
+    font-size: var(--text-md);
+    line-height: 1.55;
   }
-  .hero__cta {
-    margin-top: 2rem;
-    gap: 0.85rem;
+
+  .hero__actions {
+    margin-top: var(--space-6);
   }
-  .hero__points {
-    list-style: none;
-    padding: 0;
-    margin: 1.9rem 0 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.5rem;
+
+  .hero__note {
+    margin-top: var(--space-4);
+    color: var(--color-content-subtle);
+    font-size: var(--text-sm);
   }
-  .hero__points li {
+
+  .hero__visual {
+    position: relative;
+    width: min(100%, 25rem);
+    justify-self: end;
+  }
+
+  .hero__visual::before {
+    position: absolute;
+    inset: -12% 0;
+    z-index: -1;
+    border-radius: var(--radius-round);
+    background: var(--color-glow);
+    content: '';
+    filter: blur(3rem);
+  }
+
+  .hero__signal {
+    position: absolute;
+    top: calc(var(--space-4) * -1);
+    left: calc(var(--space-4) * -1);
+    z-index: 2;
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--fg-dim);
-    font-size: 0.92rem;
-  }
-  .hero__points svg {
-    color: var(--coral);
-  }
-
-  .hero__media {
-    display: flex;
-    justify-content: center;
-  }
-  .hero__popup {
-    position: relative;
-    width: min(100%, 366px);
-  }
-  .hero__pill {
-    position: absolute;
-    top: -13px;
-    left: -10px;
-    background: var(--bg-2);
-    padding: 5px;
-    border-radius: var(--r-pill);
-    border: 1px solid var(--line);
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 0.0625rem solid var(--color-border-strong);
+    border-radius: var(--radius-round);
+    background: var(--color-surface-raised);
+    color: var(--color-content);
     box-shadow: var(--shadow-md);
-    z-index: 2;
-  }
-  @media (max-width: 860px) {
-    .hero__media {
-      justify-content: flex-start;
-    }
-  }
-  @media (max-width: 460px) {
-    .hero__pill {
-      left: 50%;
-      transform: translateX(-50%);
-      top: -13px;
-    }
+    font-size: var(--text-sm);
+    font-weight: 700;
   }
 
-  /* ---------- benefits ---------- */
-  .benefits {
-    list-style: none;
-    padding: 1.2rem clamp(1rem, 3vw, 2rem);
-    margin: clamp(3rem, 6vw, 4.5rem) 0 0;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
+  .hero__signal-dot,
+  .status-dot {
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: var(--radius-round);
+    background: var(--color-content-subtle);
   }
-  .benefit {
+
+  .hero__signal-dot,
+  .status-dot--on {
+    background: var(--color-status-success);
+  }
+
+  .experience {
+    border-block: 0.0625rem solid var(--color-border);
+    background: var(--color-surface-subtle);
+  }
+
+  .experience__showcase {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(17rem, 0.75fr);
+    gap: var(--space-5);
+  }
+
+  .experience__main,
+  .experience__mobile {
+    padding: var(--space-fluid-sm);
+  }
+
+  .experience__main h3,
+  .experience__mobile h3 {
+    margin-top: var(--space-3);
+    font-size: var(--text-2xl);
+  }
+
+  .experience__main > div > p:last-child,
+  .experience__mobile > div > p:last-child {
+    margin-top: var(--space-3);
+    color: var(--color-content-muted);
+  }
+
+  .experience__pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+  }
+
+  .experience__pair figure {
+    min-width: 0;
+    margin: var(--space-0);
+  }
+
+  .experience__pair figcaption {
     display: flex;
     align-items: center;
-    gap: 0.7rem;
     justify-content: center;
-    color: var(--fg-muted);
-    font-weight: 550;
-    font-size: 0.96rem;
-  }
-  .benefit__icon {
-    display: inline-grid;
-    place-items: center;
-    width: 38px;
-    height: 38px;
-    flex: none;
-    border-radius: var(--r-sm);
-    color: var(--coral);
-    background: var(--coral-soft);
-  }
-  @media (max-width: 720px) {
-    .benefits {
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1.1rem;
-    }
-    .benefit {
-      justify-content: flex-start;
-    }
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+    font-weight: 650;
   }
 
-  /* ---------- statement ---------- */
-  .statement {
-    padding-block: clamp(3rem, 6vw, 5rem);
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, rgba(255, 106, 69, 0.035), transparent 60%);
-  }
-  .statement__text {
-    font-size: clamp(1.15rem, 2vw, 1.5rem);
-    line-height: 1.5;
-    color: var(--fg);
-    font-weight: 400;
-    letter-spacing: -0.01em;
-  }
-  .statement__quote {
-    margin-top: 1.4rem;
-    font-size: clamp(1.4rem, 3vw, 2.1rem);
-    font-weight: 640;
-    letter-spacing: -0.025em;
-    color: var(--fg);
-  }
-
-  /* ---------- feature rows ---------- */
-  .features {
-    display: flex;
-    flex-direction: column;
-    gap: clamp(3.5rem, 6vw, 5.5rem);
-  }
-  .frow__title {
-    font-size: clamp(1.7rem, 3vw, 2.35rem);
-    margin: 0.9rem 0 0;
-  }
-  .frow__body {
-    color: var(--fg-muted);
-    font-size: 1.05rem;
-    line-height: 1.65;
-    margin-top: 1.1rem;
-  }
-  .section__title {
-    font-size: clamp(1.9rem, 3.2vw, 2.6rem);
-    margin-top: 0.7rem;
-  }
-
-  /* ---------- honest status ---------- */
-  .honest__head {
-    margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
-  }
-  .honest__head .lead {
-    margin-top: 1.1rem;
-  }
-  .honest__pair {
+  .experience__mobile {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: clamp(1.5rem, 5vw, 3.5rem);
-    max-width: 820px;
-    margin-inline: auto;
+    align-content: space-between;
+    justify-items: center;
+    gap: var(--space-8);
   }
-  .honest__card {
+
+  .feature-defaults {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+    margin-top: var(--space-5);
+  }
+
+  .feature-defaults > div {
+    padding: var(--space-5);
+    border: 0.0625rem solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+
+  .feature-defaults h3 {
+    font-size: var(--text-md);
+  }
+
+  .feature-defaults ul {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: var(--space-4) var(--space-0) var(--space-0);
+    padding: var(--space-0);
+    list-style: none;
+  }
+
+  .feature-defaults li {
+    display: inline-flex;
     align-items: center;
-  }
-  .honest__card :global(.frame) {
-    width: min(100%, 340px);
-  }
-  .honest__cap {
-    margin-top: 1.4rem;
-  }
-  @media (max-width: 620px) {
-    .honest__pair {
-      grid-template-columns: 1fr;
-      gap: 2.5rem;
-    }
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-round);
+    background: var(--color-surface-accent);
+    color: var(--color-content);
+    font-size: var(--text-sm);
   }
 
-  /* ---------- how it works ---------- */
-  .works__head {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: clamp(1.5rem, 5vw, 4rem);
-    align-items: end;
-    margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
-  }
-  .works__intro {
-    padding-bottom: 0.2rem;
-  }
-  .steps {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.25rem;
-    counter-reset: step;
-  }
-  .step {
-    position: relative;
-    padding: 1.9rem 1.6rem 1.7rem;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-  }
-  .step__num {
-    display: inline-grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    font-weight: 680;
-    font-size: 1.05rem;
-    color: var(--coral-ink);
-    background: linear-gradient(180deg, var(--coral-bright), var(--coral));
-    margin-bottom: 1.1rem;
-  }
-  .step h3 {
-    font-size: 1.16rem;
-    margin-bottom: 0.5rem;
-  }
-  .step p {
-    color: var(--fg-dim);
-    font-size: 0.96rem;
-    line-height: 1.55;
-  }
-  .works__link {
-    margin-top: 2rem;
-  }
-  @media (max-width: 820px) {
-    .works__head {
-      grid-template-columns: 1fr;
-      align-items: start;
-      gap: 1rem;
-    }
-    .steps {
-      grid-template-columns: 1fr;
-    }
+  .feature-defaults svg {
+    color: var(--color-accent-strong);
   }
 
-  /* ---------- cards ---------- */
-  .cards {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  .savings__grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.1rem;
-  }
-  .card {
-    padding: 1.8rem 1.6rem;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
-  }
-  .card:hover {
-    border-color: var(--line-strong);
-    background: var(--surface-2);
-    transform: translateY(-2px);
-  }
-  .card__icon {
-    display: inline-grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: var(--r-md);
-    color: var(--coral);
-    background: var(--coral-soft);
-    border: 1px solid rgba(255, 106, 69, 0.16);
-    margin-bottom: 1.15rem;
-  }
-  .card__title {
-    font-size: 1.14rem;
-    margin-bottom: 0.55rem;
-  }
-  .card__body {
-    color: var(--fg-dim);
-    font-size: 0.96rem;
-    line-height: 1.58;
-  }
-  @media (max-width: 900px) {
-    .cards {
-      grid-template-columns: repeat(2, 1fr);
-    }
-  }
-  @media (max-width: 600px) {
-    .cards {
-      grid-template-columns: 1fr;
-    }
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: start;
+    gap: var(--space-fluid-md);
   }
 
-  /* ---------- privacy promise ---------- */
-  .promise {
-    display: grid;
-    grid-template-columns: 0.9fr 1.1fr;
-    gap: clamp(2rem, 6vw, 4.5rem);
-    padding: clamp(2rem, 5vw, 3.5rem);
-    background:
-      radial-gradient(120% 140% at 100% 0%, var(--coral-soft), transparent 55%),
-      var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-xl);
+  .savings__copy h2 {
+    max-width: 12ch;
+    margin-top: var(--space-3);
+    font-size: var(--text-3xl);
+  }
+
+  .savings__copy > p:not(.eyebrow) {
+    margin-top: var(--space-5);
+    color: var(--color-content-muted);
+    font-size: var(--text-md);
+  }
+
+  .savings__copy > a {
+    display: inline-flex;
     align-items: center;
-  }
-  .promise__intro .btn {
-    margin-top: 1.6rem;
-  }
-  .promise__list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1.1rem;
-  }
-  .promise__list li {
-    display: flex;
-    gap: 0.85rem;
-    color: var(--fg-muted);
-    font-size: 1rem;
-    line-height: 1.55;
-  }
-  .promise__list strong {
-    color: var(--fg);
-    font-weight: 620;
-  }
-  .promise__check {
-    color: var(--coral);
-    flex: none;
-    margin-top: 0.2rem;
-  }
-  @media (max-width: 820px) {
-    .promise {
-      grid-template-columns: 1fr;
-      gap: 2rem;
-    }
+    gap: var(--space-2);
+    margin-top: var(--space-6);
+    color: var(--color-accent-strong);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: var(--space-1);
   }
 
-  /* ---------- final cta ---------- */
-  .cta {
+  .savings__proof {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .metric {
+    padding: var(--space-6);
+  }
+
+  .metric > span {
+    color: var(--color-content-subtle);
+    font-size: var(--text-xs);
+    font-weight: 740;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .metric strong {
+    display: block;
+    margin-top: var(--space-4);
+    color: var(--color-accent-strong);
+    font-size: var(--text-2xl);
+    line-height: var(--leading-heading);
+  }
+
+  .metric p {
+    margin-top: var(--space-3);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+  }
+
+  .metric--mechanism {
+    background: var(--color-surface-accent);
+  }
+
+  .savings__caveat {
+    grid-column: 1 / -1;
+    padding: var(--space-4) var(--space-5);
+    border-left: 0.25rem solid var(--color-status-warning);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-status);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+  }
+
+  .install {
+    border-block: 0.0625rem solid var(--color-border);
+    background: var(--color-surface-subtle);
+  }
+
+  .install__cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+
+  .install-card {
+    display: grid;
+    justify-items: start;
+    padding: var(--space-fluid-sm);
+  }
+
+  .install-card__icon {
+    display: grid;
+    width: 3rem;
+    height: 3rem;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
+  }
+
+  .install-card__step {
+    margin-top: var(--space-5);
+    color: var(--color-accent-strong);
+    font-size: var(--text-xs);
+    font-weight: 760;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+  }
+
+  .install-card h3 {
+    margin-top: var(--space-2);
+    font-size: var(--text-xl);
+  }
+
+  .install-card ol {
+    margin: var(--space-5) var(--space-0);
+    padding-left: var(--space-5);
+    color: var(--color-content-muted);
+  }
+
+  .install-card li {
+    margin-block: var(--space-2);
+    padding-left: var(--space-2);
+  }
+
+  .browser-note {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: var(--space-4);
+    margin-top: var(--space-5);
+    padding: var(--space-5);
+    border: 0.0625rem solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-status);
+  }
+
+  .browser-note > svg {
+    color: var(--color-status-warning);
+  }
+
+  .browser-note h3 {
+    font-size: var(--text-md);
+  }
+
+  .browser-note p {
+    margin-top: var(--space-1);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+  }
+
+  .alternate-install {
+    max-width: var(--layout-reading);
+    margin: var(--space-5) auto var(--space-0);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
     text-align: center;
-    padding: clamp(3rem, 7vw, 5rem) clamp(1.5rem, 5vw, 3rem);
-    background:
-      radial-gradient(90% 160% at 50% 0%, var(--coral-glow), transparent 60%),
-      linear-gradient(180deg, var(--surface), var(--bg-2));
-    border: 1px solid var(--line-strong);
-    border-radius: var(--r-xl);
   }
-  .cta__title {
-    font-size: clamp(2rem, 4vw, 3rem);
+
+  .alternate-install a {
+    color: var(--color-accent-strong);
+    font-weight: 700;
+    text-decoration: underline;
   }
-  .cta__lead {
-    margin: 1.1rem auto 0;
-    max-width: 40rem;
+
+  .alternate-install code {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-content);
+    font-family: var(--font-mono);
   }
-  .cta__row {
-    justify-content: center;
-    margin-top: 2rem;
+
+  .limits__grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin: var(--space-0);
+    padding: var(--space-0);
+    list-style: none;
   }
-  .cta__note {
-    margin-top: 1.4rem;
-    color: var(--fg-faint);
-    font-size: 0.9rem;
+
+  .limit-card {
+    padding: var(--space-5);
+  }
+
+  .limit-card > svg {
+    color: var(--color-accent-strong);
+  }
+
+  .limit-card h3 {
+    margin-top: var(--space-5);
+    font-size: var(--text-md);
+  }
+
+  .limit-card p {
+    margin-top: var(--space-3);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+  }
+
+  .privacy {
+    border-block: 0.0625rem solid var(--color-border);
+    background: var(--color-surface-subtle);
+  }
+
+  .privacy__panel {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    gap: var(--space-fluid-md);
+  }
+
+  .privacy__intro h2 {
+    max-width: 14ch;
+    margin-top: var(--space-3);
+    font-size: var(--text-3xl);
+  }
+
+  .privacy__intro > p:not(.eyebrow) {
+    margin-top: var(--space-5);
+    color: var(--color-content-muted);
+  }
+
+  .privacy__intro code {
+    color: var(--color-content);
+    font-family: var(--font-mono);
+  }
+
+  .privacy__intro .btn {
+    margin-top: var(--space-6);
+  }
+
+  .data-list {
+    margin: var(--space-0);
+    border-top: 0.0625rem solid var(--color-border);
+  }
+
+  .data-list div {
+    display: grid;
+    grid-template-columns: minmax(10rem, 0.7fr) minmax(0, 1.3fr);
+    gap: var(--space-4);
+    padding-block: var(--space-4);
+    border-bottom: 0.0625rem solid var(--color-border);
+  }
+
+  .data-list dt {
+    color: var(--color-content);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 700;
+  }
+
+  .data-list dd {
+    margin: var(--space-0);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
+  }
+
+  .final-cta__panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-6);
+    padding-block: var(--space-fluid-sm);
+  }
+
+  .final-cta h2 {
+    margin-top: var(--space-2);
+    font-size: var(--text-2xl);
+  }
+
+  @media (max-width: 64rem) {
+    .limits__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 52rem) {
+    .hero {
+      min-height: auto;
+    }
+
+    .hero__grid,
+    .experience__showcase,
+    .savings__grid,
+    .privacy__panel {
+      grid-template-columns: 1fr;
+    }
+
+    .hero__visual {
+      width: min(100%, 22rem);
+      justify-self: start;
+    }
+
+    .experience__mobile {
+      grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.65fr);
+      align-items: center;
+    }
+
+    .browser-note {
+      grid-template-columns: auto 1fr;
+    }
+
+    .browser-note :global(.btn) {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+  }
+
+  @media (max-width: 42rem) {
+    .hero__title {
+      font-size: clamp(2.25rem, 10vw, 4rem);
+    }
+
+    .hero__actions {
+      display: grid;
+      align-items: stretch;
+    }
+
+    .hero__actions :global(.btn) {
+      width: 100%;
+    }
+
+    .experience__pair,
+    .feature-defaults,
+    .savings__proof,
+    .install__cards,
+    .limits__grid {
+      grid-template-columns: 1fr;
+    }
+
+    .experience__mobile {
+      grid-template-columns: 1fr;
+    }
+
+    .metric {
+      grid-column: auto;
+    }
+
+    .savings__caveat {
+      grid-column: auto;
+    }
+
+    .data-list div {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
+
+    .final-cta__panel {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+
+  @media (max-width: 26rem) {
+    .hero__visual {
+      margin-top: var(--space-4);
+    }
+
+    .hero__signal {
+      left: var(--space-2);
+    }
   }
 </style>

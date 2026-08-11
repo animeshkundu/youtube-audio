@@ -9,11 +9,12 @@ export const url = (path: string): string => {
 
 export const SITE = {
   name: 'YouTube Audio',
-  tagline: 'YouTube, just the sound.',
+  tagline: 'YouTube and YouTube Music, audio only.',
   description:
-    'A Firefox add-on that plays YouTube and YouTube Music as audio only, so your battery and mobile data last longer. No account, no analytics.',
+    'A Firefox add-on that plays YouTube and YouTube Music as audio only, avoiding ongoing video transfer and decoding when you only want to listen.',
   repo: 'https://github.com/animeshkundu/youtube-audio',
   releases: 'https://github.com/animeshkundu/youtube-audio/releases',
+  amo: 'https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/',
   minFirefox: 128,
 };
 
@@ -28,7 +29,7 @@ export const FOOTER_LINKS = [
   {
     heading: 'Product',
     links: [
-      { label: 'Install', href: url('/guide/install/') },
+      { label: 'Install', href: SITE.amo },
       { label: 'Guide', href: url('/guide/') },
       { label: 'How it works', href: url('/how-it-works/') },
       { label: 'Privacy', href: url('/privacy/') },

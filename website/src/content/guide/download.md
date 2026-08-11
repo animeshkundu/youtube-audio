@@ -1,11 +1,13 @@
 ---
 title: Save a track
-summary: Turn on the in-player download and save the current audio as a tidy .m4a file.
+summary: Turn on the in-player download and save the current audio as .m4a or .webm.
 order: 5
 group: Features
 ---
 
-Audio-only is designed for lighter listening in Firefox. When you also want an offline copy, YouTube Audio can save the current track as one `.m4a` file through Firefox's normal download system.
+Audio-only is designed for lighter listening in Firefox. When you also want an offline
+copy, YouTube Audio can save the current track as one `.m4a` or `.webm` file through
+Firefox's normal download system.
 
 ## Show the download button
 
@@ -19,8 +21,12 @@ Select that button to start. It spins while Firefox fetches the audio, shows a c
 
 ## What gets saved
 
-The add-on requests a fresh direct audio stream without attaching your YouTube cookies, selects compatible AAC audio, creates a safe filename from the track title, and hands it to Firefox. Your file goes to the download location configured in Firefox.
+The add-on requests a fresh direct audio stream without attaching your YouTube cookies,
+prefers compatible AAC audio, creates a safe filename from the track title, and hands it to
+Firefox. Your file goes to the download location configured in Firefox.
 
-The result is one standard `.m4a` file. Availability still depends on YouTube returning a suitable direct audio format. If lookup, validation, or download fails, current playback is not changed.
+The result is normally an AAC `.m4a` file and can be an Opus `.webm` fallback. Downloads
+are capped at 512 MB. Availability still depends on YouTube returning a suitable direct
+audio format. If lookup, validation, or download fails, current playback is not changed.
 
-Use downloads only for material you are allowed to save, and follow the rights and rules that apply where you live. Read [Privacy](/youtube-audio/privacy/) for the network details, or see [the settings reference](/youtube-audio/guide/settings/) for every optional control.
+Use downloads only for material you are allowed to save, and follow the rights and rules that apply where you live. Read [Privacy](../../privacy/) for the network details, or see [the settings reference](../settings/) for every optional control.

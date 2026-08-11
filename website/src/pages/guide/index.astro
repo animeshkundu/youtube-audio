@@ -5,8 +5,8 @@ import InstallButton from '../../components/InstallButton.astro';
 import { getCollection } from 'astro:content';
 import { url } from '../../consts';
 
-const iconFor: Record<string, string> = {
-  install: 'plus',
+const icons: Record<string, string> = {
+  install: 'download',
   audio: 'volume',
   blocking: 'shield',
   music: 'sliders',
@@ -18,138 +18,178 @@ const iconFor: Record<string, string> = {
 };
 
 const entries = (await getCollection('guide')).sort(
-  (a, b) => (a.data.order ?? 99) - (b.data.order ?? 99)
+  (a, b) => (a.data.order ?? 99) - (b.data.order ?? 99),
 );
 ---
 
-<Base title="Guide" description="Set up YouTube Audio and get the most out of every feature: audio-only, blocking, YouTube Music, download, and more.">
-  <section class="ghead">
-    <div class="shell">
-      <span class="eyebrow"><Icon name="book" size={15} stroke={2} /> The guide</span>
-      <h1 class="ghead__title">Everything, one page at a time</h1>
-      <p class="lead ghead__lead">
-        Install it in a minute, then dig into whatever you like. Every feature is simple by default and waits
-        until you ask for more.
-      </p>
-      <div class="cluster ghead__cta">
-        <InstallButton />
-        <a class="btn btn--ghost" href={url('/how-it-works/')}>How it works <Icon name="arrow" size={17} /></a>
+<Base
+  title="Guide"
+  description="Install YouTube Audio and learn its audio-only playback, blocking, YouTube Music, download, cleaner, mobile and privacy controls."
+>
+  <section class="guide-head">
+    <div class="shell guide-head__grid">
+      <div>
+        <p class="eyebrow"><Icon name="book" size={15} /> Product guide</p>
+        <h1>From first install to every optional control.</h1>
+        <p class="lead">
+          Start with Firefox desktop or Android, then learn only the features you want.
+          Defaults, privacy boundaries and fallback behavior are called out along the way.
+        </p>
+      </div>
+      <div class="guide-head__actions">
+        <InstallButton size="large" />
+        <a class="btn" href={url('/how-it-works/')}>How it works <Icon name="arrow" size={16} /></a>
       </div>
     </div>
   </section>
 
-  <section class="glist-sec">
+  <section class="guide-list" aria-labelledby="chapters-title">
     <div class="shell">
-      <ul class="glist">
+      <h2 id="chapters-title">Nine short chapters</h2>
+      <ol>
         {
-          entries.map((e, idx) => (
-            <li class="gcard-wrap">
-              <a class="gcard" href={url(`/guide/${e.id}/`)}>
-                <span class="gcard__num">{String(idx + 1).padStart(2, '0')}</span>
-                <span class="gcard__icon"><Icon name={iconFor[e.id] ?? 'book'} size={20} /></span>
-                <span class="gcard__body">
-                  <span class="gcard__title">{e.data.title}</span>
-                  <span class="gcard__sum">{e.data.summary}</span>
+          entries.map((entry, index) => (
+            <li>
+              <a href={url(`/guide/${entry.id}/`)}>
+                <span class="guide-card__number">{String(index + 1).padStart(2, '0')}</span>
+                <span class="guide-card__icon"><Icon name={icons[entry.id] ?? 'book'} size={21} /></span>
+                <span class="guide-card__copy">
+                  <strong>{entry.data.title}</strong>
+                  <span>{entry.data.summary}</span>
                 </span>
-                <span class="gcard__arrow"><Icon name="arrow" size={18} /></span>
+                <Icon name="arrow" size={18} class="guide-card__arrow" />
               </a>
             </li>
           ))
         }
-      </ul>
+      </ol>
     </div>
   </section>
 </Base>
 
 <style>
-  .ghead {
-    padding-top: clamp(2.5rem, 6vw, 4.5rem);
-    padding-bottom: clamp(1.5rem, 3vw, 2.5rem);
-  }
-  .ghead__title {
-    font-size: clamp(2.3rem, 5vw, 3.4rem);
-    letter-spacing: -0.035em;
-    margin-top: 1rem;
-  }
-  .ghead__lead {
-    margin-top: 1.2rem;
-    max-width: 38rem;
-  }
-  .ghead__cta {
-    margin-top: 1.8rem;
-    gap: 0.75rem;
+  .guide-head {
+    padding-block: var(--space-fluid-md);
+    border-bottom: 0.0625rem solid var(--color-border);
+    background: var(--color-surface-subtle);
   }
 
-  .glist-sec {
-    padding-block: clamp(1rem, 2vw, 1.75rem) clamp(3.5rem, 7vw, 5.5rem);
+  .guide-head__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--space-fluid-sm);
   }
-  .glist {
+
+  .guide-head h1 {
+    max-width: 16ch;
+    margin-top: var(--space-3);
+    font-size: var(--text-3xl);
+  }
+
+  .guide-head .lead {
+    margin-top: var(--space-4);
+  }
+
+  .guide-head__actions {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .guide-list {
+    padding-block: var(--space-fluid-md);
+  }
+
+  .guide-list h2 {
+    margin-bottom: var(--space-6);
+    font-size: var(--text-xl);
+  }
+
+  .guide-list ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin: var(--space-0);
+    padding: var(--space-0);
     list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
   }
-  .gcard {
+
+  .guide-list li a {
     display: grid;
+    min-height: 100%;
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
-    gap: 1rem;
-    padding: 1.35rem 1.4rem;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--r-lg);
-    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    border: 0.0625rem solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    transition:
+      transform var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      box-shadow var(--duration-fast) var(--ease-out);
   }
-  .gcard:hover {
-    border-color: var(--line-strong);
-    background: var(--surface-2);
-    transform: translateY(-2px);
+
+  .guide-list li a:hover {
+    transform: translateY(-0.125rem);
+    border-color: var(--color-accent);
+    box-shadow: var(--shadow-md);
   }
-  .gcard__num {
+
+  .guide-card__number {
+    color: var(--color-content-subtle);
     font-family: var(--font-mono);
-    font-size: 0.82rem;
-    color: var(--fg-faint);
+    font-size: var(--text-xs);
   }
-  .gcard__icon {
-    display: inline-grid;
+
+  .guide-card__icon {
+    display: grid;
+    width: 2.75rem;
+    height: 2.75rem;
     place-items: center;
-    width: 42px;
-    height: 42px;
-    border-radius: var(--r-md);
-    color: var(--coral);
-    background: var(--coral-soft);
-    border: 1px solid rgba(255, 106, 69, 0.16);
+    border-radius: var(--radius-md);
+    background: var(--color-accent-soft);
+    color: var(--color-accent-strong);
   }
-  .gcard__body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
+
+  .guide-card__copy {
+    display: grid;
+    gap: var(--space-1);
   }
-  .gcard__title {
-    color: var(--fg);
-    font-weight: 600;
-    font-size: 1.06rem;
-    letter-spacing: -0.01em;
+
+  .guide-card__copy strong {
+    color: var(--color-content);
+    font-size: var(--text-md);
   }
-  .gcard__sum {
-    color: var(--fg-dim);
-    font-size: 0.92rem;
-    line-height: 1.45;
+
+  .guide-card__copy > span {
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
   }
-  .gcard__arrow {
-    color: var(--fg-faint);
-    transition: color 0.18s ease, transform 0.18s ease;
+
+  .guide-card__arrow {
+    color: var(--color-content-subtle);
   }
-  .gcard:hover .gcard__arrow {
-    color: var(--coral);
-    transform: translateX(3px);
-  }
-  @media (max-width: 720px) {
-    .glist {
+
+  @media (max-width: 48rem) {
+    .guide-head__grid,
+    .guide-list ol {
       grid-template-columns: 1fr;
+    }
+
+    .guide-head__actions {
+      justify-items: start;
+    }
+  }
+
+  @media (max-width: 28rem) {
+    .guide-list li a {
+      grid-template-columns: auto 1fr auto;
+    }
+
+    .guide-card__number {
+      display: none;
     }
   }
 </style>

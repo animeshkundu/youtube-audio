@@ -1,6 +1,7 @@
 ---
 import { getCollection } from 'astro:content';
 import Base from './Base.astro';
+import InstallButton from '../components/InstallButton.astro';
 import { url } from '../consts';
 import '../styles/prose.css';
 
@@ -11,36 +12,52 @@ interface Props {
   slug?: string;
   intro?: string;
 }
-const { title, description, section = 'page', slug, intro } = Astro.props;
 
+const { title, description, section = 'page', slug, intro } = Astro.props;
 let guideNav: { slug: string; title: string; href: string }[] = [];
+
 if (section === 'guide') {
   const entries = await getCollection('guide');
   guideNav = entries
     .sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99))
-    .map((e) => ({ slug: e.id, title: e.data.title, href: url(`/guide/${e.id}/`) }));
+    .map((entry) => ({
+      slug: entry.id,
+      title: entry.data.title,
+      href: url(`/guide/${entry.id}/`),
+    }));
 }
 ---
 
 <Base title={title} description={description}>
   <div class:list={['doc', section === 'guide' && 'doc--guide']}>
-    <div class="shell doc__inner">
+    <div class="shell doc__layout">
       {
         section === 'guide' && (
           <aside class="doc__side">
-            <a class="doc__side-home" href={url('/guide/')}>All guides</a>
-            <nav aria-label="Guide">
-              {guideNav.map((item) => (
-                <a href={item.href} class:list={['doc__link', slug === item.slug && 'is-active']}>
+            <div class="doc__side-head">
+              <p>Guide</p>
+              <a href={url('/guide/')}>View all</a>
+            </div>
+            <nav aria-label="Guide chapters">
+              {guideNav.map((item, index) => (
+                <a
+                  href={item.href}
+                  class:list={['doc__link', slug === item.slug && 'is-active']}
+                  aria-current={slug === item.slug ? 'page' : undefined}
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
                   {item.title}
                 </a>
               ))}
             </nav>
+            <InstallButton size="compact" class="doc__install" />
           </aside>
         )
       }
+
       <article class="doc__article">
         <header class="doc__head">
+          <p class="eyebrow">{section === 'guide' ? 'YouTube Audio guide' : 'YouTube Audio'}</p>
           <h1>{title}</h1>
           {intro && <p class="doc__intro">{intro}</p>}
         </header>
@@ -54,100 +71,131 @@ if (section === 'guide') {
 
 <style>
   .doc {
-    padding-block: clamp(2.5rem, 5vw, 4rem) clamp(3rem, 6vw, 5rem);
+    padding-block: var(--space-fluid-md);
   }
-  .doc__inner {
-    display: block;
+
+  .doc__layout {
+    display: grid;
   }
+
   .doc:not(.doc--guide) .doc__article {
+    width: min(100%, var(--layout-reading));
     margin-inline: auto;
   }
-  .doc--guide .doc__inner {
-    display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-    gap: clamp(2rem, 5vw, 4rem);
+
+  .doc--guide .doc__layout {
+    grid-template-columns: 15rem minmax(0, var(--layout-reading));
+    justify-content: center;
+    gap: var(--space-fluid-md);
     align-items: start;
   }
+
   .doc__side {
     position: sticky;
-    top: 90px;
+    top: calc(var(--header-height) + var(--space-5));
+    padding: var(--space-4);
+    border: 0.0625rem solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+
+  .doc__side-head {
     display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2);
   }
-  .doc__side-home {
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--coral);
-    margin-bottom: 0.9rem;
+
+  .doc__side-head p {
+    color: var(--color-content);
+    font-weight: 760;
   }
+
+  .doc__side-head a {
+    color: var(--color-accent-strong);
+    font-size: var(--text-xs);
+    font-weight: 700;
+  }
+
   .doc__side nav {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-    border-left: 1px solid var(--line);
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
   }
+
   .doc__link {
-    padding: 0.5rem 0.9rem;
-    margin-left: -1px;
-    border-left: 2px solid transparent;
-    color: var(--fg-dim);
-    font-size: 0.94rem;
+    display: grid;
+    grid-template-columns: 1.75rem 1fr;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--color-content-muted);
+    font-size: var(--text-sm);
     line-height: 1.35;
-    transition: color 0.15s ease, border-color 0.15s ease;
   }
-  .doc__link:hover {
-    color: var(--fg);
+
+  .doc__link span {
+    color: var(--color-content-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
   }
+
+  .doc__link:hover,
   .doc__link.is-active {
-    color: var(--fg);
-    border-left-color: var(--coral);
-    font-weight: 550;
+    background: var(--color-surface-accent);
+    color: var(--color-content);
   }
+
+  .doc__link.is-active {
+    font-weight: 700;
+  }
+
+  .doc__side :global(.doc__install) {
+    width: 100%;
+    margin-top: var(--space-4);
+  }
+
   .doc__article {
     min-width: 0;
-    max-width: 46rem;
   }
+
   .doc__head {
-    margin-bottom: 2rem;
+    margin-bottom: var(--space-10);
+    padding-bottom: var(--space-8);
+    border-bottom: 0.0625rem solid var(--color-border);
   }
+
   .doc__head h1 {
-    font-size: clamp(2.1rem, 4.4vw, 3rem);
-    letter-spacing: -0.03em;
+    margin-top: var(--space-3);
+    font-size: var(--text-3xl);
   }
+
   .doc__intro {
-    margin-top: 1rem;
-    color: var(--fg-muted);
-    font-size: clamp(1.08rem, 1.6vw, 1.25rem);
+    max-width: 42rem;
+    margin-top: var(--space-4);
+    color: var(--color-content-muted);
+    font-size: var(--text-md);
     line-height: 1.55;
-    max-width: 40rem;
   }
-  @media (max-width: 860px) {
-    .doc--guide .doc__inner {
+
+  @media (max-width: 55rem) {
+    .doc--guide .doc__layout {
       grid-template-columns: 1fr;
-      gap: 1.5rem;
     }
+
     .doc__side {
       position: static;
-      padding-bottom: 1.25rem;
-      border-bottom: 1px solid var(--line);
     }
+
     .doc__side nav {
-      flex-flow: row wrap;
-      border-left: 0;
-      gap: 0.4rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .doc__link {
-      border: 1px solid var(--line);
-      border-radius: var(--r-pill);
-      margin-left: 0;
-      padding: 0.4rem 0.85rem;
-    }
-    .doc__link.is-active {
-      border-color: var(--coral);
-      border-left-color: var(--coral);
+  }
+
+  @media (max-width: 40rem) {
+    .doc__side nav {
+      grid-template-columns: 1fr;
     }
   }
 </style>

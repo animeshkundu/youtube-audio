@@ -23,4 +23,4 @@ Turn on **Background play** in the popup or options page to keep audio playing w
 
 Audio-only deliberately steps aside for live and DVR streams, age-restricted videos, members-only uploads, and content made for kids. A failed audio lookup also returns control to normal YouTube. The popup reports the actual state of the current video, not just your preferred setting.
 
-This fallback is expected and keeps playback usable. Learn more in [How it works](/youtube-audio/how-it-works/), or continue with [blocking and skipping controls](/youtube-audio/guide/blocking/).
+This fallback is expected and keeps playback usable. Learn more in [How it works](../../how-it-works/), or continue with [blocking and skipping controls](../blocking/).

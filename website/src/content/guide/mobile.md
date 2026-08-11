@@ -9,7 +9,10 @@ Audio-only is especially useful on a phone. When you are listening with the scre
 
 ## Set it up
 
-Install the add-on from [Mozilla Add-ons](https://addons.mozilla.org/android/addon/youtube-audio/) in Firefox for Android, then open YouTube or YouTube Music while signed out. Firefox 128 or newer is required.
+Install the add-on from
+[Mozilla Add-ons](https://addons.mozilla.org/en-US/firefox/addon/youtube-audio/) in Firefox
+for Android, then open YouTube or YouTube Music while signed out. Firefox 128 or newer is
+required.
 
 Open Firefox's extension menu and choose YouTube Audio to reach the popup. **Audio-only** and **Background play** are on by default. Use those quick controls to change either feature, or select **Pause YouTube Audio** when you want ordinary YouTube behavior for a while. Open the options page for blocking, skipping, cleaner, music, and download settings.
 
@@ -21,4 +24,6 @@ YouTube's mobile player sometimes replaces its own video player. The add-on watc
 
 Live and DVR streams, age-restricted videos, members-only uploads, and content made for kids fall back to normal YouTube. On a phone, that means normal video data use may return for that item. Check the popup for the actual state.
 
-See [Install YouTube Audio](/youtube-audio/guide/install/) for beta files and source builds, or read [The audio-only experience](/youtube-audio/guide/audio/) for mode and fallback details.
+See [Install YouTube Audio](../install/) for regular release files and
+temporary source builds, or read [The audio-only experience](../audio/)
+for mode and fallback details.

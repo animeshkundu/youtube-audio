@@ -1,5 +1,6 @@
 ---
 import Doc from '../layouts/Doc.astro';
+import { url } from '../consts';
 ---
 
 <Doc
@@ -49,7 +50,7 @@ import Doc from '../layouts/Doc.astro';
   <p>
     Direct media URLs and full player responses stay inside the page-side playback layer. Other parts of the
     extension receive only limited status information, such as whether audio-only is active or why playback
-    fell back. For the complete network picture, read <a href="/youtube-audio/privacy/">Privacy</a>.
+    fell back. For the complete network picture, read <a href={url('/privacy/')}>Privacy</a>.
   </p>
 
   <h2>One owner prevents competing swaps</h2>
@@ -124,7 +125,7 @@ import Doc from '../layouts/Doc.astro';
   <p>
     YouTube Audio is free software under the GPL-3.0 license. You can inspect the
     <a href="https://github.com/animeshkundu/youtube-audio">source on GitHub</a>, review the privacy details,
-    or start with <a href="/youtube-audio/guide/audio/">the audio-only guide</a>. The important boundary is
+    or start with <a href={url('/guide/audio/')}>the audio-only guide</a>. The important boundary is
     simple: your browser talks directly to the services needed for playback, and no server run by this project
     sits in the middle.
   </p>

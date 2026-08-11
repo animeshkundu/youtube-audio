@@ -1,5 +1,6 @@
 ---
 import Doc from '../layouts/Doc.astro';
+import { url } from '../consts';
 ---
 
 <Doc
@@ -108,10 +109,10 @@ import Doc from '../layouts/Doc.astro';
   </p>
   <p>
     The same credentialless rule applies when the optional download feature requests a fresh audio stream.
-    Read <a href="/youtube-audio/how-it-works/">How it works</a> for the playback sequence.
+    Read <a href={url('/how-it-works/')}>How it works</a> for the playback sequence.
   </p>
 
-  <h2>What “collects nothing about you” means here</h2>
+  <h2>What the project never receives</h2>
   <p>
     It means the developer and project receive no record of your browsing, playback, searches, or settings.
     There is no project analytics script, project account, telemetry collector, or project-operated backend.
@@ -135,7 +136,7 @@ import Doc from '../layouts/Doc.astro';
   </p>
   <p>
     This request is optional. Turn off segment skipping in the options page to stop it. See
-    <a href="/youtube-audio/guide/blocking/">blocking and skipping</a> for the related controls.
+    <a href={url('/guide/blocking/')}>blocking and skipping</a> for the related controls.
   </p>
 
   <h2>Fail open</h2>
@@ -154,7 +155,7 @@ import Doc from '../layouts/Doc.astro';
 
   <p>
     You can review the <a href="https://github.com/animeshkundu/youtube-audio">open source code on GitHub</a>,
-    manage every optional feature in the <a href="/youtube-audio/guide/settings/">settings guide</a>, or remove
+    manage every optional feature in the <a href={url('/guide/settings/')}>settings guide</a>, or remove
     the add-on at any time through Firefox.
   </p>
 </Doc>
