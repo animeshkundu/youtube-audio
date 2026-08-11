@@ -23,4 +23,4 @@ Try small changes first:
 
 These controls are available in the options page, not as separate popup switches. **Pause YouTube Audio** in the popup temporarily disables the whole add-on. Loudness and EQ apply only on YouTube Music. On regular YouTube, they stay out of the way. If sound processing or track information is unavailable, playback continues unchanged.
 
-For basic mode and background controls, see [The audio-only experience](/youtube-audio/guide/audio/). To keep a track as a file, see [Save a track](/youtube-audio/guide/download/).
+For basic mode and background controls, see [The audio-only experience](../audio/). To keep a track as a file, see [Save a track](../download/).

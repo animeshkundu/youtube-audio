@@ -11,7 +11,7 @@ Signed-out use is the only supported mode. The add-on does not need or attach yo
 
 ## Why is a video still playing normally?
 
-Live and DVR streams, age-restricted videos, members-only uploads, and content made for kids are not switched to direct audio. A failed audio lookup also falls back. Check the popup for the current video's real state. See [The audio-only experience](/youtube-audio/guide/audio/).
+Live and DVR streams, age-restricted videos, members-only uploads, and content made for kids are not switched to direct audio. A failed audio lookup also falls back. Check the popup for the current video's real state. See [The audio-only experience](../audio/).
 
 ## How do I turn it off?
 
@@ -23,11 +23,11 @@ Make sure the add-on is not paused and you are on a YouTube or YouTube Music wat
 
 ## Where did my download go?
 
-Firefox saves the `.m4a` in its configured download location. The button appears only after **Download audio** is enabled in options. See [Save a track](/youtube-audio/guide/download/).
+Firefox saves the `.m4a` or `.webm` audio file in its configured download location. The button appears only after **Download audio** is enabled in options. See [Save a track](../download/).
 
 ## What leaves my device?
 
-Core playback sends YouTube a credentialless audio lookup, and the selected media streams from Google's media servers. Both services can see your IP address, but the requests carry no YouTube cookies. Optional segment skipping sends SponsorBlock only a four-character hash prefix. The project runs no analytics or server and receives no browsing or playback data. Read [Privacy](/youtube-audio/privacy/) for details.
+Core playback sends YouTube a credentialless audio lookup, and the selected media streams from Google's media servers. Both services can see your IP address, but the requests carry no YouTube cookies. Optional segment skipping sends SponsorBlock only a four-character hash prefix. The project runs no analytics or server and receives no browsing or playback data. Read [Privacy](../../privacy/) for details.
 
 ## Does it support other browsers?
 

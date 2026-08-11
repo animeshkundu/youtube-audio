@@ -34,4 +34,4 @@ Most essentials are enabled by default. Segment skipping, cleaner controls, aggr
 
 The options page can assemble a readable diagnostics log with general browser and device details, setting states, limited counts, and recent extension events. Review it, copy it, export it to a local Markdown file, or clear it locally. It is designed not to record watched videos, searches, or typed text.
 
-For playback behavior, see [The audio-only experience](/youtube-audio/guide/audio/). For network and storage details, see [Privacy](/youtube-audio/privacy/).
+For playback behavior, see [The audio-only experience](../audio/). For network and storage details, see [Privacy](../../privacy/).

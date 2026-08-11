@@ -49,3 +49,4 @@ tests/e2e/scratch-*.mjs
 
 # Local review artifacts (not part of the extension or its source submission)
 .artifacts/
+.factory-preview/

@@ -1,64 +1,135 @@
-/* ============================================================================
-   Design tokens for YouTube Audio.
-   Warm-dark canvas. Two-color system: coral = brand/CTA/nav; teal = the
-   product's "audio is on" state (mirrors the extension UI). Coral is used as
-   large text / decoration / fills only; CTA fills carry near-black labels that
-   clear WCAG AA. Body text is warm off-white, never coral.
-   ============================================================================ */
 :root {
-  /* Canvas: deep warm charcoal, not pure black. A hair of red keeps it warm. */
-  --bg: #141110;
-  --bg-2: #1a1613; /* faint elevation */
-  --surface: #1e1a16; /* cards */
-  --surface-2: #241f1a; /* raised cards / inputs */
-  --surface-hover: #2a241e;
+  color-scheme: light dark;
 
-  /* Hairlines */
-  --line: rgba(255, 240, 230, 0.09);
-  --line-strong: rgba(255, 240, 230, 0.16);
+  --font-sans: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
-  /* Text (warm off-white ramp) */
-  --fg: #f6f0ea;
-  --fg-muted: #c3b8ad;
-  --fg-dim: #9a8f84;
-  --fg-faint: #766d64;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+  --text-2xl: clamp(1.75rem, 3vw, 2.25rem);
+  --text-3xl: clamp(2.25rem, 5vw, 3.75rem);
+  --text-display: clamp(2.75rem, 5vw, 4rem);
+  --leading-tight: 1.02;
+  --leading-heading: 1.12;
+  --leading-body: 1.65;
+  --tracking-tight: -0.035em;
+  --tracking-wide: 0.11em;
 
-  /* Brand coral / vermilion. Deliberately not YouTube red.
-     --coral on --bg measures ~6.6:1 (AA for normal text, AAA for large). */
-  --coral: #ff6a45;
-  --coral-bright: #ff7d5c;
-  --coral-deep: #f04e28;
-  --coral-ink: #1a0f0a; /* near-black warm label on coral fills (~6.5:1) */
-  --coral-glow: rgba(255, 106, 69, 0.22);
-  --coral-soft: rgba(255, 106, 69, 0.12);
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --space-32: 8rem;
+  --space-fluid-xs: clamp(var(--space-4), 2vw, var(--space-6));
+  --space-fluid-sm: clamp(var(--space-6), 4vw, var(--space-10));
+  --space-fluid-md: clamp(var(--space-10), 6vw, var(--space-20));
+  --space-fluid-lg: clamp(var(--space-16), 9vw, var(--space-32));
 
-  /* Product state: "audio is on" teal. State/feedback only, never a CTA. */
-  --teal: #22d3b4;
-  --teal-dim: #16a892;
-  --teal-glow: rgba(34, 211, 180, 0.18);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 2rem;
+  --radius-round: 999rem;
 
-  /* Radii */
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 18px;
-  --r-xl: 26px;
-  --r-pill: 999px;
+  --layout-reading: 46rem;
+  --layout-content: 75rem;
+  --layout-wide: 100rem;
+  --gutter: clamp(var(--space-4), 4vw, var(--space-10));
+  --header-height: 4rem;
 
-  /* Shadows (soft, layered, for framed product shots floating on dark) */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 12px 30px -12px rgba(0, 0, 0, 0.6);
-  --shadow-lg: 0 40px 80px -32px rgba(0, 0, 0, 0.75), 0 12px 28px -18px rgba(0, 0, 0, 0.6);
-  --shadow-float: 0 50px 100px -40px rgba(0, 0, 0, 0.8),
-    0 18px 44px -22px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--line);
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* Layout */
-  --maxw: 1120px;
-  --maxw-narrow: 760px;
-  --gutter: clamp(1.25rem, 4vw, 2.5rem);
-  --section-y: clamp(3.75rem, 6.5vw, 6rem);
+  --color-canvas: #f3f8f6;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-subtle: #e7f0ed;
+  --color-surface-accent: #d7f5ee;
+  --color-surface-status: #fff4d6;
+  --color-content: #10211d;
+  --color-content-muted: #3f5751;
+  --color-content-subtle: #536b65;
+  --color-border: #708781;
+  --color-border-subtle: #708781;
+  --color-border-strong: #536f68;
+  --color-accent: #0e9e86;
+  --color-accent-strong: #08715f;
+  --color-accent-highlight: #14b89c;
+  --color-accent-hover: #0d957e;
+  --color-accent-ink: #061d18;
+  --color-accent-soft: #c8f3e9;
+  --color-status-success: #08715f;
+  --color-status-warning: #7a5100;
+  --color-status-danger: #a22b36;
+  --color-image-surface: #101716;
+  --color-image-border: #536f68;
+  --color-code-content: #ecfffa;
+  --color-overlay: rgba(9, 35, 29, 0.68);
+  --color-glow: rgba(14, 158, 134, 0.2);
+  --color-glow-soft: rgba(14, 158, 134, 0.1);
+  --color-shadow: rgba(9, 35, 29, 0.18);
+  --color-shadow-strong: rgba(9, 35, 29, 0.28);
+  --color-focus: #075f51;
+  --color-selection: #b6eadf;
+  --color-transparent: transparent;
 
-  /* Type */
-  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --gradient-page: radial-gradient(circle at 78% 0%, var(--color-glow-soft), var(--color-transparent) 34%);
+  --gradient-accent: linear-gradient(135deg, var(--color-accent), var(--color-accent-highlight));
+  --gradient-panel: linear-gradient(145deg, var(--color-surface-raised), var(--color-surface-subtle));
+  --gradient-image: linear-gradient(145deg, var(--color-image-border), var(--color-image-surface));
+  --shadow-sm: 0 0.125rem 0.5rem var(--color-shadow);
+  --shadow-md: 0 1rem 2.5rem -1.25rem var(--color-shadow-strong);
+  --shadow-lg: 0 2.5rem 5rem -2rem var(--color-shadow-strong);
+  --focus-outline-width: 0.1875rem;
+  --focus-outline-offset: 0.1875rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #091311;
+    --color-surface: #101c19;
+    --color-surface-raised: #16231f;
+    --color-surface-subtle: #1b2b27;
+    --color-surface-accent: #12352e;
+    --color-surface-status: #342b12;
+    --color-content: #effbf7;
+    --color-content-muted: #b6cbc5;
+    --color-content-subtle: #93aaa4;
+    --color-border: #658079;
+    --color-border-subtle: #658079;
+    --color-border-strong: #819b94;
+    --color-accent: #22d3b4;
+    --color-accent-strong: #66ead3;
+    --color-accent-highlight: #66ead3;
+    --color-accent-hover: #18bea2;
+    --color-accent-ink: #06251f;
+    --color-accent-soft: #143e36;
+    --color-status-success: #66ead3;
+    --color-status-warning: #f2c35b;
+    --color-status-danger: #ff8c95;
+    --color-image-surface: #070d0c;
+    --color-image-border: #607b74;
+    --color-code-content: #ecfffa;
+    --color-overlay: rgba(3, 12, 10, 0.76);
+    --color-glow: rgba(34, 211, 180, 0.24);
+    --color-glow-soft: rgba(34, 211, 180, 0.1);
+    --color-shadow: rgba(0, 0, 0, 0.34);
+    --color-shadow-strong: rgba(0, 0, 0, 0.58);
+    --color-focus: #66ead3;
+    --color-selection: #174b40;
+  }
 }

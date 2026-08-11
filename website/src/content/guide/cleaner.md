@@ -19,10 +19,13 @@ All three are off by default. Changes take effect right away, and turning a swit
 
 ## Cap video quality
 
-Under **Playback**, set **Maximum video quality** from 144p to 1080p, or leave it on **Automatic**. The cap matters when normal video is playing, including when you turn audio-only off or a video falls back. It can help control data use, but YouTube still chooses among the qualities that are actually available.
+Under **Playback**, leave **Maximum video quality** off, which is the default, or choose
+144p, 240p, 360p, 480p, 720p, or 1080p. The cap matters when normal video is playing,
+including when you turn audio-only off or a video falls back. It can help control data use,
+but YouTube still chooses among the qualities that are actually available.
 
 ## Stop autoplay next
 
 Turn on **Disable autoplay next** in the Playback section to switch YouTube's own autoplay control off. When the current item ends, another should not start automatically. Turn it off to return autoplay control to YouTube.
 
-These settings live in options rather than as individual popup controls. Use **Pause YouTube Audio** in the popup to disable all extension behavior temporarily without erasing your choices. See [The audio-only experience](/youtube-audio/guide/audio/) for mode switching and [Settings reference](/youtube-audio/guide/settings/) for the complete control map.
+These settings live in options rather than as individual popup controls. Use **Pause YouTube Audio** in the popup to disable all extension behavior temporarily without erasing your choices. See [The audio-only experience](../audio/) for mode switching and [Settings reference](../settings/) for the complete control map.
