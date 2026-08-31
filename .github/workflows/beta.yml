@@ -39,7 +39,7 @@ jobs:
       FIREFOX_EXTENSION_ID: '{580efa7d-66f9-474d-857a-8e2afc6b1181}'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

@@ -27,7 +27,7 @@ jobs:
         fenix: ['128.0', '136.0', '141.0', '142.0', '145.0']
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
