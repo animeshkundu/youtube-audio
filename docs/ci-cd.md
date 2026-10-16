@@ -313,11 +313,11 @@ the run conclusion stayed green.
 Verdict semantics: GitHub-hosted runners are datacenter IPs, and YouTube frequently serves them
 the "Sign in to confirm you're not a bot" interstitial (the watch page renders with the real title,
 but no media ever loads; seen on 6 of 7 cases in the first run that reached YouTube, 2026-10-16).
-The probe classifies that, and publisher-side "Video unavailable", as environment-blocked:
-`INCONCLUSIVE` (exit 0 plus a GitHub warning annotation) when nothing was measurable,
-`PASS (partial)` when some cases measured and passed, and `FAIL` only when a case that did reach
-YouTube media misbehaved. A red run therefore always means investigate; the residential runbook
-below stays the release gate.
+The probe classifies that, publisher-side "Video unavailable", and a VOD fixture shorter than the
+sustain window (reported `FIXTURE`; ids rot into Shorts) as environment-blocked: `INCONCLUSIVE`
+(exit 0 plus a GitHub warning annotation) when nothing was measurable, `PASS (partial)` when some
+cases measured and passed, and `FAIL` only when a case that did reach YouTube media misbehaved. A
+red run therefore always means investigate; the residential runbook below stays the release gate.
 
 ### Run the live canary locally
 
@@ -325,12 +325,37 @@ below stays the release gate.
 # build the BENCH XPI as above, then:
 node tests/e2e/probe-audio-playback.mjs      # add HEADLESS=0 to watch
 PROBE_SUSTAIN_MS=90000 node tests/e2e/probe-audio-playback.mjs   # release-gate run
-PROBE_CASES=Bu4ztj3R32k node tests/e2e/probe-audio-playback.mjs  # one case only
+PROBE_CASES=dQw4w9WgXcQ node tests/e2e/probe-audio-playback.mjs  # one case only
 # broader live matrix (35+ harvested videos):
 node tests/e2e/probe-audio-matrix.mjs
 # per-client InnerTube audit (pure Node, no browser; reports playability, direct-URL yield, and a
 # sustained ranged download per persona with URLs never printed):
 node tests/e2e/probe-live-client-audit.mjs
+```
+
+Sandboxed agent shells (macOS) cannot let geckodriver spawn Firefox: the shell process sandbox
+denies Firefox's own child-process sandbox extensions, headless graphics fail
+(`RenderCompositorSWGL failed mapping default framebuffer`), and Marionette never opens. Launch
+the browser outside the sandbox and attach geckodriver to it instead. The running browser must
+already carry the prefs the probe would otherwise set in session capabilities
+(`PROBE_CONNECT_EXISTING=1`, port override via `PROBE_MARIONETTE_PORT`):
+
+```bash
+PROFILE=~/yta-canary-profile
+mkdir -p "$PROFILE"
+cat > "$PROFILE/user.js" <<'EOF'
+user_pref("marionette.enabled", true);
+user_pref("marionette.port", 2828);
+user_pref("media.autoplay.default", 0);
+user_pref("media.autoplay.blocking_policy", 0);
+user_pref("extensions.webextensions.uuids", "{\"{580efa7d-66f9-474d-857a-8e2afc6b1181}\":\"11111111-2222-4333-8444-555555555555\"}");
+EOF
+# LaunchServices starts Firefox outside the sandbox; the env var is the running-browser
+# equivalent of geckodriver's --allow-system-access (privileged moz-extension: navigation):
+launchctl setenv MOZ_REMOTE_ALLOW_SYSTEM_ACCESS 1
+open -n -a "/Applications/Firefox.app" --args -marionette -profile "$PROFILE" -no-remote about:blank
+launchctl unsetenv MOZ_REMOTE_ALLOW_SYSTEM_ACCESS
+PROBE_CONNECT_EXISTING=1 PROBE_SUSTAIN_MS=90000 node tests/e2e/probe-audio-playback.mjs
 ```
 
 The audit probe is the fast first read when a canary goes red: it separates "YouTube changed the

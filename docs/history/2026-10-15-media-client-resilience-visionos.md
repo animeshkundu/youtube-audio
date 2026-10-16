@@ -107,6 +107,23 @@ archive`, emulator never booted); every other Fenix version and the same job on 
   that reached media misbehaved. The two dead live fixture ids were replaced with ids verified
   live via the public watch page (`isLiveNow`, 2026-10-15), and the residential audit probe stays
   the fast VOD-side read and the release-gate evidence.
+- Residential release-gate baseline (2026-10-16, muted system audio): the strengthened canary ran
+  here against real YouTube with the BENCH XPI. geckodriver cannot launch Firefox inside the agent
+  shell (the shell's macOS sandbox denies Firefox's child-process sandbox extensions and headless
+  graphics, so Marionette never opens), so the browser is started outside the sandbox via
+  LaunchServices with `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1` and geckodriver attaches with
+  `--connect-existing` (`PROBE_CONNECT_EXISTING=1`); the recipe is in `docs/ci-cd.md`. Result:
+  `PASS (7 case(s))`. All three VODs hijacked audio-only (`videoWidth` 0) with 89.3-89.4 s of the
+  90 s window advanced, buffered ahead by 119 s to 3506 s, and the seek to 80 % resumed (+8.0 s).
+  All four live cases fell back to native playback, metadata ready, playhead advancing.
+- Fixture hygiene: `Bu4ztj3R32k` (now a 13 s Short) and `DaWe9L1iwNw` (43 s) cannot demonstrate a
+  90 s sustained window and were replaced with length-verified ids (`dQw4w9WgXcQ` 213 s,
+  `9bZkp7q19f0` 252 s; `kSZddHca0ME` verified 3600 s and relabelled). A VOD shorter than the
+  sustain window now classifies as `FIXTURE` (environment-blocked, excluded from the verdict)
+  instead of becoming a false red.
+- The approved v2 plan was recovered from the session record and is now in-repo at
+  `docs/plans/2026-10-15-youtube-audio-1.1.0-release-plan.md`; the `docs/` maps in `AGENTS.md` and
+  `CLAUDE.md` list it.
 
 ## Follow-ups
 
@@ -126,5 +143,7 @@ archive`, emulator never booted); every other Fenix version and the same job on 
   still carry the two dead live ids (`X4VbdwhkE10`, `ssf1J2tD-Ak`); swap them for the verified-live
   replacements when those probes are next run, and consider making live-case ids resolvable at run
   time instead of hard-coded.
+- `probe-mobile-fenix.mjs` also pins the two now-too-short VOD ids (`Bu4ztj3R32k`, `DaWe9L1iwNw`);
+  swap them too when that probe is next run (device-gated).
 - Storage-read failure now enforces `DEFAULT_SETTINGS` (extension on) rather than a user's stored
   "off"; revisit if users report being re-enabled by a storage fault.

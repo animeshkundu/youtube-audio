@@ -118,6 +118,7 @@ youtube-audio/
 │   ├── agent-instructions/ # Agent protocols (00-03)
 │   ├── architecture/       # System diagrams
 │   ├── history/            # Handoff records
+│   ├── plans/              # Approved release plans
 │   ├── research/           # Grounding research (01-19)
 │   └── specs/              # Technical specifications (SPEC-001..012)
 ├── img/                    # Icons and images

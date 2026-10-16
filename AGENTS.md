@@ -5,7 +5,7 @@ Read this first. It is authoritative and deliberately concise; it links out to t
 detailed sources rather than duplicating them.
 
 - Deep agent protocol: [`CLAUDE.md`](./CLAUDE.md)
-- The documentation "brain": [`docs/`](./docs/) (specs, ADRs, architecture, history, research)
+- The documentation "brain": [`docs/`](./docs/) (specs, ADRs, architecture, history, research, plans)
 - Contribution workflow and setup: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 
 ## What this project is
@@ -138,7 +138,7 @@ youtube-audio/
 ├── tests/
 │   ├── unit/               # Vitest unit tests over real src/ modules (incl. ui/ Preact tests)
 │   └── e2e/                # Selenium probes + hermetic bench/, android/ Fenix driver
-├── docs/                   # Engineering brain in-repo (not the public site): specs/ (SPEC-001..012), ADRs, architecture, history, research
+├── docs/                   # Engineering brain in-repo (not the public site): specs/ (SPEC-001..012), ADRs, architecture, history, research, plans
 ├── website/                # Public site: bespoke Astro (marketing + guide), deployed to GitHub Pages by pages.yml
 ├── scripts/                # validate.sh, build-ext.sh, release.sh, setup.sh, lint.sh
 ├── .github/workflows/      # ci.yml, pages.yml, beta.yml, publish-amo.yml, mobile-e2e.yml, live-canary.yml
