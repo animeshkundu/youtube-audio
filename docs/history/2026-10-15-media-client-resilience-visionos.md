@@ -91,12 +91,12 @@ failures are visible.
 - The Fenix 128 mobile job failed on an Android SDK download error (`Error on ZipFile unknown
 archive`, emulator never booted); every other Fenix version and the same job on `master` pass, so
   it is runner infrastructure, not code.
-- The live canary's first run on the branch failed during setup, before touching YouTube:
-  `installAddon` had left the session in the chrome context (or the temporary add-on's pinned UUID
-  was not registered yet) and the first options-page navigation was refused. The probe now sets the
-  content context and retries that navigation a bounded three times, so a setup race cannot
-  masquerade as a live-YouTube verdict. The prior masked `master` run also failed, at the playback
-  assertion, which is consistent with the ANDROID_VR 403 breakage this change set fixes.
+- The live canary had been dying in setup, not on playback: geckodriver refuses to navigate to the
+  privileged `moz-extension://` options page unless it is started with `--allow-system-access`.
+  The masked `master` run looked like a playback failure only because the older probe printed
+  `[FAIL] undefined (undefined/...)` for its own setup-error result; on the branch the real message
+  surfaced. The probe now starts geckodriver with the flag (the hermetic bench harness already
+  did), so a red canary means YouTube rather than a broken harness.
 
 ## Follow-ups
 
@@ -107,5 +107,10 @@ archive`, emulator never booted); every other Fenix version and the same job on 
 - Known pre-existing nit: the `JSON.stringify` accessor cleanup restores the install-time
   descriptor, discarding a page assignment made while installed (asymmetric with the no-descriptor
   branch); unchanged here.
+- The other desktop Selenium probes that open the extension options page (`verify-firefox.mjs`,
+  `probe-adblock-live.mjs`, `probe-live-features.mjs`, `probe-m1-canary.mjs`,
+  `probe-audio-matrix.mjs`, `real-youtube-capture.mjs`) predate the geckodriver
+  `--allow-system-access` requirement and will fail the same way on current Firefox; give them the
+  same service flag when they are next touched.
 - Storage-read failure now enforces `DEFAULT_SETTINGS` (extension on) rather than a user's stored
   "off"; revisit if users report being re-enabled by a storage fault.

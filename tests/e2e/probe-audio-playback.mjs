@@ -16,7 +16,7 @@
  * Usage: node tests/e2e/probe-audio-playback.mjs [xpi]
  */
 import { Builder } from 'selenium-webdriver';
-import firefox from 'selenium-webdriver/firefox.js';
+import firefox, { ServiceBuilder } from 'selenium-webdriver/firefox.js';
 
 import { seedDataConsent } from './consent-helper.mjs';
 
@@ -76,26 +76,18 @@ function options() {
 const results = [];
 let driver;
 try {
-  driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options()).build();
+  driver = await new Builder()
+    .forBrowser('firefox')
+    .setFirefoxOptions(options())
+    // Required to navigate to the privileged moz-extension options page: without it geckodriver
+    // refuses the navigation ("not allowed in this context") and the probe dies in setup.
+    .setFirefoxService(new ServiceBuilder().addArguments('--allow-system-access'))
+    .build();
   // The sustained sampler runs inside one async script; the script timeout must outlive it.
   await driver
     .manage()
     .setTimeouts({ script: SUSTAIN_MS + SEEK_MS + 30_000, pageLoad: 60_000 });
   await driver.installAddon(XPI, true);
-  // `installAddon` can leave the Marionette session in the chrome context, and the temporary
-  // add-on's pinned UUID can take a moment to register. Either shows up as
-  // `UnsupportedOperationError: Navigation to "moz-extension://..." is not allowed in this
-  // context` on the first options-page load, so retry a bounded number of times.
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      await driver.setContext('content');
-      await driver.get(OPTIONS_URL);
-      break;
-    } catch (error) {
-      if (attempt >= 3) throw error;
-      await sleep(1_000);
-    }
-  }
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(OPTIONS_URL);
   await driver.executeAsyncScript(function (s) {
