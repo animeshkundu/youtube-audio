@@ -96,7 +96,17 @@ archive`, emulator never booted); every other Fenix version and the same job on 
   The masked `master` run looked like a playback failure only because the older probe printed
   `[FAIL] undefined (undefined/...)` for its own setup-error result; on the branch the real message
   surfaced. The probe now starts geckodriver with the flag (the hermetic bench harness already
-  did), so a red canary means YouTube rather than a broken harness.
+  did), so a red canary means YouTube rather than a broken harness. Sampled masked runs back to
+  2026-10-07 show the same setup error, so the canary had not actually observed YouTube from CI in
+  recent memory, whatever its green run conclusion suggested.
+- With setup fixed, the first canary run that reached YouTube (2026-10-16) measured the datacenter
+  reality: 6 of 7 cases got the "Sign in to confirm you're not a bot" wall (real title and page,
+  `readyState` 0, no media) and one live fixture id is publisher-side dead. The probe now reports
+  those as environment-blocked and exits with `INCONCLUSIVE` (warning annotation) when nothing was
+  measurable, `PASS (partial)` when some cases measured and passed, and `FAIL` only when a case
+  that reached media misbehaved. The two dead live fixture ids were replaced with ids verified
+  live via the public watch page (`isLiveNow`, 2026-10-15), and the residential audit probe stays
+  the fast VOD-side read and the release-gate evidence.
 
 ## Follow-ups
 
@@ -112,5 +122,9 @@ archive`, emulator never booted); every other Fenix version and the same job on 
   `probe-audio-matrix.mjs`, `real-youtube-capture.mjs`) predate the geckodriver
   `--allow-system-access` requirement and will fail the same way on current Firefox; give them the
   same service flag when they are next touched.
+- Fixture refresh: `probe-live-shape.mjs`, `probe-mobile-fenix.mjs` and `probe-live-signal-audit.mjs`
+  still carry the two dead live ids (`X4VbdwhkE10`, `ssf1J2tD-Ak`); swap them for the verified-live
+  replacements when those probes are next run, and consider making live-case ids resolvable at run
+  time instead of hard-coded.
 - Storage-read failure now enforces `DEFAULT_SETTINGS` (extension on) rather than a user's stored
   "off"; revisit if users report being re-enabled by a storage fault.

@@ -304,7 +304,20 @@ run with its log in the run summary and as the `live-canary-log` artifact.
 
 Because that probe uses geckodriver's default Firefox discovery (it does not read `FIREFOX_BIN`),
 the workflow symlinks the setup-firefox binary to `/usr/local/bin/firefox` (ahead of the snap on
-`PATH`) so geckodriver drives the real Firefox.
+`PATH`) so geckodriver drives the real Firefox. The probe starts geckodriver with
+`--allow-system-access`; without it geckodriver refuses to navigate to the privileged
+`moz-extension:` options page and the run dies in setup. That failure mode hid behind the mask:
+sampled masked runs back to 2026-10-07 all printed it as a generic `[FAIL] undefined` line while
+the run conclusion stayed green.
+
+Verdict semantics: GitHub-hosted runners are datacenter IPs, and YouTube frequently serves them
+the "Sign in to confirm you're not a bot" interstitial (the watch page renders with the real title,
+but no media ever loads; seen on 6 of 7 cases in the first run that reached YouTube, 2026-10-16).
+The probe classifies that, and publisher-side "Video unavailable", as environment-blocked:
+`INCONCLUSIVE` (exit 0 plus a GitHub warning annotation) when nothing was measurable,
+`PASS (partial)` when some cases measured and passed, and `FAIL` only when a case that did reach
+YouTube media misbehaved. A red run therefore always means investigate; the residential runbook
+below stays the release gate.
 
 ### Run the live canary locally
 

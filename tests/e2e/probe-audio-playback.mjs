@@ -13,6 +13,12 @@
  *   PROBE_CASES       optional comma-separated video ids to run instead of the full set.
  *   HEADLESS=0        run headful.
  *
+ * Verdict semantics: a case that could not load media because YouTube served this network
+ * position its "Sign in to confirm you're not a bot" wall, or because the publisher-side video is
+ * unavailable, is environment-blocked rather than a regression. If every case is blocked the
+ * verdict is INCONCLUSIVE (exit 0 plus a GitHub warning annotation); if some cases were measurable
+ * and passed, PASS (partial); FAIL only when a case that did reach YouTube media misbehaved.
+ *
  * Usage: node tests/e2e/probe-audio-playback.mjs [xpi]
  */
 import { Builder } from 'selenium-webdriver';
@@ -41,14 +47,18 @@ const FILTER = (process.env.PROBE_CASES || '')
   .map((s) => s.trim())
   .filter(Boolean);
 // VOD eligible (expect audio-only + sustained advance + seek) and live (expect graceful fallback).
+// Live fixture ids rotate: a stream can end and turn into "Video unavailable", which the probe now
+// reports as UNAVAILABLE rather than a regression. Replace an id when that shows up (verified via
+// the public watch page's isLiveNow on 2026-10-15: 4xDzrJKXOOY, 7NOSDKb0HlU, FWjZ0x2M8og and
+// 36YnV9STBqc are live; X4VbdwhkE10 and ssf1J2tD-Ak are dead).
 const ALL_CASES = [
   { id: 'Bu4ztj3R32k', kind: 'vod', label: 'music' },
   { id: 'kSZddHca0ME', kind: 'vod', label: 'long-10h' },
   { id: 'DaWe9L1iwNw', kind: 'vod', label: 'podcast' },
-  { id: 'X4VbdwhkE10', kind: 'live', label: 'live-radio' },
+  { id: '4xDzrJKXOOY', kind: 'live', label: 'live-radio' },
   { id: '7NOSDKb0HlU', kind: 'live', label: 'live-radio-2' },
   { id: 'FWjZ0x2M8og', kind: 'live', label: 'live-radio-3' },
-  { id: 'ssf1J2tD-Ak', kind: 'live', label: 'live-news' },
+  { id: '36YnV9STBqc', kind: 'live', label: 'live-radio-4' },
 ];
 const CASES = FILTER.length ? ALL_CASES.filter((c) => FILTER.includes(c.id)) : ALL_CASES;
 // A filter that matches nothing (typo, renamed id) must fail loudly instead of reporting an empty
@@ -61,6 +71,22 @@ if (FILTER.length) {
     );
     process.exit(1);
   }
+}
+
+/**
+ * Classifies a failing case as environment-blocked rather than a regression. GitHub-hosted runners
+ * are datacenter IPs and YouTube frequently serves them the "Sign in to confirm you're not a bot"
+ * interstitial: the watch page renders with the real title, but no media ever loads (the first
+ * canary run that reached YouTube at all, 2026-10-16, hit it on 6 of 7 cases). A publisher-side
+ * "Video unavailable" is likewise not a playback verdict. Both are reported and excluded from the
+ * verdict rather than being counted as either a pass or a failure.
+ */
+function classifyCase(pass, diagnose) {
+  if (pass) return 'pass';
+  const text = typeof diagnose?.textSample === 'string' ? diagnose.textSample : '';
+  if (/not a bot|unusual traffic|not a robot/i.test(text)) return 'bot-wall';
+  if (/video unavailable|live stream recording is not available/i.test(text)) return 'unavailable';
+  return 'measured-fail';
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -252,6 +278,7 @@ try {
       sustainedOk,
       seekOk,
       pass,
+      blockedKind: classifyCase(pass, diagnose),
     });
   }
 } catch (error) {
@@ -260,7 +287,38 @@ try {
   if (driver) await driver.quit().catch(() => undefined);
 }
 
-const allPass = results.length === CASES.length && results.every((r) => r.pass);
+const hasSetupError = results.some((r) => r.error);
+const incomplete = results.length !== CASES.length;
+const measuredFail = results.filter((r) => r.blockedKind === 'measured-fail');
+const passed = results.filter((r) => r.blockedKind === 'pass');
+const botWalled = results.filter((r) => r.blockedKind === 'bot-wall').length;
+const unavailable = results.filter((r) => r.blockedKind === 'unavailable').length;
+const blocked = botWalled + unavailable;
+
+let verdict;
+let reason;
+if (hasSetupError) {
+  verdict = 'FAIL';
+  reason = 'setup error';
+} else if (incomplete) {
+  verdict = 'FAIL';
+  reason = `${results.length} of ${CASES.length} cases ran`;
+} else if (measuredFail.length > 0) {
+  verdict = 'FAIL';
+  reason = `${measuredFail.length} measurable case(s) failed`;
+} else if (passed.length === 0) {
+  verdict = 'INCONCLUSIVE';
+  reason =
+    `${botWalled} bot-walled by YouTube, ${unavailable} unavailable; ` +
+    'no playback verdict possible from this network';
+} else if (blocked > 0) {
+  verdict = 'PASS (partial)';
+  reason = `${passed.length} measured pass, ${blocked} environment-blocked`;
+} else {
+  verdict = 'PASS';
+  reason = `${passed.length} case(s)`;
+}
+
 for (const r of results) {
   if (r.error) {
     console.log(`[FAIL] ${r.id ?? 'setup'} error=${r.error.split('\n')[0]}`);
@@ -277,12 +335,22 @@ for (const r of results) {
       ? ' seek=skipped'
       : ` seek=${r.seek.reached ? 'reached' : 'missed'} +${r.seek.progress?.toFixed?.(1)}s`
     : '';
+  const label = r.pass
+    ? 'PASS'
+    : r.blockedKind === 'bot-wall'
+      ? 'BLOCKED'
+      : r.blockedKind === 'unavailable'
+        ? 'UNAVAILABLE'
+        : 'FAIL';
   console.log(
-    `[${r.pass ? 'PASS' : 'FAIL'}] ${r.id} (${r.label}/${r.kind}) hijacked=${r.snap?.hijacked} ` +
+    `[${label}] ${r.id} (${r.label}/${r.kind}) hijacked=${r.snap?.hijacked} ` +
       `vw=${r.snap?.videoWidth} advance=${r.advance?.t0?.toFixed?.(1)}→${r.advance?.t1?.toFixed?.(1)}` +
       ` advanced=${r.advanced}${sustainText}${seekText}` +
       (r.pass ? '' : `\n  signal=${JSON.stringify(r.diagnose)}`)
   );
 }
-console.log(`\nVERDICT: ${allPass ? 'PASS' : 'FAIL'}`);
-process.exit(allPass ? 0 : 1);
+console.log(`\nVERDICT: ${verdict} (${reason})`);
+if (verdict !== 'PASS') {
+  console.log(`::warning::Live canary ${verdict}: ${reason}`);
+}
+process.exit(verdict === 'FAIL' ? 1 : 0);

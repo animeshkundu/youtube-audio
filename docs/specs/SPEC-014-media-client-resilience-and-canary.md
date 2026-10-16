@@ -122,7 +122,12 @@ Acceptance logs exactly one `media.client` event: `{ client: 'visionos' | 'andro
   the retry happened with the fresh token.
 - Live canary: strengthened `probe-audio-playback.mjs` and the per-client audit probe, both
   non-gating; the audit probe is run locally before any release decision (ADR-0012). Its persona
-  table is pinned to `MEDIA_CLIENTS` by `tests/unit/probe-personas-sync.test.mjs`.
+  table is pinned to `MEDIA_CLIENTS` by `tests/unit/probe-personas-sync.test.mjs`. The canary
+  distinguishes a datacenter-IP bot wall (or a publisher-side unavailable fixture) from a real
+  regression: those cases are reported as environment-blocked, so the verdict is `INCONCLUSIVE`
+  (exit 0 with a warning annotation) when nothing was measurable, `PASS (partial)` when some cases
+  measured and passed, and `FAIL` only when a case that reached YouTube media misbehaved. The
+  residential runbook remains the authoritative live evidence.
 - The pre-existing unit suite pins fail-open behavior for malformed responses and live streams.
 
 ## Security Considerations
