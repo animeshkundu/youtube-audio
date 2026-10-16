@@ -1426,6 +1426,75 @@ async function main() {
       }
     );
 
+    // Rotation (SPEC-014, ADR-0012): the fixture rejects VISIONOS with LOGIN_REQUIRED for ROTATE*
+    // ids and accepts ANDROID_VR, so this case is deterministically red if the walk is collapsed
+    // to the primary client only.
+    const rotationRun = await runSession({
+      withAddon: true,
+      videoId: 'ROTATE0001',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const rotationPosts = fixture
+      .getRequests()
+      .filter((request) => request.path === '/youtubei/v1/player');
+    const rotationEntry = statusMapEntry(rotationRun.statusMap);
+    record(
+      'm8:client-rotation-falls-back-to-second-client',
+      rotationRun.status === 'active' &&
+        typeof rotationRun.videoSrc === 'string' &&
+        rotationRun.videoSrc.includes('/videoplayback') &&
+        rotationEntry?.entry?.status === 'active' &&
+        // Exactly two POSTs, in table order: a single-POST pass would mean the primary client was
+        // accepted (fixture says it must not be) or the walk skipped the primary persona.
+        rotationPosts.length === 2 &&
+        rotationPosts[0].clientName === 'VISIONOS' &&
+        rotationPosts[1].clientName === 'ANDROID_VR',
+      {
+        status: rotationRun.status,
+        videoSrc: rotationRun.videoSrc,
+        entry: rotationEntry?.entry,
+        posts: rotationPosts.map((request) => request.clientName),
+      }
+    );
+
+    // The bounded visitorData retry (SPEC-014): the fixture rejects the first attempt and hands
+    // back a fresh token in responseContext; the extension must retry once, with that token, and
+    // never loop. Two POSTs from the same client persona is the whole assertion.
+    const visitorRetryRun = await runSession({
+      withAddon: true,
+      videoId: 'VISITOR0001',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const visitorPosts = fixture
+      .getRequests()
+      .filter((request) => request.path === '/youtubei/v1/player');
+    const visitorRetryEntry = statusMapEntry(visitorRetryRun.statusMap);
+    record(
+      'm8:visitorData-retry-is-bounded-and-effective',
+      visitorRetryRun.status === 'active' &&
+        visitorRetryRun.videoSrc?.includes('/videoplayback') &&
+        visitorRetryEntry?.entry?.status === 'active' &&
+        visitorPosts.length === 2 &&
+        visitorPosts[0].clientName === 'VISIONOS' &&
+        !visitorPosts[0].visitorData &&
+        visitorPosts[1].clientName === 'VISIONOS' &&
+        visitorPosts[1].visitorData === 'v2',
+      {
+        status: visitorRetryRun.status,
+        entry: visitorRetryEntry?.entry,
+        posts: visitorPosts.map((request) => ({
+          client: request.clientName,
+          visitorData: request.visitorData,
+        })),
+      }
+    );
+
     const spaRun = await runSession({
       withAddon: true,
       probeSpaRearm: true,

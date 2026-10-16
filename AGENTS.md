@@ -11,8 +11,9 @@ detailed sources rather than duplicating them.
 ## What this project is
 
 **YouTube Audio** is a Firefox WebExtension that plays **YouTube and YouTube Music as
-audio only**: it fetches the audio stream through a credentialless `ANDROID_VR` InnerTube
-request and hijacks the page `<video>` source so playback continues without downloading
+audio only**: it fetches the audio stream through the credentialless media-client table
+(**VISIONOS 1.02** primary, **ANDROID_VR 1.65.10** fallback; ADR-0012) and hijacks the page
+`<video>` source so playback continues without downloading
 video. It also handles background play, ad/telemetry blocking, SponsorBlock-style segment
 skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ, audio
 download, and a PII-free local diagnostics log that users can view, copy, export locally, and clear.
@@ -166,7 +167,8 @@ Do not break these without an ADR that supersedes the decision:
 - **Logged-out only.** The extension never needs the user's YouTube login and must not
   depend on it. Detect the logged-in / unsupported case and fall back to native playback.
 - **Credentialless core.** Every media and metadata fetch uses `credentials: "omit"`. The
-  `ANDROID_VR` InnerTube client (`src/shared/innertube.ts`) is the media-acquisition path.
+  credentialless media-client table (`src/shared/innertube.ts`; VISIONOS primary, ANDROID_VR
+  fallback, ADR-0012) is the media-acquisition path.
 - **MV2 primary, MV3 dual-build.** MV2 (`npm run build`) is what ships; MV3
   (`npm run build:mv3`) must keep building as a capability artifact. Both come from one
   source tree via [`wxt.config.ts`](./wxt.config.ts).

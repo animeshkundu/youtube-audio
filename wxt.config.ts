@@ -105,6 +105,10 @@ export default defineConfig({
       'webRequestBlocking',
       'storage',
       'downloads',
+      // MV3-only: without it the MV3 artifact cannot prune player responses at all. MV2 gets the
+      // filter through webRequestBlocking; the MV3 artifact remains a capability build (the
+      // blocking adapter is still a TODO) and this permission does not change that.
+      ...(manifestVersion === 3 ? ['webRequestFilterResponse'] : []),
       ...(manifestVersion === 2
         ? [
             ...YOUTUBE_MATCHES,

@@ -22,7 +22,6 @@ jobs:
   live-probe:
     name: Live-YouTube audio playback canary (non-gating)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,4 +61,31 @@ jobs:
       - name: Run live audio playback probe
         # Prepend node_modules/.bin so the probe resolves the pinned geckodriver deterministically
         # (this probe uses geckodriver's default Firefox discovery, hence the /usr/local/bin symlink).
-        run: PATH="$PWD/node_modules/.bin:$PATH" xvfb-run --auto-servernum node tests/e2e/probe-audio-playback.mjs
+        # The job is deliberately NOT continue-on-error: a red probe must show up as a red run.
+        # It remains non-gating (not a required status check) and CI datacenter-IP results are
+        # advisory; the local residential runbook in docs/ci-cd.md is authoritative.
+        run: |
+          set -o pipefail
+          PATH="$PWD/node_modules/.bin:$PATH" xvfb-run --auto-servernum \
+            node tests/e2e/probe-audio-playback.mjs 2>&1 | tee dist/live-canary.log
+
+      - name: Summarize probe result
+        if: always()
+        run: |
+          {
+            echo '## Live canary result'
+            echo
+            echo '```'
+            tail -n 30 dist/live-canary.log 2>/dev/null || echo 'no probe log produced'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload probe log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-canary-log
+          path: dist/live-canary.log
+          if-no-files-found: ignore
+          # Re-runs of the same workflow run would otherwise 409 on an existing artifact name.
+          overwrite: true

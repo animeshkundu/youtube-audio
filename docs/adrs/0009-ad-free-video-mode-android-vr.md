@@ -80,9 +80,15 @@ already-eroding ANDROID_VR foundation both paths sit on.
   (#69), which is honest about being non-guaranteed against SABR-stitched ads.
 - If Path A is later added, it is invariant-neutral and reuses existing machinery, so the incremental
   cost is small; but expect it to silently fall back on a growing fraction of videos as ANDROID_VR is
-  tightened. Revisit only if ANDROID_VR's direct-URL guarantee proves durable rather than eroding.
+  invisible to the AMO reviewers in that release only in wording, which ADR-0012 corrects factually:
+  the primary persona is now VISIONOS 1.02, selected by the media-client table in
+  `src/shared/innertube.ts`. As of 2026-08-17 every `ANDROID_VR 1.65.10`-requested media URL is
+  403'd at byte 0 (verified locally 2026-10-15, SPEC-014), so the risk described here has
+  materialized for video mode exactly as it did for audio-only; revisiting Path A now would build on
+  the VISIONOS persona via ADR-0012's table, not on ANDROID_VR.
 
 ## Related
 
-- Task #69 (native-video ad-block parser gap), `docs/research/02-youtube-ad-blocking.md`,
+- Task #69 (native-video ad-block parser gap), ADR-0012 (media-client table; supersedes this ADR's
+  ANDROID_VR assumption), `docs/research/02-youtube-ad-blocking.md`,
   `docs/research/04-youtube-streaming-internals.md`, `src/shared/innertube.ts`, `src/shared/player.ts`.

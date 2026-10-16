@@ -64,10 +64,10 @@ LogContext = 'bg' | 'content' | 'page'
 LogData    = Record<string, string | number | boolean>  // values constrained per code
 ```
 
-`LogCode` is a fixed union: `playback.status`, `player.props`, `audio.graph`, `segment.armed`,
-`download.result`, `spa.rearm`, `sponsor.result`, `download.assembled`, `adblock.pruned`,
-`error`. Each code has a schema in `LOG_SCHEMA` naming its exact allowed keys, each bound
-to one validator:
+`LogCode` is a fixed union: `playback.status`, `player.props`, `media.client`, `audio.graph`,
+`segment.armed`, `download.result`, `spa.rearm`, `sponsor.result`, `download.assembled`,
+`adblock.pruned`, `error`. Each code has a schema in `LOG_SCHEMA` naming its exact allowed keys,
+each bound to one validator:
 
 - `enum([...])` accepts only listed strings and coerces anything else to `'other'`.
 - `boundedInt(min, max)` clamps to a small integer range.
@@ -75,6 +75,12 @@ to one validator:
 - `sanitizedText(max)` is used for exactly one field, the captured error stack: it runs
   `redactText` (stripping URLs, ids, emails, IPs, and extension UUIDs) and clamps the length,
   so the stack carries a file-and-line trail with no PII and no unbounded string.
+
+`media.client` (SPEC-014) records the accepted credentialless client id and the global attempt
+number (1..8) once per activation. `adblock.pruned` is no longer emitted by the background's
+per-response path (it produced a log write per response for no diagnostic value); it stays in the
+union so previously stored reports still hydrate. Page-world scriptlet failures remain silent and
+fail-open, matching ADR-0013.
 
 Apart from that one scrubbed stack there is no string passthrough, so no free text can be
 stored. Error events are `{ where: enum(site), name: enum(errorName), stack: sanitizedText }`.

@@ -88,7 +88,12 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
   const loginRequired = !!opts.loginRequired;
   const unplayable = !!opts.unplayable;
   return {
-    responseContext: { serviceTrackingParams: [] },
+    responseContext: {
+      serviceTrackingParams: [],
+      ...(typeof opts.visitorData === 'string' && opts.visitorData
+        ? { visitorData: opts.visitorData }
+        : {}),
+    },
     playabilityStatus: loginRequired
       ? { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' }
       : unplayable
@@ -575,23 +580,50 @@ export function createFixtureServer() {
     }
     if (path === '/youtubei/v1/player') {
       let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;
-      if (!videoId && body) {
+      let clientName;
+      let clientVisitorData;
+      if (body) {
         try {
-          videoId = JSON.parse(body).videoId;
+          const parsed = JSON.parse(body);
+          videoId = videoId ?? parsed.videoId;
+          clientName = parsed?.context?.client?.clientName;
+          clientVisitorData = parsed?.context?.client?.visitorData;
         } catch {
           /* ignore malformed bodies */
         }
       }
+      // Recorded so cases can pin the walk order and the visitorData retry without reading the
+      // request body again (introspection only; never a media URL).
+      if (requestRecord) {
+        requestRecord.clientName = typeof clientName === 'string' ? clientName : null;
+        requestRecord.visitorData = typeof clientVisitorData === 'string' ? clientVisitorData : null;
+      }
       // Special video-id prefixes keep edge responses deterministic and hermetic.
       const live = typeof videoId === 'string' && videoId.startsWith('LIVE');
-      const loginRequired = typeof videoId === 'string' && videoId.startsWith('AUTH');
+      // ROTATE* videos reject the primary persona and accept the fallback: the hermetic proof of
+      // the credentialless media-client table walk (SPEC-014, ADR-0012).
+      const rotate = typeof videoId === 'string' && videoId.startsWith('ROTATE');
+      // VISITOR* videos reject an attempt without the fresh retry token and accept the retried
+      // request that carries `responseContext.visitorData`: the hermetic proof of the bounded
+      // per-client visitorData retry (SPEC-014).
+      const visitorRetry = typeof videoId === 'string' && videoId.startsWith('VISITOR');
+      const acceptedAfterRetry = visitorRetry && clientVisitorData === 'v2';
+      const loginRequired =
+        (typeof videoId === 'string' && videoId.startsWith('AUTH')) ||
+        (rotate && clientName === 'VISIONOS') ||
+        (visitorRetry && !acceptedAfterRetry);
       const unplayable =
         typeof videoId === 'string' &&
         (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE'));
       return sendJson(
         res,
         200,
-        fixturePlayerResponse(origin, videoId, { live, loginRequired, unplayable })
+        fixturePlayerResponse(origin, videoId, {
+          live,
+          loginRequired,
+          unplayable,
+          visitorData: visitorRetry && !acceptedAfterRetry ? 'v2' : undefined,
+        })
       );
     }
     if (path.startsWith('/api/skipSegments/')) {

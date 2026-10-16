@@ -1,3 +1,26 @@
+/**
+ * The credentialless media-client table (ADR-0012). VISIONOS is the primary persona: yt-dlp
+ * removed ANDROID_VR 1.65.10 from its defaults because, since 2026-08-17, every format it requests
+ * is 403'd (yt-dlp commit dae52d838, issue #17456), and VISIONOS is the surviving JS-player-less
+ * client. ANDROID_VR stays as the ordered fallback and probe comparison, not as a trusted primary.
+ *
+ * Personas are pinned to yt-dlp's client definitions (2026-10-15), including each client's
+ * `userAgent`, which lives INSIDE the InnerTube client context. Amending the table requires
+ * re-checking those definitions (ADR-0012).
+ */
+export const VISIONOS_CLIENT = Object.freeze({
+  clientName: 'VISIONOS',
+  clientVersion: '1.02',
+  deviceMake: 'Apple',
+  deviceModel: 'RealityDevice17,1',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
+  osName: 'visionOS',
+  osVersion: '26.5.23O471',
+  hl: 'en',
+  gl: 'US',
+});
+
 export const ANDROID_VR_CLIENT = Object.freeze({
   clientName: 'ANDROID_VR',
   clientVersion: '1.65.10',
@@ -12,24 +35,50 @@ export const ANDROID_VR_CLIENT = Object.freeze({
   gl: 'US',
 });
 
-export type AndroidVrClient = typeof ANDROID_VR_CLIENT & {
+export interface MediaClientPersona {
+  clientName: string;
+  clientVersion: string;
+  deviceMake?: string;
+  deviceModel?: string;
+  osName?: string;
+  osVersion?: string;
+  androidSdkVersion?: number;
+  userAgent?: string;
+  hl: string;
+  gl: string;
+}
+
+export type MediaClientId = 'visionos' | 'android-vr';
+
+export interface MediaClientDescriptor {
+  readonly id: MediaClientId;
+  readonly client: MediaClientPersona;
+}
+
+/** Ordered attempt table. The order is the feature: primary first, fallback second. */
+export const MEDIA_CLIENTS: readonly MediaClientDescriptor[] = Object.freeze([
+  { id: 'visionos', client: VISIONOS_CLIENT },
+  { id: 'android-vr', client: ANDROID_VR_CLIENT },
+]);
+
+export type PlayerClient = MediaClientPersona & {
   visitorData?: string;
 };
 
-export interface AndroidVrPlayerRequest {
+export interface PlayerRequestBody {
   context: {
-    client: AndroidVrClient;
+    client: PlayerClient;
   };
   videoId: string;
   contentCheckOk: true;
   racyCheckOk: true;
 }
 
-/**
- * Builds the credentialless ANDROID_VR player body proven by the Phase 0 probes.
- * The caller must send this with `credentials: "omit"`.
- */
+/** Shapes of the fields the extension reads from a credentialless `/youtubei/v1/player` response. */
 export interface PlayerResponse {
+  responseContext?: {
+    visitorData?: string;
+  };
   playabilityStatus?: {
     status?: string;
     reason?: string;
@@ -82,10 +131,10 @@ export function getPlayability(playerResponse: unknown): Playability {
 
 /**
  * True when the player response is a currently-live (or DVR) broadcast whose best audio rendition
- * is a live-edge stream. The ANDROID_VR response for a live stream is `status: "OK"` and carries an
- * audio adaptiveFormat WITH a url, but that url is a live-edge segment that stalls at `currentTime 0`
- * when set as a progressive `<video>.src` (and is not a finite downloadable file). Such videos MUST
- * fall back to YouTube's normal (DASH/HLS) player rather than be hijacked.
+ * is a live-edge stream. The credentialless player response for a live stream is `status: "OK"`
+ * and carries an audio adaptiveFormat WITH a url, but that url is a live-edge segment that stalls
+ * at `currentTime 0` when set as a progressive `<video>.src` (and is not a finite downloadable
+ * file). Such videos MUST fall back to YouTube's normal (DASH/HLS) player rather than be hijacked.
  *
  * Two independent signals, either sufficient:
  *  - `videoDetails.isLive === true` — the explicit "currently broadcasting" flag (NOT `isLiveContent`,
@@ -146,18 +195,46 @@ export function pickBestAudioUrl(playerResponse: unknown): string | null {
   return pickBestAudioFormat(playerResponse)?.url ?? null;
 }
 
-export function buildAndroidVrPlayerRequest(
+/**
+ * Builds a credentialless player body for one persona. The caller must send this with
+ * `credentials: "omit"`. The optional `visitorData` is the only per-attempt variable.
+ */
+export function buildPlayerRequest(
+  client: MediaClientPersona,
   videoId: string,
   visitorData?: string
-): AndroidVrPlayerRequest {
-  const client: AndroidVrClient = visitorData
-    ? { ...ANDROID_VR_CLIENT, visitorData }
-    : { ...ANDROID_VR_CLIENT };
+): PlayerRequestBody {
+  const persona: PlayerClient = visitorData ? { ...client, visitorData } : { ...client };
 
   return {
-    context: { client },
+    context: { client: persona },
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
   };
+}
+
+/** Compatibility wrapper for the pinned ANDROID_VR persona (probes and legacy callers). */
+export function buildAndroidVrPlayerRequest(
+  videoId: string,
+  visitorData?: string
+): PlayerRequestBody {
+  return buildPlayerRequest(ANDROID_VR_CLIENT, videoId, visitorData);
+}
+
+/** Reads `responseContext.visitorData` from a player response, if present and usable. */
+export function extractVisitorData(playerResponse: unknown): string | null {
+  if (typeof playerResponse !== 'object' || playerResponse === null) return null;
+  const visitorData = (playerResponse as PlayerResponse).responseContext?.visitorData;
+  return typeof visitorData === 'string' && visitorData.length > 0 ? visitorData : null;
+}
+
+/**
+ * The entire retry policy for one client: a fresh `visitorData` harvested from the response just
+ * received is worth exactly one more attempt, and only when it differs from the value used. A
+ * `null` result ends this client's attempts (the caller moves to the next client or fails open).
+ */
+export function retryVisitorData(playerResponse: unknown, used: string | null): string | null {
+  const fresh = extractVisitorData(playerResponse);
+  return fresh && fresh !== used ? fresh : null;
 }

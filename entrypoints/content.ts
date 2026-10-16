@@ -1271,10 +1271,13 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
           // Ignore malformed page events until the bounded timeout.
         }
       };
+      // The page-world walk can make up to four sequential credentialless requests (two clients,
+      // each with one visitorData retry), so the UI timeout must outlast a slow-but-successful
+      // walk, not just the old single fetch.
       const timeout = window.setTimeout(() => {
         document.removeEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
         reject(new Error('download-timeout'));
-      }, 8_000);
+      }, 30_000);
       document.addEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
       document.dispatchEvent(
         new CustomEvent(DOWNLOAD_REQUEST_EVENT, {

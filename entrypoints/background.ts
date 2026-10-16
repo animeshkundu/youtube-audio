@@ -6,6 +6,7 @@ import {
   isSafeDownloadFilename,
 } from '../src/shared/download';
 import {
+  DEFAULT_SETTINGS,
   initializeSettings,
   getSettings,
   subscribeSettings,
@@ -160,7 +161,6 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
         const pruned = pruneAdsFromPlayerResponse(json);
         const changed = pruned !== json;
         if (changed) diagnostics?.noteAdPruned();
-        diagnostics?.logLocal('adblock.pruned', { changed });
         filter.write(changed ? new TextEncoder().encode(pruned) : original);
       } catch (error) {
         diagnostics?.logLocal('error', { where: 'bg.adblock', ...errorFields(error) });
@@ -497,7 +497,25 @@ export default defineBackground({
           return downloadRequest ? downloadAudio(downloadRequest) : undefined;
         }
       );
-      settings = await initializeSettings();
+      // Registered BEFORE the settings await below, for the same reason as the message listener
+      // above: a storage failure must never leave pages without network protection or a status
+      // channel. The handlers read `settings` per request and no-op while it is still unset, so
+      // early registration cannot act on unloaded values.
+      installStatusChannel();
+      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
+        'blocking',
+      ]);
+      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
+        urls: PLAYER_RESPONSE_REQUESTS,
+        types: ['xmlhttprequest'],
+      });
+      try {
+        settings = await initializeSettings();
+      } catch (error) {
+        // Default settings on a storage failure: the extension must still protect and play.
+        diagnostics?.logLocal('error', { where: 'bg.init', ...errorFields(error) });
+        settings = { ...DEFAULT_SETTINGS };
+      }
       subscribeSettings((nextSettings) => {
         settings = nextSettings;
       });
@@ -548,14 +566,6 @@ export default defineBackground({
       // the resolved state is broadcast to any content script that already received the
       // fail-closed default while this background was still initializing.
       reresolveConsent();
-      installStatusChannel();
-      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
-        'blocking',
-      ]);
-      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
-        urls: PLAYER_RESPONSE_REQUESTS,
-        types: ['xmlhttprequest'],
-      });
     } catch (error) {
       diagnostics?.logLocal('error', { where: 'bg.init', ...errorFields(error) });
       console.error('[YouTube Audio] Background initialization failed', error);

@@ -17,7 +17,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 
 ### Core mechanism
 
-A credentialless **ANDROID_VR** InnerTube `POST /youtubei/v1/player` (`credentials:"omit"`) returns a direct audio URL; the extension hijacks the page `<video>.src` to it (native player UI intact, video bytes stop). It falls back to normal playback whenever the credentialless fetch is non-playable (live, made-for-kids, age-restricted, members-only, unavailable).
+A credentialless InnerTube client table posts `POST /youtubei/v1/player` with `credentials:"omit"` (**VISIONOS 1.02** primary, **ANDROID_VR 1.65.10** fallback, both going through `src/shared/innertube.ts`) and returns a direct audio URL; the extension hijacks the page `<video>.src` to it (native player UI intact, video bytes stop). It falls back to normal playback whenever no credentialless client yields a playable, non-live response with a usable direct URL (live, made-for-kids, age-restricted, members-only, unavailable). See ADR-0012.
 
 ### Distribution
 

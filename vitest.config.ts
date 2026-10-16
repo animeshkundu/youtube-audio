@@ -35,6 +35,6 @@ export default defineConfig({
         statements: 90,
       },
     },
-    include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx'],
+    include: ['tests/unit/**/*.test.ts', 'tests/unit/**/*.test.tsx', 'tests/unit/**/*.test.mjs'],
   },
 });

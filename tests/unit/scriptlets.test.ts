@@ -84,3 +84,72 @@ describe('prune-fetched-player-response', () => {
     await expect(globalThis.fetch('/youtubei/v1/player')).rejects.toThrow('network');
   });
 });
+
+describe('coexistence: additive chaining instead of a skip', () => {
+  const realStringify = JSON.stringify;
+  const realParse = JSON.parse;
+
+  afterEach(() => {
+    JSON.stringify = realStringify;
+    JSON.parse = realParse;
+  });
+
+  it('still applies operations when a foreign hook replaced JSON.stringify (red on the old heuristic)', async () => {
+    // A plain-function hook, NOT a Proxy: Function.prototype.toString reports any Proxy as
+    // "[native code]", so only this shape actually triggered (and actually reds) the old
+    // non-native-JSON skip heuristic.
+    let foreignCalls = 0;
+    const foreignStringify = function foreignStringify(value: unknown) {
+      foreignCalls += 1;
+      return realStringify(value);
+    } as typeof JSON.stringify;
+    JSON.stringify = foreignStringify;
+
+    const body = playerResponseWithAds();
+    globalThis.fetch = vi.fn(async () => ({
+      json: () => Promise.resolve(body),
+    })) as unknown as typeof fetch;
+
+    const result = installFetchPrune();
+
+    expect(result.applied).toBe(1);
+    const parsed = (await (await globalThis.fetch('/youtubei/v1/player')).json()) as Record<
+      string,
+      unknown
+    >;
+    expect('adPlacements' in parsed).toBe(false);
+    expect(parsed.streamingData).toBeDefined();
+    // The foreign hook is untouched by this operation and still works.
+    JSON.stringify({ a: 1 });
+    expect(foreignCalls).toBe(1);
+    expect(JSON.stringify).toBe(foreignStringify);
+    result.cleanup();
+  });
+
+  it('chains through a foreign JSON.parse and leaves a later wrapper in place on cleanup', () => {
+    let foreignCalls = 0;
+    JSON.parse = function foreignParse(text: string) {
+      foreignCalls += 1;
+      return realParse(text);
+    } as typeof JSON.parse;
+
+    const result = applyScriptletOperations([{ id: 'prune-inline-player-response', args: {} }]);
+
+    expect(result.applied).toBe(1);
+    // Parse through the chain: our wrapper must call the foreign original and prune its result.
+    const parsed = JSON.parse(
+      '{"playabilityStatus":{"status":"OK"},"streamingData":{"adaptiveFormats":[]},' +
+        '"adPlacements":[{"adPlacementRenderer":{}}],"videoDetails":{"title":"keep"}}'
+    ) as Record<string, unknown>;
+    expect(foreignCalls).toBe(1);
+    expect('adPlacements' in parsed).toBe(false);
+
+    // A wrapper installed AFTER ours owns the reference; cleanup must not clobber it.
+    const later = function laterParse(text: string) {
+      return realParse(text);
+    } as typeof JSON.parse;
+    JSON.parse = later;
+    result.cleanup();
+    expect(JSON.parse).toBe(later);
+  });
+});

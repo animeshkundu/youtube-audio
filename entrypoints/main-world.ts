@@ -5,11 +5,14 @@ import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
-  buildAndroidVrPlayerRequest,
+  buildPlayerRequest,
   getPlayability,
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  retryVisitorData,
+  MEDIA_CLIENTS,
+  type MediaClientId,
   type PlayerResponse,
 } from '../src/shared/innertube';
 import { PlayerHandle, type PlayerReleaseRecord } from '../src/shared/player';
@@ -58,6 +61,25 @@ interface PlaybackOperation {
   videoId: string | null;
   generation: number;
 }
+
+/** Outcome of one bounded walk over the media-client table (SPEC-014). */
+type PlayerFetchOutcome =
+  | { kind: 'stale' }
+  | {
+      kind: 'failed';
+      reason: string;
+      /** Last parsed response, playable or not, for diagnostics. */
+      lastParsed: unknown | null;
+      /** Last playable response, so native fallback can still be armed. */
+      lastPlayable: unknown | null;
+    }
+  | {
+      kind: 'ok' | 'live';
+      response: unknown;
+      clientId: MediaClientId;
+      attempt: number;
+      reason: string;
+    };
 
 interface YouTubePlayerElement extends HTMLElement {
   setPlaybackQualityRange?(minimum: string, maximum?: string): void;
@@ -312,6 +334,100 @@ export default defineUnlistedScript(() => {
     void handleDownloadRequest(event);
   });
 
+  // Ordered credentialless client walk (SPEC-014, ADR-0012): VISIONOS first, ANDROID_VR second.
+  // Each client gets at most two HTTP attempts: the initial request, plus one retry carrying fresh
+  // visitorData harvested from the previous response. A live response is terminal (liveness is a
+  // property of the broadcast, not of the client). A playable response without a direct audio URL
+  // is remembered as `lastPlayable` so the caller can still arm loudness/EQ on native playback
+  // before falling back, preserving pre-rotation behavior.
+  async function fetchPlayerResponse(
+    videoId: string,
+    apiKey: string,
+    requireDirectAudio: boolean,
+    isStale: () => boolean
+  ): Promise<PlayerFetchOutcome> {
+    const endpoint = `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`;
+    const pageVisitorData = getConfigString('VISITOR_DATA') ?? null;
+    let lastReason = 'request-failed';
+    let lastPlayable: unknown | null = null;
+    let lastParsed: unknown | null = null;
+    let attempt = 0;
+
+    for (const mediaClient of MEDIA_CLIENTS) {
+      let visitorData = pageVisitorData;
+      for (let clientAttempt = 0; clientAttempt < 2; clientAttempt += 1) {
+        if (isStale()) return { kind: 'stale' };
+        attempt += 1;
+        let response: Response;
+        try {
+          response = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(
+              buildPlayerRequest(mediaClient.client, videoId, visitorData ?? undefined)
+            ),
+          });
+        } catch {
+          lastReason = 'request-failed';
+          break;
+        }
+        if (isStale()) return { kind: 'stale' };
+        if (!response.ok) {
+          lastReason = `http-${response.status}`;
+          break;
+        }
+        let playerResponse: unknown;
+        try {
+          playerResponse = await response.json();
+        } catch {
+          lastReason = 'request-failed';
+          break;
+        }
+        const playability = getPlayability(playerResponse);
+        lastParsed = playerResponse;
+        if (!playability.isPlayable) {
+          lastReason = playability.status ?? 'unplayable';
+        } else {
+          lastPlayable = playerResponse;
+          if (isLiveStream(playerResponse)) {
+            return {
+              kind: 'live',
+              response: playerResponse,
+              clientId: mediaClient.id,
+              attempt,
+              reason: 'live',
+            };
+          }
+          // Acceptance requires a URL this extension can actually attach. A playable response whose
+          // best URL is not allowlisted must not stop the walk: the next client may serve one.
+          const candidateAudioUrl = pickBestAudioUrl(playerResponse);
+          if (
+            !requireDirectAudio ||
+            (candidateAudioUrl &&
+              isAllowedAudioUrl(candidateAudioUrl, __BENCH__ ? location.origin : undefined))
+          ) {
+            return {
+              kind: 'ok',
+              response: playerResponse,
+              clientId: mediaClient.id,
+              attempt,
+              reason: 'ok',
+            };
+          }
+          lastReason = 'no-direct-audio';
+        }
+        const fresh = retryVisitorData(playerResponse, visitorData);
+        if (fresh) {
+          visitorData = fresh;
+          continue;
+        }
+        break;
+      }
+    }
+    return { kind: 'failed', reason: lastReason, lastParsed, lastPlayable };
+  }
+
   async function handleDownloadRequest(event: Event): Promise<void> {
     const detail = (event as CustomEvent<unknown>).detail;
     if (typeof detail !== 'string' || !bridgeNonce) return;
@@ -343,6 +459,16 @@ export default defineUnlistedScript(() => {
         })
       );
     };
+    // Maps a walk failure onto the bounded download-reason vocabulary: the download log schema
+    // accepts only these tokens (plus http-NNN), so anything else collapses to `unplayable`.
+    const downloadReason = (reason: string): string =>
+      reason === 'no-direct-audio' ||
+      reason === 'request-failed' ||
+      reason === 'live' ||
+      reason === 'unplayable' ||
+      /^http-\d{3}$/.test(reason)
+        ? reason
+        : 'unplayable';
     if (!settings.enabled || !settings.downloadEnabled) {
       respond({ ok: false, reason: 'disabled' });
       return;
@@ -354,30 +480,20 @@ export default defineUnlistedScript(() => {
         respond({ ok: false, reason: 'not-a-watch-page' });
         return;
       }
-      const visitorData = getConfigString('VISITOR_DATA');
-      const response = await fetch(
-        `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
-        {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildAndroidVrPlayerRequest(videoId, visitorData ?? undefined)),
-        }
-      );
-      if (!response.ok) {
-        respond({ ok: false, reason: `http-${response.status}` });
-        return;
-      }
-      const playerResponse: unknown = await response.json();
-      if (!getPlayability(playerResponse).isPlayable) {
-        respond({ ok: false, reason: 'unplayable' });
-        return;
-      }
-      if (isLiveStream(playerResponse)) {
+      const outcome = await fetchPlayerResponse(videoId, apiKey, true, () => false);
+      if (outcome.kind === 'live') {
         // A live-edge audio url is not a finite downloadable file.
         respond({ ok: false, reason: 'live' });
         return;
       }
+      if (outcome.kind !== 'ok') {
+        respond({
+          ok: false,
+          reason: downloadReason(outcome.kind === 'failed' ? outcome.reason : 'request-failed'),
+        });
+        return;
+      }
+      const playerResponse = outcome.response;
       const format = pickBestAudioFormat(playerResponse, true);
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
@@ -499,30 +615,47 @@ export default defineUnlistedScript(() => {
       }
 
       emitStatus('fetching', operation);
-      const visitorData = getConfigString('VISITOR_DATA');
-      const response = await fetch(
-        `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
-        {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildAndroidVrPlayerRequest(videoId, visitorData ?? undefined)),
-        }
+      const outcome = await fetchPlayerResponse(
+        videoId,
+        apiKey,
+        settings.audioOnlyEnabled,
+        () => operationGeneration !== player.generation
       );
-      if (operationGeneration !== player.generation) return;
-      if (!response.ok) {
-        emitStatus('fallback', operation, `http-${response.status}`);
+      if (outcome.kind === 'stale') return;
+      const usableResponse = outcome.kind === 'failed' ? outcome.lastPlayable : outcome.response;
+      if (!usableResponse) {
+        // Every parsed response was unplayable: the most diagnostically interesting failure, so
+        // log the last parsed response's bounded shape before falling back.
+        const lastParsed = outcome.kind === 'failed' ? outcome.lastParsed : null;
+        if (lastParsed) {
+          log('player.props', describePlayer(lastParsed, getPlayability(lastParsed).isPlayable));
+        }
+        emitStatus('fallback', operation, outcome.reason);
         return;
       }
-
-      const playerResponse: unknown = await response.json();
-      if (operationGeneration !== player.generation) return;
-      const playability = getPlayability(playerResponse);
-      log('player.props', describePlayer(playerResponse, playability.isPlayable));
-      if (!playability.isPlayable) {
-        emitStatus('fallback', operation, playability.status ?? 'unplayable');
+      log(
+        'player.props',
+        describePlayer(usableResponse, getPlayability(usableResponse).isPlayable)
+      );
+      if (outcome.kind === 'failed') {
+        // Preserve the pre-rotation behavior: with a playable response in hand but no usable
+        // direct audio, arm loudness/EQ on the native fallback before emitting `fallback`.
+        const fallbackElement = await waitForVideo(operationGeneration);
+        if (fallbackElement && operationGeneration === player.generation) {
+          armAudioGraph(
+            fallbackElement,
+            (usableResponse as PlayerResponse).playerConfig?.audioConfig?.loudnessDb
+          );
+        }
+        // A superseded operation (settings echo or SPA navigation during the wait) must not emit a
+        // stale fallback: the newer operation owns the status now.
+        if (operationGeneration === player.generation) {
+          emitStatus('fallback', operation, outcome.reason);
+        }
         return;
       }
+      log('media.client', { client: outcome.clientId, attempt: outcome.attempt });
+      const playerResponse: unknown = usableResponse;
 
       const mediaElement = await waitForVideo(operationGeneration);
       if (!mediaElement || operationGeneration !== player.generation) return;
@@ -536,7 +669,7 @@ export default defineUnlistedScript(() => {
       // Live/DVR broadcasts return OK + an audio url, but that url is a live-edge segment that
       // stalls when hijacked as a progressive <video>.src. Leave YouTube's native player in control
       // (the audio graph armed above still applies loudness/EQ to normal playback).
-      if (isLiveStream(playerResponse)) {
+      if (outcome.kind === 'live') {
         emitStatus('fallback', operation, 'live');
         return;
       }

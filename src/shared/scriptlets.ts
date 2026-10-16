@@ -11,20 +11,22 @@ export type ScriptletOperation =
 
 export interface ScriptletResult {
   applied: number;
-  skippedForCoexistence: boolean;
   cleanup: () => void;
 }
 
 /**
  * Applies only bundled operation IDs. Unknown or incompatible page state is always a no-op.
+ *
+ * Coexistence is additive chaining, never a skip: each operation wraps whatever implementation is
+ * currently installed (including another extension's or YouTube's own), calls through to it, and
+ * prunes only the value it produced. A foreign hook on `JSON.parse`/`JSON.stringify` is therefore
+ * not a reason to stand down. The historical "non-native JSON means a foreign blocker, skip
+ * everything" heuristic false-positived on stock YouTube (which itself freezes/blocks JSON
+ * serialization in places), disabling all scriptlets there, so it was removed (ADR-0013).
  */
 export function applyScriptletOperations(
   operations: readonly ScriptletOperation[]
 ): ScriptletResult {
-  if (hasExistingBlockerHooks()) {
-    return { applied: 0, skippedForCoexistence: true, cleanup: () => undefined };
-  }
-
   const cleanups: Array<() => void> = [];
   for (const operation of operations) {
     try {
@@ -37,7 +39,6 @@ export function applyScriptletOperations(
 
   return {
     applied: cleanups.length,
-    skippedForCoexistence: false,
     cleanup: () => {
       for (const cleanup of cleanups.reverse()) {
         try {
@@ -48,22 +49,6 @@ export function applyScriptletOperations(
       }
     },
   };
-}
-
-/**
- * Best-effort coexistence heuristic. Page-world wrappers are intentionally difficult to
- * attribute, so this may miss transparent proxies or skip for unrelated wrappers.
- */
-export function hasExistingBlockerHooks(): boolean {
-  try {
-    return !isNativeFunction(JSON.parse) || !isNativeFunction(JSON.stringify);
-  } catch {
-    return true;
-  }
-}
-
-function isNativeFunction(value: (...args: never[]) => unknown): boolean {
-  return Function.prototype.toString.call(value).includes('[native code]');
 }
 
 function applyOperation(operation: ScriptletOperation): (() => void) | null {

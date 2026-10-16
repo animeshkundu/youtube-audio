@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   ANDROID_VR_CLIENT,
   buildAndroidVrPlayerRequest,
+  buildPlayerRequest,
+  extractVisitorData,
   getPlayability,
   isLiveStream,
+  MEDIA_CLIENTS,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  retryVisitorData,
+  VISIONOS_CLIENT,
 } from '../../src/shared/innertube';
 
 describe('buildAndroidVrPlayerRequest', () => {
@@ -45,6 +50,66 @@ describe('buildAndroidVrPlayerRequest', () => {
 
     expect(first.context.client).not.toBe(second.context.client);
     expect(ANDROID_VR_CLIENT).not.toHaveProperty('visitorData');
+  });
+});
+
+describe('media-client table (SPEC-014, ADR-0012)', () => {
+  it('orders VISIONOS first and ANDROID_VR second', () => {
+    expect(MEDIA_CLIENTS.map((entry) => entry.id)).toEqual(['visionos', 'android-vr']);
+    expect(MEDIA_CLIENTS.map((entry) => entry.client)).toEqual([
+      VISIONOS_CLIENT,
+      ANDROID_VR_CLIENT,
+    ]);
+  });
+
+  it('pins the VISIONOS persona to the yt-dlp definition', () => {
+    expect(VISIONOS_CLIENT).toEqual({
+      clientName: 'VISIONOS',
+      clientVersion: '1.02',
+      deviceMake: 'Apple',
+      deviceModel: 'RealityDevice17,1',
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
+      osName: 'visionOS',
+      osVersion: '26.5.23O471',
+      hl: 'en',
+      gl: 'US',
+    });
+  });
+
+  it('builds a VISIONOS body with the user agent inside the client context', () => {
+    const request = buildPlayerRequest(VISIONOS_CLIENT, 'abc', 'visitor-token');
+
+    expect(request.context.client).toMatchObject({
+      clientName: 'VISIONOS',
+      visitorData: 'visitor-token',
+    });
+    expect(request.context.client.userAgent).toContain('Safari/605.1.15');
+    expect(VISIONOS_CLIENT).not.toHaveProperty('visitorData');
+  });
+
+  it('keeps the ANDROID_VR compatibility wrapper equivalent to the generic builder', () => {
+    expect(buildAndroidVrPlayerRequest('dQw4w9WgXcQ', 'visitor')).toEqual(
+      buildPlayerRequest(ANDROID_VR_CLIENT, 'dQw4w9WgXcQ', 'visitor')
+    );
+  });
+});
+
+describe('fresh-visitorData retry signal', () => {
+  it('extracts responseContext.visitorData and tolerates junk', () => {
+    expect(extractVisitorData({ responseContext: { visitorData: 'fresh' } })).toBe('fresh');
+    expect(extractVisitorData({ responseContext: { visitorData: '' } })).toBeNull();
+    expect(extractVisitorData({ responseContext: {} })).toBeNull();
+    expect(extractVisitorData({})).toBeNull();
+    expect(extractVisitorData(null)).toBeNull();
+    expect(extractVisitorData('nope')).toBeNull();
+  });
+
+  it('retries only with a present and different value', () => {
+    expect(retryVisitorData({ responseContext: { visitorData: 'fresh' } }, 'used')).toBe('fresh');
+    expect(retryVisitorData({ responseContext: { visitorData: 'used' } }, 'used')).toBeNull();
+    expect(retryVisitorData({ responseContext: { visitorData: 'fresh' } }, null)).toBe('fresh');
+    expect(retryVisitorData({}, 'used')).toBeNull();
   });
 });
 

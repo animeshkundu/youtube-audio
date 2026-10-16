@@ -294,11 +294,13 @@ with `VIDEO_ID`, `HOLD_SECONDS`, and `SAMPLE_SECONDS`. The older
 ## Live YouTube Canary (non-gating, best-effort)
 
 Nightly desktop probe (`tests/e2e/probe-audio-playback.mjs`) that installs the `BENCH` XPI in a
-real (non-snap) Firefox under `xvfb` and drives live YouTube watch pages, asserting that eligible
-VODs actually play audio-only (currentTime advances, `videoWidth === 0`, googlevideo src) and live
-streams fall back gracefully. It is network-dependent and bot-flag-prone, so it is
-`continue-on-error: true` and non-gating; its job is to surface YouTube-side drift the hermetic
-bench cannot see.
+real (non-snap) Firefox under `xvfb` and drives live YouTube watch pages. Per eligible VOD it asserts
+the hijack (`videoWidth === 0`, googlevideo src), a sustained playback window
+(`PROBE_SUSTAIN_MS`, default 45 s; release runs use 90 s), a buffered-ahead margin, and a seek to
+80 % of duration that resumes advancing; live streams must fall back to native playback. It is
+network-dependent and bot-flag-prone, so it is non-gating (never a required check, runbook below is
+authoritative), but the job is deliberately no longer `continue-on-error`, so a red probe is a red
+run with its log in the run summary and as the `live-canary-log` artifact.
 
 Because that probe uses geckodriver's default Firefox discovery (it does not read `FIREFOX_BIN`),
 the workflow symlinks the setup-firefox binary to `/usr/local/bin/firefox` (ahead of the snap on
@@ -309,9 +311,18 @@ the workflow symlinks the setup-firefox binary to `/usr/local/bin/firefox` (ahea
 ```bash
 # build the BENCH XPI as above, then:
 node tests/e2e/probe-audio-playback.mjs      # add HEADLESS=0 to watch
+PROBE_SUSTAIN_MS=90000 node tests/e2e/probe-audio-playback.mjs   # release-gate run
+PROBE_CASES=Bu4ztj3R32k node tests/e2e/probe-audio-playback.mjs  # one case only
 # broader live matrix (35+ harvested videos):
 node tests/e2e/probe-audio-matrix.mjs
+# per-client InnerTube audit (pure Node, no browser; reports playability, direct-URL yield, and a
+# sustained ranged download per persona with URLs never printed):
+node tests/e2e/probe-live-client-audit.mjs
 ```
+
+The audit probe is the fast first read when a canary goes red: it separates "YouTube changed the
+player response" from "the media CDN now rejects this client's URLs" (2026-10-15: VISIONOS served
+bytes, ANDROID_VR media URLs returned HTTP 403 at byte 0).
 
 ## Dependency updates
 
