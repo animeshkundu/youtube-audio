@@ -12,6 +12,9 @@ import {
   pickBestAudioUrl,
   retryVisitorData,
   VISIONOS_CLIENT,
+  walkMediaClients,
+  type MediaClientFetchResult,
+  type MediaClientWalkOutcome,
 } from '../../src/shared/innertube';
 
 describe('buildAndroidVrPlayerRequest', () => {
@@ -219,5 +222,206 @@ describe('isLiveStream', () => {
     expect(isLiveStream({})).toBe(false);
     expect(isLiveStream(null)).toBe(false);
     expect(isLiveStream(undefined)).toBe(false);
+  });
+});
+
+describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
+  const audioFormat = (url: string) => ({
+    itag: 251,
+    mimeType: 'audio/webm',
+    bitrate: 130000,
+    contentLength: '3400000',
+    url,
+  });
+  const playable = (url = 'https://rr1---sn-x.googlevideo.com/videoplayback?x=1') => ({
+    playabilityStatus: { status: 'OK' },
+    streamingData: { adaptiveFormats: [audioFormat(url)] },
+  });
+  const loginRequired = (visitorData?: string) => ({
+    playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' },
+    ...(visitorData ? { responseContext: { visitorData } } : {}),
+  });
+  const reply = (body: unknown, status = 200): MediaClientFetchResult => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  });
+  interface FetchCall {
+    clientName: string;
+    visitorData: string | null;
+  }
+
+  /**
+   * Runs the walk against a scripted reply list. The fake transport throws when the walk asks for
+   * a reply beyond the script, so an extra request (an unbounded retry) is visible both in `calls`
+   * and as a `request-failed` outcome.
+   */
+  function runWalk(
+    script: Array<MediaClientFetchResult | Error>,
+    options: {
+      requireDirectAudio?: boolean;
+      allow?: (url: string) => boolean;
+      isStale?: () => boolean;
+      pageVisitorData?: string | null;
+    } = {}
+  ): { outcome: Promise<MediaClientWalkOutcome>; calls: FetchCall[] } {
+    const calls: FetchCall[] = [];
+    let index = 0;
+    const outcome = walkMediaClients({
+      requireDirectAudio: options.requireDirectAudio ?? true,
+      isStale: options.isStale ?? (() => false),
+      pageVisitorData: options.pageVisitorData ?? null,
+      fetchPlayer: async (client, visitorData) => {
+        calls.push({ clientName: client.clientName, visitorData });
+        const next = script[index];
+        index += 1;
+        if (next instanceof Error) throw next;
+        if (!next) throw new Error('walk requested an unscripted reply');
+        return next;
+      },
+      isAllowedUrl: options.allow ?? (() => true),
+    });
+    return { outcome, calls };
+  }
+
+  it('accepts the primary client on its first attempt', async () => {
+    const { outcome, calls } = runWalk([reply(playable())]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'visionos', attempt: 1 });
+    expect(calls).toEqual([{ clientName: 'VISIONOS', visitorData: null }]);
+  });
+
+  it('retries one time with the fresh visitorData token and accepts that retry', async () => {
+    const { outcome, calls } = runWalk([reply(loginRequired('v2')), reply(playable())]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'visionos', attempt: 2 });
+    expect(calls).toEqual([
+      { clientName: 'VISIONOS', visitorData: null },
+      { clientName: 'VISIONOS', visitorData: 'v2' },
+    ]);
+  });
+
+  it('caps each client at two attempts, then falls through in table order', async () => {
+    const { outcome, calls } = runWalk([
+      reply(loginRequired('t1')),
+      reply(loginRequired('t2')),
+      reply(loginRequired('t3')),
+      reply(loginRequired('t4')),
+    ]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'failed', reason: 'LOGIN_REQUIRED' });
+    // Four attempts total and no fifth: a broken cap would ask for an unscripted reply.
+    expect(calls).toEqual([
+      { clientName: 'VISIONOS', visitorData: null },
+      { clientName: 'VISIONOS', visitorData: 't1' },
+      { clientName: 'ANDROID_VR', visitorData: null },
+      { clientName: 'ANDROID_VR', visitorData: 't3' },
+    ]);
+  });
+
+  it('does not retry with a token that was already used', async () => {
+    const { outcome, calls } = runWalk([
+      reply(loginRequired('same')),
+      reply(loginRequired('same')),
+      reply(loginRequired()),
+    ]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'failed' });
+    expect(calls).toEqual([
+      { clientName: 'VISIONOS', visitorData: null },
+      { clientName: 'VISIONOS', visitorData: 'same' },
+      { clientName: 'ANDROID_VR', visitorData: null },
+    ]);
+  });
+
+  it('treats a live response as terminal for the whole table', async () => {
+    const live = {
+      playabilityStatus: { status: 'OK' },
+      videoDetails: { isLive: true },
+      streamingData: {
+        adaptiveFormats: [{ ...audioFormat('https://media/live'), contentLength: undefined }],
+      },
+    };
+    const { outcome, calls } = runWalk([reply(live)]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'live', clientId: 'visionos' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('rejects a playable response whose URL is not allowlisted and continues the walk', async () => {
+    const { outcome, calls } = runWalk(
+      [reply(playable('https://not-allowed.example/videoplayback')), reply(playable())],
+      { allow: (url) => url.startsWith('https://rr1---sn-x.googlevideo.com/') }
+    );
+
+    await expect(outcome).resolves.toMatchObject({
+      kind: 'ok',
+      clientId: 'android-vr',
+      attempt: 2,
+    });
+    expect(calls).toEqual([
+      { clientName: 'VISIONOS', visitorData: null },
+      { clientName: 'ANDROID_VR', visitorData: null },
+    ]);
+  });
+
+  it('survives a transport failure and still accepts the next client', async () => {
+    const { outcome, calls } = runWalk([new Error('network down'), reply(playable())]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'android-vr' });
+    expect(calls.map((call) => call.clientName)).toEqual(['VISIONOS', 'ANDROID_VR']);
+  });
+
+  it('records a non-OK status as http-NNN without burning a retry token', async () => {
+    const { outcome, calls } = runWalk([reply(null, 403), reply(playable())]);
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'android-vr' });
+    expect(calls).toEqual([
+      { clientName: 'VISIONOS', visitorData: null },
+      { clientName: 'ANDROID_VR', visitorData: null },
+    ]);
+  });
+
+  it('keeps the last playable response when every client refuses a direct URL', async () => {
+    const first = playable('https://not-allowed.example/one');
+    const second = playable('https://not-allowed.example/two');
+    const { outcome } = runWalk([reply(first), reply(second)], { allow: () => false });
+
+    const result = await outcome;
+    expect(result).toMatchObject({
+      kind: 'failed',
+      reason: 'no-direct-audio',
+      lastPlayable: second,
+    });
+    if (result.kind === 'failed') expect(result.lastParsed).toBe(second);
+  });
+
+  it('aborts as stale when the operation is superseded mid-walk', async () => {
+    let stale = false;
+    let calls = 0;
+    const outcome = walkMediaClients({
+      requireDirectAudio: true,
+      isStale: () => stale,
+      pageVisitorData: null,
+      fetchPlayer: async () => {
+        calls += 1;
+        stale = true; // superseded by the time the response comes back
+        return reply(playable());
+      },
+      isAllowedUrl: () => true,
+    });
+
+    await expect(outcome).resolves.toEqual({ kind: 'stale' });
+    expect(calls).toBe(1);
+  });
+
+  it('skips the URL requirement when audio-only is off', async () => {
+    const { outcome, calls } = runWalk([reply(playable('https://anything.example/audio'))], {
+      requireDirectAudio: false,
+      allow: () => false,
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'visionos' });
+    expect(calls).toHaveLength(1);
   });
 });

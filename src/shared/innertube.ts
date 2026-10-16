@@ -238,3 +238,127 @@ export function retryVisitorData(playerResponse: unknown, used: string | null): 
   const fresh = extractVisitorData(playerResponse);
   return fresh && fresh !== used ? fresh : null;
 }
+
+/** Minimal response shape the walk needs; a real `Response` satisfies it structurally. */
+export interface MediaClientFetchResult {
+  readonly ok: boolean;
+  readonly status: number;
+  json(): Promise<unknown>;
+}
+
+/** Everything the walk cannot know on its own, injected so the walk itself stays pure. */
+export interface MediaClientWalkDeps {
+  /** When true (audio-only on), acceptance also needs an attachable, allowlisted audio URL. */
+  readonly requireDirectAudio: boolean;
+  /** True when the playback operation that started this walk has been superseded. */
+  readonly isStale: () => boolean;
+  /** Page-level visitorData from ytcfg, the starting value for the first client. */
+  readonly pageVisitorData: string | null;
+  /** POSTs one credentialless player request and must throw on a network failure. */
+  readonly fetchPlayer: (
+    client: MediaClientPersona,
+    visitorData: string | null
+  ) => Promise<MediaClientFetchResult>;
+  /** Allowlist check for the accepted direct audio URL. */
+  readonly isAllowedUrl: (url: string) => boolean;
+}
+
+/** Outcome of one bounded walk over the media-client table (SPEC-014). */
+export type MediaClientWalkOutcome =
+  | { kind: 'stale' }
+  | {
+      kind: 'failed';
+      reason: string;
+      /** Last parsed response, playable or not, for diagnostics. */
+      lastParsed: unknown | null;
+      /** Last playable response, so native fallback can still be armed. */
+      lastPlayable: unknown | null;
+    }
+  | {
+      kind: 'ok' | 'live';
+      response: unknown;
+      clientId: MediaClientId;
+      attempt: number;
+      reason: string;
+    };
+
+/**
+ * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012): VISIONOS first,
+ * ANDROID_VR second, at most two HTTP attempts per client (the initial request plus one retry
+ * carrying fresh `visitorData` harvested from the previous response). A live response is terminal:
+ * liveness is a property of the broadcast, not of the client, so no other client can change it.
+ * Acceptance requires a playable response whose best audio URL passes the injected allowlist;
+ * anything else (unplayable, or playable without an attachable URL) continues the walk.
+ * `lastPlayable` is retained so the caller can still arm loudness/EQ before falling back.
+ */
+export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<MediaClientWalkOutcome> {
+  const { requireDirectAudio, isStale, pageVisitorData, fetchPlayer, isAllowedUrl } = deps;
+  let lastReason = 'request-failed';
+  let lastPlayable: unknown | null = null;
+  let lastParsed: unknown | null = null;
+  let attempt = 0;
+
+  for (const mediaClient of MEDIA_CLIENTS) {
+    let visitorData = pageVisitorData;
+    for (let clientAttempt = 0; clientAttempt < 2; clientAttempt += 1) {
+      if (isStale()) return { kind: 'stale' };
+      attempt += 1;
+      let response: MediaClientFetchResult;
+      try {
+        response = await fetchPlayer(mediaClient.client, visitorData);
+      } catch {
+        lastReason = 'request-failed';
+        break;
+      }
+      if (isStale()) return { kind: 'stale' };
+      if (!response.ok) {
+        lastReason = `http-${response.status}`;
+        break;
+      }
+      let playerResponse: unknown;
+      try {
+        playerResponse = await response.json();
+      } catch {
+        lastReason = 'request-failed';
+        break;
+      }
+      const playability = getPlayability(playerResponse);
+      lastParsed = playerResponse;
+      if (!playability.isPlayable) {
+        lastReason = playability.status ?? 'unplayable';
+      } else {
+        lastPlayable = playerResponse;
+        if (isLiveStream(playerResponse)) {
+          return {
+            kind: 'live',
+            response: playerResponse,
+            clientId: mediaClient.id,
+            attempt,
+            reason: 'live',
+          };
+        }
+        // Acceptance requires a URL this extension can actually attach. A playable response whose
+        // best URL is absent or not allowlisted must not stop the walk: the next client may serve
+        // one.
+        const candidateAudioUrl = pickBestAudioUrl(playerResponse);
+        if (!requireDirectAudio || (candidateAudioUrl && isAllowedUrl(candidateAudioUrl))) {
+          return {
+            kind: 'ok',
+            response: playerResponse,
+            clientId: mediaClient.id,
+            attempt,
+            reason: 'ok',
+          };
+        }
+        lastReason = 'no-direct-audio';
+      }
+      const fresh = retryVisitorData(playerResponse, visitorData);
+      if (fresh) {
+        visitorData = fresh;
+        continue;
+      }
+      break;
+    }
+  }
+  return { kind: 'failed', reason: lastReason, lastParsed, lastPlayable };
+}

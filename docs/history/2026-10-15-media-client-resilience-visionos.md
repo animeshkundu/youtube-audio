@@ -34,11 +34,14 @@ failures are visible.
 ## Changes
 
 - `src/shared/innertube.ts`: `MEDIA_CLIENTS` table with pinned personas, `buildPlayerRequest`,
-  `extractVisitorData`, `retryVisitorData`; `buildAndroidVrPlayerRequest` kept as a wrapper.
-- `entrypoints/main-world.ts`: `fetchPlayerResponse` walk (max 2 HTTP attempts per client, live
-  terminal, allowlisted direct URL required for acceptance, `lastParsed`/`lastPlayable` retained for
-  diagnostics and native arming) used by activation and download; one `media.client` log per
-  accepted activation; failed-path fallback emit now generation-guarded after its await.
+  `extractVisitorData`, `retryVisitorData`, and `walkMediaClients`: the whole ordered walk as a
+  pure function with injected `fetchPlayer`/`isAllowedUrl`/`pageVisitorData`/`isStale`
+  (`buildAndroidVrPlayerRequest` kept as a wrapper).
+- `entrypoints/main-world.ts`: `fetchPlayerResponse` is now a thin adapter over `walkMediaClients`
+  (endpoint, credentialless POST, ytcfg visitorData, bench-aware allowlist) used by activation and
+  download; one `media.client` log per accepted activation; the failed-path fallback emit is
+  generation-guarded after its await, and the all-unplayable path logs the last parsed response's
+  bounded player props.
 - `entrypoints/content.ts`: download UI timeout 8 s to 30 s, sized for the bounded 4-request walk.
 - `src/shared/scriptlets.ts`: coexistence is additive chaining; the skip heuristic is gone
   (ADR-0013).
@@ -63,18 +66,37 @@ failures are visible.
 ## Validation
 
 - `npm run typecheck`, `npm run lint`, `npm run format:check`: clean.
-- `npm test`: 287 unit tests green, coverage 97.9 % statements / 96.0 % branches (floors 90 %).
+- `npm test`: 298 unit tests green, coverage 97.9 % statements / 96.0 % branches (floors 90 %),
+  including 11 tests over the extracted `walkMediaClients` that pin the per-client two-attempt cap,
+  the fresh-token retry, live-terminal, the allowlist gate, transport/HTTP failure continuation,
+  and the stale abort.
 - `npm run build` (MV2) and `npm run build:mv3`: clean; MV2 manifest free of
   `webRequestFilterResponse`, MV3 carries it; `web-ext lint` 0 errors on the MV2 build.
 - Live audit probe (residential, browser User-Agent): VISIONOS serves bytes, ANDROID_VR 403s at
   byte 0, exit PASS because at least one client serves every probed video.
 - Adversarial reviews (runtime and test/canary) were run against the working-tree diff; all
   blocker/major findings were fixed before commit (red-green tests now use plain-function foreign
-  hooks because a Proxy reads as native; the retry cap and rotation order are pinned by bench
-  cases; the `PROBE_CASES` false-green and seek-skip implicit pass are fixed).
-- Hermetic bench, settings matrix, and the live canary run in CI; a local headless Firefox could
-  not start on this macOS/Firefox build (Marionette never came up even without the extension), so
-  CI is the authoritative source for those results.
+  hooks because a Proxy reads as native; the `PROBE_CASES` false-green and seek-skip implicit pass
+  are fixed).
+- CI on the pull request (authoritative for the hermetic surface, because a local headless Firefox
+  cannot start on this macOS/Firefox build): typecheck/lint/format/test/MV2 validate, MV3 build,
+  the persistent-consent check, and the full settings matrix (128 ESR through latest) pass. The
+  first hermetic-bench run failed only on
+  `m8:visitorData-retry-is-bounded-and-effective`, and the failure detail (three VISIONOS POSTs,
+  `null`, `null`, `v2`) showed why: a duplicate activation generation raced the first walk and
+  interleaved its own aborted attempt, which the extension is designed to allow. The walk loop was
+  then extracted into `walkMediaClients` for direct unit coverage of the attempt cap, and both
+  bench cases were reworked to order-based assertions that pin the fallback order and the retry
+  token without depending on an exact global POST count.
+- The Fenix 128 mobile job failed on an Android SDK download error (`Error on ZipFile unknown
+archive`, emulator never booted); every other Fenix version and the same job on `master` pass, so
+  it is runner infrastructure, not code.
+- The live canary's first run on the branch failed during setup, before touching YouTube:
+  `installAddon` had left the session in the chrome context (or the temporary add-on's pinned UUID
+  was not registered yet) and the first options-page navigation was refused. The probe now sets the
+  content context and retries that navigation a bounded three times, so a setup race cannot
+  masquerade as a live-YouTube verdict. The prior masked `master` run also failed, at the playback
+  assertion, which is consistent with the ANDROID_VR 403 breakage this change set fixes.
 
 ## Follow-ups
 

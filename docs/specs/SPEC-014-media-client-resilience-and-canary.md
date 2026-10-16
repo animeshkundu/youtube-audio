@@ -54,15 +54,23 @@ playerResponse, used)` returns it only when it is present and different from the
 used. That is the entire retry policy: one fresh-visitorData retry per client, then move to the
 next client, then fail open. No response body is stored beyond the activation.
 
-### Activation walk (`entrypoints/main-world.ts`)
+`walkMediaClients(deps)` (same module) is the whole table walk as a pure function: the ordered
+`MEDIA_CLIENTS` loop, the two-attempt cap, the fresh-token retry, the live-terminal rule, and the
+allowlist-gated acceptance. Page-world specifics are injected: `fetchPlayer`, `isAllowedUrl`,
+`pageVisitorData`, and `isStale`. Keeping the loop pure is what makes the cap unit-testable.
 
-`fetchPlayerResponse(videoId, apiKey, requireDirectAudio, isStale)` walks the table and returns:
+### Walk call sites (`entrypoints/main-world.ts`)
 
-- `ok`: playable, not live, and (when audio-only is on) carrying a direct audio URL;
+`fetchPlayerResponse(videoId, apiKey, requireDirectAudio, isStale)` is now a thin page-world
+adapter: it owns the endpoint, the credentialless POST, the ytcfg `VISITOR_DATA`, and the
+bench-aware URL allowlist, and delegates to `walkMediaClients`. It returns:
+
+- `ok`: playable, not live, and (when audio-only is on) carrying an allowlisted direct audio URL;
 - `live`: playable live response (liveness is a property of the broadcast, so rotation stops);
 - `failed`: no client produced an acceptable response; carries the last reason plus the last
-  playable response, if any, so loudness/EQ can still arm on the native fallback before the
-  `fallback` status is emitted (preserving pre-rotation behavior);
+  parsed and last playable responses, if any, so diagnostics can log the bounded player props and
+  loudness/EQ can still arm on the native fallback before the `fallback` status is emitted
+  (preserving pre-rotation behavior);
 - `stale`: the activation was superseded by SPA navigation; nothing is consumed.
 
 The download path (`yta:download-request`) uses the same walk with `preferCompatible` selection so
@@ -96,13 +104,25 @@ Acceptance logs exactly one `media.client` event: `{ client: 'visionos' | 'andro
 
 - Unit (`tests/unit/innertube.test.ts`): table order and persona pinning; `buildPlayerRequest`
   bodies for both personas (userAgent inside the client context); compatibility wrapper
-  equivalence; `extractVisitorData`/`retryVisitorData` bounds (fresh-only, never the same value).
+  equivalence; `extractVisitorData`/`retryVisitorData` bounds (fresh-only, never the same value);
+  and the full `walkMediaClients` policy against a scripted transport: primary accepted on the
+  first attempt, one fresh-token retry and its acceptance, the two-attempt-per-client cap (a fifth
+  request is impossible because the fake transport throws), no retry with an already-used token,
+  live terminal for the whole table, allowlist rejection continuing the walk, transport/HTTP
+  failure continuing the walk, and the `stale` abort.
 - Hermetic bench (`tests/e2e/bench/`): `m8:client-rotation-falls-back-to-second-client` serves a
   `ROTATE*` video id whose fixture response is `LOGIN_REQUIRED` for VISIONOS and `OK` for
-  ANDROID_VR, and asserts the session still reaches `active` with a `/videoplayback` source. With
-  the table collapsed to one client the case deterministically fails.
+  ANDROID_VR, and asserts the session reaches `active` with a `/videoplayback` source and that the
+  first ANDROID_VR request was immediately preceded by a VISIONOS request. The assertion is
+  order-based, not an exact global count, because a duplicate activation generation (a
+  settings/visibility-driven re-arm) may interleave an extra aborted attempt; with the table
+  collapsed to one client the case still deterministically fails. A second case
+  (`m8:visitorData-retry-is-bounded-and-effective`) uses a `VISITOR*` id: the fixture rejects any
+  attempt without the token it handed back and accepts the retried one, so reaching `active` proves
+  the retry happened with the fresh token.
 - Live canary: strengthened `probe-audio-playback.mjs` and the per-client audit probe, both
-  non-gating; the audit probe is run locally before any release decision (ADR-0012).
+  non-gating; the audit probe is run locally before any release decision (ADR-0012). Its persona
+  table is pinned to `MEDIA_CLIENTS` by `tests/unit/probe-personas-sync.test.mjs`.
 - The pre-existing unit suite pins fail-open behavior for malformed responses and live streams.
 
 ## Security Considerations

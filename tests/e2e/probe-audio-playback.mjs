@@ -82,6 +82,20 @@ try {
     .manage()
     .setTimeouts({ script: SUSTAIN_MS + SEEK_MS + 30_000, pageLoad: 60_000 });
   await driver.installAddon(XPI, true);
+  // `installAddon` can leave the Marionette session in the chrome context, and the temporary
+  // add-on's pinned UUID can take a moment to register. Either shows up as
+  // `UnsupportedOperationError: Navigation to "moz-extension://..." is not allowed in this
+  // context` on the first options-page load, so retry a bounded number of times.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await driver.setContext('content');
+      await driver.get(OPTIONS_URL);
+      break;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+      await sleep(1_000);
+    }
+  }
   await seedDataConsent(driver, OPTIONS_URL);
   await driver.get(OPTIONS_URL);
   await driver.executeAsyncScript(function (s) {
