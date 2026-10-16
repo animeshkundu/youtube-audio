@@ -111,6 +111,32 @@ try {
       if (snap.hasVideo && (snap.hijacked || (snap.blob && snap.readyState > 0))) break;
     }
 
+    // Bounded page-state diagnosis: on a failure it separates "this network position got a
+    // bot/consent wall" from "the extension or YouTube broke". Prints no signed URLs (scheme only).
+    const diagnose = await driver.executeScript(function () {
+      const v = document.querySelector('video');
+      const text = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim();
+      let sourceScheme = '';
+      try {
+        const cs = v && (v.currentSrc || v.src);
+        if (cs) sourceScheme = new URL(cs, location.href).protocol;
+      } catch (e) {
+        sourceScheme = 'unparseable';
+      }
+      return {
+        title: document.title.slice(0, 70),
+        path: location.pathname.slice(0, 40),
+        hasVideo: Boolean(v),
+        readyState: v ? v.readyState : null,
+        mediaError: v && v.error ? v.error.code : 0,
+        sourceScheme: sourceScheme,
+        consentForm: Boolean(
+          document.querySelector('form[action*="consent"], ytd-consent-bump-v2-lightbox')
+        ),
+        textSample: text.slice(0, 140),
+      };
+    });
+
     // Quick 3.5 s advance check first: fast diagnosis when playback never starts at all.
     const advance = await driver.executeAsyncScript(function () {
       const done = arguments[arguments.length - 1];
@@ -215,7 +241,18 @@ try {
         ? !!(snap && snap.hijacked && snap.videoWidth === 0 && advanced && sustainedOk && seekOk)
         : // live → fell back to native playback and the page player actually loaded media metadata
           !!(snap && snap.hasVideo && !snap.hijacked && snap.readyState >= 1);
-    results.push({ ...c, snap, advance, advanced, sustained, seek, sustainedOk, seekOk, pass });
+    results.push({
+      ...c,
+      snap,
+      diagnose,
+      advance,
+      advanced,
+      sustained,
+      seek,
+      sustainedOk,
+      seekOk,
+      pass,
+    });
   }
 } catch (error) {
   results.push({ error: String(error?.stack || error) });
@@ -243,7 +280,8 @@ for (const r of results) {
   console.log(
     `[${r.pass ? 'PASS' : 'FAIL'}] ${r.id} (${r.label}/${r.kind}) hijacked=${r.snap?.hijacked} ` +
       `vw=${r.snap?.videoWidth} advance=${r.advance?.t0?.toFixed?.(1)}→${r.advance?.t1?.toFixed?.(1)}` +
-      ` advanced=${r.advanced}${sustainText}${seekText}`
+      ` advanced=${r.advanced}${sustainText}${seekText}` +
+      (r.pass ? '' : `\n  signal=${JSON.stringify(r.diagnose)}`)
   );
 }
 console.log(`\nVERDICT: ${allPass ? 'PASS' : 'FAIL'}`);
