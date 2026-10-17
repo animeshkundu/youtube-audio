@@ -19,7 +19,7 @@ All three are off by default. Changes take effect right away, and turning a swit
 
 ## Cap video quality
 
-Under **Playback**, set **Maximum video quality** from 144p to 1080p, or leave it on **Automatic**. The cap matters when normal video is playing, including when you turn audio-only off or a video falls back. It can help control data use, but YouTube still chooses among the qualities that are actually available.
+Under **Playback**, set **Maximum video quality** from 144p to 1080p, or leave it on **Automatic**. The cap matters when normal video is playing, including when you turn audio-only off; videos that fall back are handled by **Low-quality fallback** unless you set a maximum here. It can help control data use, but YouTube still chooses among the qualities that are actually available.
 
 ## Stop autoplay next
 

@@ -67,6 +67,7 @@ const BASE = Object.freeze({
   audioArtworkEnabled: false,
   backgroundPlayEnabled: false,
   idleNagDefeatEnabled: false,
+  fallbackQualityCapEnabled: false,
   ghostEnabled: false,
   aggressiveTelemetry: false,
   adBlockEnabled: false,
@@ -336,6 +337,7 @@ async function main() {
           ...TOGGLES.map((t) => [t, true]),
           ['forceQualityMax', '1080p'],
           ['idleNagDefeatEnabled', true],
+          ['fallbackQualityCapEnabled', true],
         ])
       ),
       ctx
@@ -444,6 +446,42 @@ async function main() {
         opened: nag?.opened,
         confirmed: nag?.confirmed,
         lact: nag?.lact,
+      });
+    }
+
+    // --- Fallback quality (SPEC-017) ---------------------------------------
+    // The run-bench cases prove the outcome in isolation; the matrix re-runs a live fallback
+    // under a MIXED row where the user's own maximum quality is set alongside other active
+    // features, so "never fight forceQualityMax" is exercised in context: the quality-of-life
+    // request must be the only one, and no fallback tier may be requested.
+    {
+      const s = settings({
+        fallbackQualityCapEnabled: true,
+        forceQualityMax: '1080p',
+        audioOnlyEnabled: true,
+        adBlockEnabled: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        videoId: 'LIVESTREAM01',
+        probeFallbackQuality: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const calls = r.fallbackQuality?.qualityCalls || [];
+      const failures = [];
+      if (r.status !== 'fallback') failures.push(`fallback-quality: expected fallback (${r.status})`);
+      if (r.marker !== '1')
+        failures.push(`fallback-quality: content script marker missing (marker=${r.marker})`);
+      if (calls.length === 0) failures.push('fallback-quality: quality-of-life cap never requested');
+      const stray = calls.filter((c) => (c.min ?? c.quality) !== 'hd1080');
+      if (stray.length > 0)
+        failures.push(`fallback-quality: unexpected quality requests ${JSON.stringify(stray)}`);
+      if (r.player?.hasAdPlacements !== false) failures.push('fallback-quality: ad pruning regressed');
+      record('fallback-quality:force-quality-max-wins-inside-mixed-row', failures, {
+        status: r.status,
+        qualityCalls: calls,
       });
     }
 

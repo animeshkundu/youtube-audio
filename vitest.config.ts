@@ -18,6 +18,7 @@ export default defineConfig({
         'src/shared/adblock.ts',
         'src/shared/audiograph.ts',
         'src/shared/consent.ts',
+        'src/shared/fallback-quality.ts',
         'src/shared/idle-nag.ts',
         'src/shared/innertube.ts',
         'src/shared/logger.ts',

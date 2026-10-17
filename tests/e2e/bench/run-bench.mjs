@@ -339,7 +339,7 @@ function visibilityProbeScript() {
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
  *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
- *           probeIdleNag?: 'confirmed' | 'untouched',
+ *           probeIdleNag?: 'confirmed' | 'untouched', probeFallbackQuality?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
@@ -352,6 +352,7 @@ export async function runSession({
   probeCoach,
   probeSegmentSkip,
   probeQol,
+  probeFallbackQuality,
   probeDownload,
   probeSpaRearm,
   probeCircuitBreaker,
@@ -1114,6 +1115,19 @@ export async function runSession({
         }, 8000)) || (await driver.executeScript(readQol));
     }
 
+    let fallbackQuality = null;
+    if (probeFallbackQuality) {
+      // SPEC-017: read the recorded quality calls and the fixture's song-mode marker. The
+      // extension applies the fallback request synchronously inside the status emission, and the
+      // terminal-status wait above already observed that emission, so a single read is enough.
+      fallbackQuality = await driver.executeScript(function () {
+        return {
+          qualityCalls: window.__ytaQualityCalls || [],
+          songMode: window.__fixtureSongMode || null,
+        };
+      });
+    }
+
     let diagnostics = null;
     if (probeReadDiagnostics && withAddon) {
       // Let any in-flight page->content->background log messages settle before reading.
@@ -1192,6 +1206,7 @@ export async function runSession({
       inlinePlayerResponse,
       segmentSkip,
       qol,
+      fallbackQuality,
       audioGraph: snap.audioGraph,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
@@ -1618,6 +1633,149 @@ async function main() {
       'status-channel:fallback-live-reaches-background-map',
       liveEntry?.entry?.status === 'fallback' && liveEntry?.entry?.reason === 'live',
       { entry: liveEntry?.entry, statusMap: liveRun.statusMap }
+    );
+
+    // SPEC-017: fallback quality. A fallback leaves native video playing, so the extension should
+    // request the lowest available tier once; the toggle can forbid it, an explicit user maximum
+    // quality wins untouched, and a Music page prefers its own song playback instead.
+    const fallbackQualityRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:lowest-available-on-fallback',
+      fallbackQualityRun.status === 'fallback' &&
+        (fallbackQualityRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => c.min === 'tiny' && c.max === 'tiny'
+        ),
+      {
+        status: fallbackQualityRun.status,
+        qualityCalls: fallbackQualityRun.fallbackQuality?.qualityCalls,
+      }
+    );
+
+    const fallbackQualityOffRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        fallbackQualityCapEnabled: false,
+      },
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:disabled-does-not-cap',
+      fallbackQualityOffRun.status === 'fallback' &&
+        (fallbackQualityOffRun.fallbackQuality?.qualityCalls || []).length === 0,
+      {
+        status: fallbackQualityOffRun.status,
+        qualityCalls: fallbackQualityOffRun.fallbackQuality?.qualityCalls,
+      }
+    );
+
+    const fallbackQualityMaxRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '720p',
+      },
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const fallbackQualityMaxCalls = fallbackQualityMaxRun.fallbackQuality?.qualityCalls || [];
+    record(
+      'fallback-quality:force-quality-max-wins',
+      fallbackQualityMaxRun.status === 'fallback' &&
+        fallbackQualityMaxCalls.length > 0 &&
+        fallbackQualityMaxCalls.every((c) => (c.min ?? c.quality) === 'hd720'),
+      { status: fallbackQualityMaxRun.status, qualityCalls: fallbackQualityMaxCalls }
+    );
+
+    const musicSongRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-prefers-song',
+      musicSongRun.status === 'fallback' &&
+        musicSongRun.fallbackQuality?.songMode === '1' &&
+        (musicSongRun.fallbackQuality?.qualityCalls || []).length === 0,
+      { status: musicSongRun.status, fallbackQuality: musicSongRun.fallbackQuality }
+    );
+
+    const musicNoSongRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1&nosong=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-caps-without-song',
+      musicNoSongRun.status === 'fallback' &&
+        musicNoSongRun.fallbackQuality?.songMode === null &&
+        (musicNoSongRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => c.min === 'tiny' && c.max === 'tiny'
+        ),
+      { status: musicNoSongRun.status, fallbackQuality: musicNoSongRun.fallbackQuality }
+    );
+
+    // A user maximum quality suppresses the cap but NOT the Music song preference: the two are
+    // orthogonal, and song mode is what the extension is for. The user's cap may still be applied
+    // to the video element (its hd1080 request is expected); the fallback tier must not appear.
+    const musicSongMaxRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '1080p',
+      },
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-song-despite-user-cap',
+      musicSongMaxRun.status === 'fallback' &&
+        musicSongMaxRun.fallbackQuality?.songMode === '1' &&
+        !(musicSongMaxRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => (c.min ?? c.quality) === 'tiny'
+        ),
+      { status: musicSongMaxRun.status, fallbackQuality: musicSongMaxRun.fallbackQuality }
     );
 
     const authRequiredRun = await runSession({

@@ -6,6 +6,8 @@ import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
+  fallbackQualityCapEnabledSignal,
+  forceQualityMaxSignal,
   ghostEnabledSignal,
 } from '../../src/shared/settings-signals';
 import type { PlaybackUiState } from '../../src/shared/status';
@@ -35,16 +37,29 @@ const defaultActions: PopupActions = {
   setTabAudioOnly: setActiveTabAudioOnly,
 };
 
-function heroStatusCopy(status: Exclude<PlaybackUiState, { kind: 'not-youtube' }>): string {
+function heroStatusCopy(
+  status: Exclude<PlaybackUiState, { kind: 'not-youtube' }>,
+  fallbackQualityEngaged: boolean
+): string {
   switch (status.kind) {
     case 'active':
       return 'Audio-only on. Video muted, battery saved.';
     case 'connecting':
       return 'Checking this tab...';
     case 'fallback':
+      if (!fallbackQualityEngaged) {
+        return status.reason === 'live'
+          ? 'Live stream, playing normally.'
+          : "Audio-only isn't available on this video. Playing normally.";
+      }
+      // SPEC-017: fallback playback is deliberately capped, and Music prefers its song mode. The
+      // song wording is the intent, not a per-video outcome report (fail-open by design).
+      if (status.reason !== 'live' && status.host === 'music') {
+        return "Audio-only isn't available on this video. Playing the song to save data.";
+      }
       return status.reason === 'live'
-        ? 'Live stream, playing normally.'
-        : "Audio-only isn't available on this video. Playing normally.";
+        ? 'Live stream, playing at low quality to save data.'
+        : "Audio-only isn't available on this video. Playing at low quality to save data.";
     case 'disabled':
       return 'Audio-only off. Video plays normally.';
     case 'not-a-watch-page':
@@ -103,6 +118,10 @@ function PlaybackHero({
       : status;
   const active = displayStatus.kind === 'active';
   const statusId = 'audio-only-status';
+  // Whether a fallback would have engaged the SPEC-017 quality cap: the setting is on and the
+  // user's own maximum-quality choice is not fighting it.
+  const fallbackCapEngaged =
+    fallbackQualityCapEnabledSignal.value && forceQualityMaxSignal.value === 'off';
 
   return (
     <section class={`popup-hero${active ? ' is-active' : ''}`} aria-labelledby="popup-hero-title">
@@ -114,7 +133,7 @@ function PlaybackHero({
           </h1>
           <span class="popup-hero-status" id={statusId}>
             {active && <span class="now-playing" aria-hidden="true" />}
-            <span>{heroStatusCopy(displayStatus)}</span>
+            <span>{heroStatusCopy(displayStatus, fallbackCapEngaged)}</span>
           </span>
         </span>
         <Switch label="Audio-only" checked={checked} describedBy={statusId} onChange={onChange} />

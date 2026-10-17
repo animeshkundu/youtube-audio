@@ -7,6 +7,7 @@ import {
   resetSettings,
   setEnabled,
   setEqualizerBand,
+  setFallbackQualityCapEnabled,
   setForceQualityMax,
   setIdleNagDefeatEnabled,
   setSegmentSkipCategory,
@@ -108,6 +109,50 @@ describe('idle-nag defeat setting', () => {
     expect(getSettings().idleNagDefeatEnabled).toBe(false);
     expect(set).toHaveBeenCalledWith({
       settings: expect.objectContaining({ idleNagDefeatEnabled: false }),
+    });
+  });
+});
+
+describe('fallback quality setting', () => {
+  it('defaults on for installs that predate the field and preserves an explicit choice', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(true);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { fallbackQualityCapEnabled: false } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(false);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { fallbackQualityCapEnabled: 'yes' } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(true);
+  });
+
+  it('persists the toggle and applies it optimistically', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setFallbackQualityCapEnabled(false);
+
+    expect(getSettings().fallbackQualityCapEnabled).toBe(false);
+    expect(set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ fallbackQualityCapEnabled: false }),
     });
   });
 });

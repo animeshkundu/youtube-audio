@@ -14,6 +14,7 @@ import {
   setDownloadEnabled,
   setEnabled,
   setEqualizerBand,
+  setFallbackQualityCapEnabled,
   setForceQualityMax,
   setGhostEnabled,
   setIdleNagDefeatEnabled,
@@ -32,6 +33,7 @@ import {
   enabledSignal,
   equalizerBandsSignal,
   equalizerEnabledSignal,
+  fallbackQualityCapEnabledSignal,
   forceQualityMaxSignal,
   ghostEnabledSignal,
   hideCommentsSignal,
@@ -61,6 +63,7 @@ const OPTION_LABELS = {
   autoplay: 'Disable autoplay next',
   quality: 'Maximum video quality',
   idleNag: 'Keep long videos playing',
+  fallbackQuality: 'Low-quality fallback',
   ads: 'Block ads',
   ghost: 'Ghost mode',
   aggressive: 'Aggressive telemetry blocking',
@@ -79,6 +82,7 @@ export type OptionsActions = {
   setAudioOnlyEnabled: typeof setAudioOnlyEnabled;
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
   setIdleNagDefeatEnabled: typeof setIdleNagDefeatEnabled;
+  setFallbackQualityCapEnabled: typeof setFallbackQualityCapEnabled;
   setAdBlockEnabled: typeof setAdBlockEnabled;
   setGhostEnabled: typeof setGhostEnabled;
   setSegmentSkipEnabled: typeof setSegmentSkipEnabled;
@@ -103,6 +107,7 @@ export const defaultOptionsActions: OptionsActions = {
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   setIdleNagDefeatEnabled,
+  setFallbackQualityCapEnabled,
   setAdBlockEnabled,
   setGhostEnabled,
   setSegmentSkipEnabled,
@@ -254,6 +259,11 @@ export function Options({
     : `${
         idleNagDefeatEnabledSignal.value ? 'On' : 'Off'
       }, unavailable. Turn on background play to use this.`;
+  const fallbackQualityDescription = stateDescription(
+    fallbackQualityCapEnabledSignal.value,
+    "Plays video at the lowest quality when audio-only isn't available, and YouTube Music plays the song version when one exists. Quality can stay low until you change it.",
+    "When audio-only isn't available, video plays at normal quality."
+  );
   const adBlockDescription = stateDescription(
     adBlockEnabledSignal.value,
     'Blocks ads before they play.',
@@ -331,6 +341,11 @@ export function Options({
   );
   const qualityVisible = matchesSearch(normalizedQuery, OPTION_LABELS.quality, qualityDescription);
   const idleNagVisible = matchesSearch(normalizedQuery, OPTION_LABELS.idleNag, idleNagDescription);
+  const fallbackQualityVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.fallbackQuality,
+    fallbackQualityDescription
+  );
   const adBlockVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ads, adBlockDescription);
   const ghostVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ghost, ghostDescription);
   const aggressiveVisible = matchesSearch(
@@ -373,7 +388,8 @@ export function Options({
   const helpVisible = matchesSearch(normalizedQuery, 'Help and feedback', helpDescription);
 
   const quickVisible = enabledVisible || audioOnlyVisible || backgroundVisible;
-  const playbackVisible = autoplayVisible || qualityVisible || idleNagVisible;
+  const playbackVisible =
+    autoplayVisible || qualityVisible || idleNagVisible || fallbackQualityVisible;
   const privacyVisible = adBlockVisible || ghostVisible || aggressiveVisible;
   const skippingVisible =
     skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
@@ -549,12 +565,23 @@ export function Options({
                     label={OPTION_LABELS.idleNag}
                     description={idleNagDescription}
                     error={errors.idleNag}
-                    consequence="May resume playback after a long idle stop."
                     checked={idleNagDefeatEnabledSignal.value}
                     onChange={(checked) =>
                       apply('idleNag', () => actions.setIdleNagDefeatEnabled(checked))
                     }
                     disabled={!backgroundPlayEnabledSignal.value}
+                  />
+                )}
+                {fallbackQualityVisible && (
+                  <SettingRow
+                    id="option-fallback-quality"
+                    label={OPTION_LABELS.fallbackQuality}
+                    description={fallbackQualityDescription}
+                    error={errors.fallbackQuality}
+                    checked={fallbackQualityCapEnabledSignal.value}
+                    onChange={(checked) =>
+                      apply('fallbackQuality', () => actions.setFallbackQualityCapEnabled(checked))
+                    }
                   />
                 )}
               </div>

@@ -11,6 +11,8 @@ import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
+  fallbackQualityCapEnabledSignal,
+  forceQualityMaxSignal,
   loudnessNormalizationSignal,
 } from '../../../src/shared/settings-signals';
 
@@ -50,6 +52,8 @@ afterEach(() => {
   audioOnlyEnabledSignal.value = true;
   backgroundPlayEnabledSignal.value = true;
   loudnessNormalizationSignal.value = true;
+  fallbackQualityCapEnabledSignal.value = true;
+  forceQualityMaxSignal.value = 'off';
   tabAudioOnlyOverrideSignal.value = null;
 });
 
@@ -125,30 +129,72 @@ describe('Popup', () => {
     expect(hero?.querySelector('.now-playing')).not.toBeNull();
   });
 
-  it('live fallback renders playing normally without Active or a pulse', () => {
+  it('live fallback names the low-quality save when the fallback cap is engaged', () => {
     audioOnlyEnabledSignal.value = true;
-    playbackStatusSignal.value = { kind: 'fallback', reason: 'live' };
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'youtube' };
 
     const container = mount(<Popup actions={actions()} />);
     const hero = container.querySelector('.popup-hero');
 
-    expect(hero?.textContent).toContain('Live stream, playing normally.');
+    expect(hero?.textContent).toContain('Live stream, playing at low quality to save data.');
     expect(hero?.textContent).not.toContain('Active');
     expect(hero?.classList.contains('is-active')).toBe(false);
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
 
-  it("unplayable fallback renders the isn't available message", () => {
+  it("unplayable fallback renders the isn't available message with the cap note", () => {
     audioOnlyEnabledSignal.value = true;
-    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable' };
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'youtube' };
 
     const container = mount(<Popup actions={actions()} />);
     const hero = container.querySelector('.popup-hero');
 
     expect(hero?.textContent).toContain(
-      "Audio-only isn't available on this video. Playing normally."
+      "Audio-only isn't available on this video. Playing at low quality to save data."
     );
     expect(hero?.querySelector('.now-playing')).toBeNull();
+  });
+
+  it('fallback copy stays normal when the cap setting is off', () => {
+    fallbackQualityCapEnabledSignal.value = false;
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'youtube' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      'Live stream, playing normally.'
+    );
+  });
+
+  it('fallback copy stays normal while a user maximum quality is set', () => {
+    forceQualityMaxSignal.value = '720p';
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'youtube' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      "Audio-only isn't available on this video. Playing normally."
+    );
+  });
+
+  it('Music fallback prefers the song wording when the cap is engaged', () => {
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'music' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      "Audio-only isn't available on this video. Playing the song to save data."
+    );
+  });
+
+  it('Music live fallback still names low quality (a live stream has no song counterpart)', () => {
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'music' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      'Live stream, playing at low quality to save data.'
+    );
   });
 
   it('connecting renders the checking state without an optimistic label', () => {

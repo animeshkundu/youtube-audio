@@ -59,12 +59,23 @@ describe('startPlaybackStatusChannel', () => {
     const stop = startPlaybackStatusChannel();
     await flush();
 
-    pushed?.({ type: STATUS_CHANGED_MESSAGE, state: { kind: 'fallback', reason: 'live' } });
-    expect(playbackStatusSignal.value).toEqual({ kind: 'fallback', reason: 'live' });
+    pushed?.({
+      type: STATUS_CHANGED_MESSAGE,
+      state: { kind: 'fallback', reason: 'live', host: 'youtube' },
+    });
+    expect(playbackStatusSignal.value).toEqual({
+      kind: 'fallback',
+      reason: 'live',
+      host: 'youtube',
+    });
 
     // A malformed push is ignored (defensive against a hostile runtime message).
     pushed?.({ type: STATUS_CHANGED_MESSAGE, state: { kind: 'garbage' } });
-    expect(playbackStatusSignal.value).toEqual({ kind: 'fallback', reason: 'live' });
+    expect(playbackStatusSignal.value).toEqual({
+      kind: 'fallback',
+      reason: 'live',
+      host: 'youtube',
+    });
 
     stop();
     expect(removeListener).toHaveBeenCalledWith(pushed);

@@ -332,6 +332,21 @@ function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } 
         mp.setPlaybackQuality = function (q) {
           window.__ytaQualityCalls.push({ quality: q });
         };
+        // The real Music watch page reports its tiers this way (verified live 2026-10-16, incl.
+        // 'auto' last, which is a mode and not a tier). SPEC-017 must pick the lowest known label.
+        mp.getAvailableQualityLevels = function () {
+          return [
+            'hd2160',
+            'hd1440',
+            'hd1080',
+            'hd720',
+            'large',
+            'medium',
+            'small',
+            'tiny',
+            'auto',
+          ];
+        };
         mp.loadVideoById = function (arg) {
           var video = document.querySelector('video[data-fixture-video]');
           if (!video) return;
@@ -379,6 +394,36 @@ function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } 
       }
       var autonav = document.querySelector('.ytp-autonav-toggle-button');
       if (autonav) wireAutonav(autonav);
+      // YT Music song-mode simulation (SPEC-017): the real Music player page renders a
+      // ytmusic-av-toggle whose song-button flips the page to song playback on click while
+      // playback continues (verified live 2026-10-16). ytm=1 marks the page as Music for the
+      // extension (bench-only host switch); nosong=1 omits the toggle to prove the quality-cap
+      // fallback when no song counterpart exists.
+      if (/[?&]ytm=1/.test(location.search) && !/[?&]nosong=1/.test(location.search)) {
+        var avToggle = document.createElement('ytmusic-av-toggle');
+        avToggle.setAttribute('is-audio-playback-mode-selected', 'false');
+        avToggle.setAttribute('is-video-playback-mode-selected', 'true');
+        avToggle.setAttribute('playback-mode', 'OMV_PREFERRED');
+        var songButton = document.createElement('button');
+        songButton.className = 'song-button';
+        songButton.setAttribute('aria-pressed', 'false');
+        songButton.textContent = 'Song';
+        songButton.addEventListener('click', function () {
+          avToggle.setAttribute('is-audio-playback-mode-selected', 'true');
+          avToggle.setAttribute('is-video-playback-mode-selected', 'false');
+          avToggle.setAttribute('playback-mode', 'ATV_PREFERRED');
+          songButton.setAttribute('aria-pressed', 'true');
+          window.__fixtureSongMode = '1';
+        });
+        var videoButton = document.createElement('button');
+        videoButton.className = 'video-button';
+        videoButton.setAttribute('aria-pressed', 'true');
+        videoButton.textContent = 'Video';
+        avToggle.appendChild(songButton);
+        avToggle.appendChild(videoButton);
+        var player = document.getElementById('movie_player');
+        if (player && player.parentNode) player.parentNode.insertBefore(avToggle, player.nextSibling);
+      }
       // Late-autonav regression mode: remove the button and re-insert it AFTER the extension's fixed
       // retry schedule (past 3s), so only the disable-autoplay MutationObserver fallback can click it.
       if (/[?&]yta-late-autonav=1/.test(location.search) && autonav && autonav.parentNode) {

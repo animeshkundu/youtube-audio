@@ -63,7 +63,7 @@ export type HostClass = 'youtube' | 'music' | 'not-youtube';
 export type PlaybackUiState =
   | { kind: 'active' }
   | { kind: 'connecting' }
-  | { kind: 'fallback'; reason: string | null }
+  | { kind: 'fallback'; reason: string | null; host: 'youtube' | 'music' }
   | { kind: 'disabled' }
   | { kind: 'not-a-watch-page' }
   | { kind: 'not-youtube' };
@@ -117,11 +117,20 @@ export function isPlaybackStatus(value: unknown): value is PlaybackStatus {
 
 /** Narrow an arbitrary value to a resolved `PlaybackUiState` (used when reading a message payload). */
 export function isPlaybackUiState(value: unknown): value is PlaybackUiState {
-  return (
-    isRecord(value) &&
-    typeof value.kind === 'string' &&
-    UI_KINDS.includes(value.kind as PlaybackUiState['kind'])
-  );
+  if (
+    !(
+      isRecord(value) &&
+      typeof value.kind === 'string' &&
+      UI_KINDS.includes(value.kind as PlaybackUiState['kind'])
+    )
+  ) {
+    return false;
+  }
+  // The fallback copy differs by host (SPEC-017), so a fallback state must carry a valid host.
+  if (value.kind === 'fallback') {
+    return value.host === 'youtube' || value.host === 'music';
+  }
+  return true;
 }
 
 /**
@@ -273,7 +282,8 @@ export function resolveUiState(
   url: string | undefined,
   entry: TabStatusEntry | undefined
 ): PlaybackUiState {
-  if (classifyHost(url) === 'not-youtube') return { kind: 'not-youtube' };
+  const host = classifyHost(url);
+  if (host === 'not-youtube') return { kind: 'not-youtube' };
   if (!isWatchPage(url)) return { kind: 'not-a-watch-page' };
   if (entry === undefined || entry.stale === true) return { kind: 'connecting' };
 
@@ -288,7 +298,7 @@ export function resolveUiState(
     case 'active':
       return { kind: 'active' };
     case 'fallback':
-      return { kind: 'fallback', reason: entry.reason ?? null };
+      return { kind: 'fallback', reason: entry.reason ?? null, host };
     case 'disabled':
       return { kind: 'disabled' };
     case 'fetching':

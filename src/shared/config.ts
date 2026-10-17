@@ -8,6 +8,7 @@ export interface ExtensionSettings {
   audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
   idleNagDefeatEnabled: boolean;
+  fallbackQualityCapEnabled: boolean;
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
   adBlockEnabled: boolean;
@@ -41,6 +42,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   audioArtworkEnabled: true,
   backgroundPlayEnabled: true,
   idleNagDefeatEnabled: true,
+  fallbackQualityCapEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
   adBlockEnabled: true,
@@ -96,6 +98,10 @@ export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> 
 
 export async function setIdleNagDefeatEnabled(enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, idleNagDefeatEnabled: enabled });
+}
+
+export async function setFallbackQualityCapEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, fallbackQualityCapEnabled: enabled });
 }
 
 export async function setTelemetrySetting(
@@ -226,6 +232,10 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.idleNagDefeatEnabled === 'boolean'
         ? candidate.idleNagDefeatEnabled
         : DEFAULT_SETTINGS.idleNagDefeatEnabled,
+    fallbackQualityCapEnabled:
+      typeof candidate.fallbackQualityCapEnabled === 'boolean'
+        ? candidate.fallbackQualityCapEnabled
+        : DEFAULT_SETTINGS.fallbackQualityCapEnabled,
     ghostEnabled:
       typeof candidate.ghostEnabled === 'boolean'
         ? candidate.ghostEnabled

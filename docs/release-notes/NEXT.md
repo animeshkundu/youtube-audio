@@ -32,6 +32,6 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Logged out, always.** The extension never needs, reads, or touches your YouTube account. Everything works while signed out, on purpose.
 - **Collects nothing.** No analytics, no phone-home. The add-on declares no data collection, and the media it fetches is requested without your cookies.
 - **Firefox desktop and Android**, Firefox 128 and up.
-- **Falls back gracefully.** When a video cannot be played as audio-only (live streams, made-for-kids, age-restricted, or members-only), it simply hands you back to normal YouTube. No broken playback, ever.
+- **Falls back gracefully, and lightly.** When a video cannot be played as audio-only (live streams, made-for-kids, age-restricted, or members-only), it keeps playing on normal YouTube at the lowest quality, and YouTube Music switches to the song version when there is one. No broken playback, ever.
 
 Give it a spin, put your headphones on, and let YouTube be the radio it always wanted to be. If something looks off, the built-in local diagnostics log gives you a readable record you can review, copy, export, or clear, without sending it anywhere.

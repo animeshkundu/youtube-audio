@@ -5,6 +5,11 @@ import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
+  fallbackQualityEngaged,
+  selectLowestQualityLabel,
+  switchToSongMode,
+} from '../src/shared/fallback-quality';
+import {
   IDLE_NAG_PRIME_MS,
   dismissIdleNag,
   findIdleNagRenderer,
@@ -42,6 +47,8 @@ const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
+// SPEC-017: one bounded retry when the player (or, on Music, the song toggle) has not mounted yet.
+const FALLBACK_QUALITY_RETRY_MS = 1_000;
 
 interface PageSettings {
   enabled: boolean;
@@ -49,6 +56,7 @@ interface PageSettings {
   audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
   idleNagDefeatEnabled: boolean;
+  fallbackQualityCapEnabled: boolean;
   adBlockEnabled: boolean;
   segmentSkipEnabled: boolean;
   segmentSkipCategories: readonly SponsorCategory[];
@@ -73,6 +81,7 @@ interface PlaybackOperation {
 interface YouTubePlayerElement extends HTMLElement {
   setPlaybackQualityRange?(minimum: string, maximum?: string): void;
   setPlaybackQuality?(quality: string): void;
+  getAvailableQualityLevels?(): unknown;
   loadVideoById?(request: { videoId: string; startSeconds?: number }): void;
   pauseVideo?(): void;
 }
@@ -145,6 +154,7 @@ export default defineUnlistedScript(() => {
     audioArtworkEnabled: true,
     backgroundPlayEnabled: false,
     idleNagDefeatEnabled: false,
+    fallbackQualityCapEnabled: false,
     adBlockEnabled: false,
     segmentSkipEnabled: false,
     segmentSkipCategories: [],
@@ -154,6 +164,42 @@ export default defineUnlistedScript(() => {
     equalizerEnabled: false,
     equalizerBands: [],
     downloadEnabled: false,
+  };
+  // SPEC-017: keep the data cost of a native fallback low. The Music path prefers the site's own
+  // song playback when the item offers it; otherwise one request for the lowest available quality
+  // tier. One bounded retry covers a player that has not mounted yet, and the live settings are
+  // re-read at retry time so a toggle change in between wins. Never a re-assert loop, and never a
+  // restore promise (there is no getter for the user's previous quality preference).
+  const applyLowestQualityCap = (): boolean => {
+    // An explicit user maximum quality stays the only quality writer; report "done" so the caller
+    // does not retry.
+    if (!fallbackQualityEngaged(settings)) return true;
+    try {
+      const player = document.querySelector<YouTubePlayerElement>(
+        '#movie_player, .html5-video-player'
+      );
+      if (!player) return false;
+      const label = selectLowestQualityLabel(player.getAvailableQualityLevels?.());
+      player.setPlaybackQualityRange?.(label, label);
+      player.setPlaybackQuality?.(label);
+      return true;
+    } catch {
+      // Undocumented player APIs are optional; native ABR remains in control.
+      return false;
+    }
+  };
+  const tryFallbackQuality = (): boolean => {
+    // Song mode is not a quality choice, so a user maximum quality never suppresses it.
+    if (isMusicPage() && switchToSongMode(document)) return true;
+    return applyLowestQualityCap();
+  };
+  const applyFallbackQuality = () => {
+    if (!settings.enabled || !settings.fallbackQualityCapEnabled) return;
+    if (tryFallbackQuality()) return;
+    window.setTimeout(() => {
+      if (!settings.enabled || !settings.fallbackQualityCapEnabled) return;
+      tryFallbackQuality();
+    }, FALLBACK_QUALITY_RETRY_MS);
   };
   player.navigate();
   let visibilityCleanup: () => void = () => undefined;
@@ -173,6 +219,7 @@ export default defineUnlistedScript(() => {
     // 'fetching' is transient, so it neither reclaims nor clears.
     if (status === 'active') reclaims.clear();
     else if (status === 'disabled' || status === 'fallback') reclaimNativePlayback();
+    if (status === 'fallback') applyFallbackQuality();
     // Carries only display fields. The ordering provenance (runStart + generation) is owned by the
     // isolated content script, which never trusts this page-observable event for ordering.
     document.dispatchEvent(
@@ -931,6 +978,15 @@ function readAndClearBridgeNonce(): string | null {
 }
 
 /**
+ * Whether this page is YouTube Music. The bench-only `ytm=1` query parameter lets the hermetic
+ * fixture exercise the Music branch; production builds compile that branch out (`__BENCH__`).
+ */
+function isMusicPage(): boolean {
+  if (location.hostname === 'music.youtube.com') return true;
+  return __BENCH__ && new URLSearchParams(location.search).has('ytm');
+}
+
+/**
  * Behavior-determining video properties for reproduction, derived defensively and containing no
  * identity (no video/playlist/channel id, no url). Probing never throws into the caller.
  */
@@ -947,7 +1003,7 @@ function describePlayer(
 } {
   const props = {
     live: false,
-    music: location.hostname === 'music.youtube.com',
+    music: isMusicPage(),
     hasAudio: false,
     loudness: false,
     playable,
@@ -993,6 +1049,7 @@ function parseSettings(value: unknown): PageSettings | null {
     typeof candidate.audioArtworkEnabled !== 'boolean' ||
     typeof candidate.backgroundPlayEnabled !== 'boolean' ||
     typeof candidate.idleNagDefeatEnabled !== 'boolean' ||
+    typeof candidate.fallbackQualityCapEnabled !== 'boolean' ||
     typeof candidate.adBlockEnabled !== 'boolean' ||
     typeof candidate.segmentSkipEnabled !== 'boolean' ||
     !Array.isArray(candidate.segmentSkipCategories) ||
@@ -1016,6 +1073,7 @@ function parseSettings(value: unknown): PageSettings | null {
     audioArtworkEnabled: candidate.audioArtworkEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
     idleNagDefeatEnabled: candidate.idleNagDefeatEnabled,
+    fallbackQualityCapEnabled: candidate.fallbackQualityCapEnabled,
     adBlockEnabled: candidate.adBlockEnabled,
     segmentSkipEnabled: candidate.segmentSkipEnabled,
     segmentSkipCategories: candidate.segmentSkipCategories,

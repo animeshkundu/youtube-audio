@@ -9,7 +9,9 @@ import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
+  backgroundPlayEnabledSignal,
   equalizerEnabledSignal,
+  fallbackQualityCapEnabledSignal,
   segmentSkipEnabledSignal,
 } from '../../../src/shared/settings-signals';
 
@@ -19,6 +21,7 @@ function actions(): OptionsActions {
     setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     setIdleNagDefeatEnabled: vi.fn(async () => undefined),
+    setFallbackQualityCapEnabled: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),
@@ -76,6 +79,8 @@ afterEach(() => {
   adBlockEnabledSignal.value = true;
   aggressiveTelemetrySignal.value = false;
   audioOnlyEnabledSignal.value = true;
+  backgroundPlayEnabledSignal.value = true;
+  fallbackQualityCapEnabledSignal.value = true;
   segmentSkipEnabledSignal.value = true;
   equalizerEnabledSignal.value = false;
 });
@@ -101,13 +106,32 @@ describe('Options', () => {
       'Advanced/About',
       'Help & feedback',
     ]);
-    expect(switches).toHaveLength(17);
+    expect(switches).toHaveLength(18);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
-    expect(container.querySelectorAll('.setting-description')).toHaveLength(16);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(17);
     expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
       'Quick Controls'
     );
+  });
+
+  it('toggles the fallback quality cap independently of other playback settings', async () => {
+    backgroundPlayEnabledSignal.value = false;
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+    const row = container.querySelector('#option-fallback-quality');
+
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain('lowest quality');
+    // Per-tab audio-only (ADR-0014) means a tab override can engage this even while the global
+    // defaults are off, so the row never mirrors another toggle's disabled state.
+    expect(row?.classList.contains('is-disabled')).toBe(false);
+    expect(row?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
+
+    click(row?.querySelector('[role="switch"]') ?? null);
+    await flushPromises();
+
+    expect(optionsActions.setFallbackQualityCapEnabled).toHaveBeenCalledWith(false);
   });
 
   it('keeps Audio-only and Background play only in Quick Controls', () => {
@@ -262,8 +286,11 @@ describe('Options', () => {
 
     searchFor(container, 'audio-only');
     expect(container.querySelector('#audio-only-page')).not.toBeNull();
-    expect(container.querySelector('#playback')).toBeNull();
-    expect(container.querySelector('a[href="#playback"]')).toBeNull();
+    // The fallback-quality row legitimately mentions audio-only (SPEC-017), so the Playback card
+    // holds exactly that row for this query.
+    const playback = container.querySelector('#playback');
+    expect(playback?.querySelectorAll('.setting-row')).toHaveLength(1);
+    expect(playback?.querySelector('#option-fallback-quality')).not.toBeNull();
 
     searchFor(container, 'background');
     expect(container.querySelector('#background-play-page')).not.toBeNull();
