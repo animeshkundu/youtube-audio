@@ -100,7 +100,7 @@ Fix (`entrypoints/content.ts`): after `await injectScript('/main-world.js')`, se
 receives exactly one snapshot after its listener exists; later identical pushes are still diffed out.
 SPEC-020 records the same guarantee and its bench coverage.
 
-Lesson: the diff's invariant is "no *redundant* pushes", not "at most one push per page". Any code
+Lesson: the diff's invariant is "no _redundant_ pushes", not "at most one push per page". Any code
 path whose delivery is load-bearing (the bridge handshake here) must be exempted explicitly rather
 than relying on the snapshot not having changed.
 
