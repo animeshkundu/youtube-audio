@@ -15,9 +15,12 @@ prepared as exact drafts and called out under Follow-ups.
 while the manifest declares `data_collection_permissions.required: ['websiteContent']` - the exact
 1.0.3 rejection class. Both now state what actually happens: media requests go to YouTube and its
 media servers without cookies, nothing is stored or shared with anyone else, and the optional
-SponsorBlock lookup sends a 4-character hash only, only when enabled. The live AMO listing
-description needs the same wording applied by hand (listing edits are independent of any version,
-per the plan) - the `amo-metadata.json` text is the source for it.
+SponsorBlock lookup sends a 4-character hash only, only when enabled. The AMO version release notes
+in the same file were also refreshed to the final 1.1.0 scope (per-tab control, coexistence, idle
+nag, tidy-ups, optional grants, teardown), matching `NEXT.md`. The live AMO listing description
+needs the same wording applied by hand (listing edits are independent of any version, per the
+plan); the `amo-metadata.json` text is the source for it, and the Support site / email fields are
+Developer Hub edits for the same reason.
 
 ## H2: AMO review reply drafts
 
@@ -41,14 +44,21 @@ the signed-in account once 1.1.0 is submitted or approved; the file can be delet
   planned for 1.1.0). #59 was answered and closed as a usage question.
 - Closed the superseded PRs individually with thanks: #84 (fixture activation landed through the
   BENCH-only match approach), #85 and #88 (mobile lane shipped on the RDP path), #95 (site rebuilt
-  as the bespoke Astro site). Left open with `triage`: #80 (download format selector, never landed),
-  #90 and #91 (docs/cleanup for the RDP probe, still applicable).
+  as the bespoke Astro site), #20 (audio-mode artwork shipped), #38 (narrow YouTube-only permissions
+  shipped), #48 (per-site scoping deferred by design; manifest is generated now), #49 and #63
+  (README rewritten), #61 (pre-rewrite code path no longer exists). Left open with `triage`: #80
+  (download format selector, never landed), #90 and #91 (docs/cleanup for the RDP probe, still
+  applicable).
 - Labeled all dependabot PRs `dependencies` (workflow bumps also `ci`).
 - Support surfaces: Firefox manifests have no `support_url`/`support_email` keys, so the in-package
   surfaces are now `homepage_url` (product site) and `developer` (name + repository) in
   `wxt.config.ts`, which appear in `about:addons`. The real support fields are AMO listing fields
   (Support site -> issue chooser with the breakage template, Support email -> maintainer address);
-  `docs/ci-cd.md` documents them for the manual publish step.
+  they cannot ride `amo-metadata.json` because `web-ext sign` applies add-on-level properties only
+  to a first listing, so `docs/ci-cd.md` documents them for the manual publish step.
+- The YouTube breakage template now asks for the built-in diagnostics report (Settings > Help &
+  feedback > Copy diagnostics) ahead of the console field, so the support destination the listing
+  points at routes users to the data the triage actually needs.
 
 ## H4: provenance and NOTICE
 

@@ -116,6 +116,11 @@ archive`, emulator never booted); every other Fenix version and the same job on 
   `PASS (7 case(s))`. All three VODs hijacked audio-only (`videoWidth` 0) with 89.3-89.4 s of the
   90 s window advanced, buffered ahead by 119 s to 3506 s, and the seek to 80 % resumed (+8.0 s).
   All four live cases fell back to native playback, metadata ready, playhead advancing.
+- Release-branch canary re-run (2026-10-16, same recipe, XPI built from the complete branch
+  including all CP2-CP4 work): `PASS (7 case(s))`. The three VODs hijacked audio-only with
+  89.2-89.3 s of the 90 s window advanced (buffered ahead 119 s to 3506 s, seek resumed +8.0 s);
+  all four live cases fell back to native playback with the playhead advancing. This is the
+  release-gate evidence for the branch as a whole.
 - Fixture hygiene: `Bu4ztj3R32k` (now a 13 s Short) and `DaWe9L1iwNw` (43 s) cannot demonstrate a
   90 s sustained window and were replaced with length-verified ids (`dQw4w9WgXcQ` 213 s,
   `9bZkp7q19f0` 252 s; `kSZddHca0ME` verified 3600 s and relabelled). A VOD shorter than the

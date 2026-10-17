@@ -175,9 +175,11 @@ Release asset and no self-hosted `updates.json`. The recommended human gate is a
 listing is edited alongside the 1.1.0 submission: **Support site** →
 `https://github.com/animeshkundu/youtube-audio/issues/new/choose` (the issue chooser, whose YouTube
 breakage template asks for the local diagnostics export), **Support email** → the maintainer's
-monitored address. The in-package surfaces are `homepage_url` (the product site) and `developer.url`
-(the repository), emitted by `wxt.config.ts` into every build; `amo-metadata.json` carries the
-listing `homepage`.
+monitored address. `amo-metadata.json` cannot carry them into an existing listing: `web-ext sign`
+applies its add-on-level properties only to a first listing (later publishes accept only
+`version.*`), which is why the listing edit is a hand step. The in-package surfaces are
+`homepage_url` (the product site) and `developer.url` (the repository), emitted by `wxt.config.ts`
+into every build; `amo-metadata.json` carries the listing `homepage` for the record.
 
 ## Mobile Hermetic E2E (gating)
 
