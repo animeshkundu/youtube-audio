@@ -700,8 +700,8 @@ export async function runSession({
 
     let idleNag = null;
     if (probeIdleNag) {
-      // Idle-nag defeat (SPEC-016): the nag fixture seeds a stale activity clock, then raises a
-      // scripted "are you still there?" dialog and pauses the media after the extension has armed.
+      // Idle-nag defeat (SPEC-016): the nag fixture seeds a stale activity clock, then (after the
+      // extension has armed) pauses the media and raises a scripted "are you still there?" dialog.
       // `probeIdleNag` names the expected outcome ('confirmed' in the armed sessions, 'untouched'
       // in the gated ones) so the off sessions fail fast instead of waiting out the confirm window.
       const opened = await waitFor(
@@ -1905,10 +1905,10 @@ async function main() {
       }
     );
 
-    // Idle-nag defeat (SPEC-016): the fixture seeds a stale activity clock, then raises a scripted
-    // "are you still there?" dialog that pauses the media. With the defaults the extension confirms
-    // the dialog, resumes the media, and refreshes the clock; both gated sessions leave dialog,
-    // clock, and playback untouched.
+    // Idle-nag defeat (SPEC-016): the fixture seeds a stale activity clock, then pauses the media
+    // and raises a scripted "are you still there?" dialog (as on the real page, the pause comes
+    // first). With the defaults the extension confirms the dialog, resumes the media, and
+    // refreshes the clock; both gated sessions leave dialog, clock, and playback untouched.
     const nagRun = await runSession({
       withAddon: true,
       videoId: 'NAG0001',

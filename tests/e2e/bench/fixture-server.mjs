@@ -474,12 +474,16 @@ function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } 
     // Idle-nag simulation (SPEC-016): a stale activity clock the defeat must refresh, and a
     // scripted "are you still there?" dialog (with a real click marker) the defeat must confirm.
     // The 6s delay leaves room for the extension to arm and complete its hijack first.
+    // The media is paused BEFORE the dialog is announced, as on the real page: the defeat's
+    // resume is one-shot at dismissal, so a pause after the synchronous dismissal could never
+    // be observed.
     window._lact = 1;
     window.__fixtureNagOpened = false;
     window.__fixtureNagConfirmed = false;
     setTimeout(function () {
       var video = document.querySelector('video[data-fixture-video]');
       if (!video) return;
+      video.pause();
       var container = document.createElement('ytd-popup-container');
       var dialog = document.createElement('yt-confirm-dialog-renderer');
       var button = document.createElement('tp-yt-paper-button');
@@ -496,7 +500,6 @@ function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } 
       document.dispatchEvent(
         new CustomEvent('yt-popup-opened', { detail: { nodeName: 'YT-CONFIRM-DIALOG-RENDERER' } })
       );
-      video.pause();
     }, 6000);
   </script>`
       : ''
