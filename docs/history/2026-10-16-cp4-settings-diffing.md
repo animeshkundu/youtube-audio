@@ -78,6 +78,32 @@ to the live graph in place.
   mid-session mutations in the runner are `audioOnlyEnabled` (media group, unchanged) and per-tab
   scope. No runner changes.
 
+## Correction (CI round 1): the post-injection push must not be diffed
+
+The first CI run on the 2.7 commit failed every hermetic bench and every settings-matrix job. Two
+live-bridge cases froze on a page world that never activated:
+
+- `m1:toggle-off-reclaims-native-in-place`: `frozen.status` was `disabled` with an empty
+  `nativeReclaimCalls` (never hijacked, so nothing to reclaim);
+- `fallback-quality:lowest-available-on-fallback`: `status: disabled`, zero quality calls.
+
+Root cause: the content script's startup order calls `applyEffectiveSettings` from the consent and
+tab-scope callbacks **before** `injectScript('/main-world.js')`. Those pushes are dispatched before
+the MAIN-world listener exists (the injected script only installs it when it evaluates), so they are
+lost; the diff baseline nevertheless recorded them. The post-injection `applyEffectiveSettings()` was
+then suppressed as a duplicate, leaving the page world with no settings at all. Whether a session
+survived depended on a race between the async consent/scope replies and the injection, which is why
+only some cases failed while others passed.
+
+Fix (`entrypoints/content.ts`): after `await injectScript('/main-world.js')`, set
+`currentEffectiveSettings = null` before the `applyEffectiveSettings()` call. The page world always
+receives exactly one snapshot after its listener exists; later identical pushes are still diffed out.
+SPEC-020 records the same guarantee and its bench coverage.
+
+Lesson: the diff's invariant is "no *redundant* pushes", not "at most one push per page". Any code
+path whose delivery is load-bearing (the bridge handshake here) must be exempted explicitly rather
+than relying on the snapshot not having changed.
+
 ## Follow-ups
 
 - Optional bench case: mid-session equalizer change asserting no new fetch and a live marker update

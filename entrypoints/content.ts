@@ -233,6 +233,11 @@ export default defineContentScript({
       // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
       document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
+      // The MAIN-world message listener only exists now that the injected script has evaluated, so
+      // every push the consent/scope callbacks above dispatched was posted into the void. Forget
+      // the diff baseline so this first post-injection push is never suppressed (SPEC-020): the
+      // page world must always receive the effective snapshot for the page it was loaded with.
+      currentEffectiveSettings = null;
       applyEffectiveSettings();
       if (isTopFrame()) installPlayerControls(bridgeNonce);
     } catch (error) {

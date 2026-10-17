@@ -35,7 +35,11 @@ to the live audio graph in place when one is armed.
     field comparison, every field), used by the content script to drop duplicate pushes.
 - Content script: `applyEffectiveSettings` returns early (no `postMessage`, no DOM updates) when the
   freshly computed effective snapshot equals the last one pushed. Duplicate consent/scope
-  broadcasts, storage echoes, and repeated startup pushes stop at the source.
+  broadcasts, storage echoes, and repeated startup pushes stop at the source. One exception is
+  load-bearing: the push that follows `injectScript('/main-world.js')` is never suppressed. Earlier
+  pushes (consent/scope callbacks) are dispatched before the injected script has installed its
+  message listener, so they are lost; the content script therefore forgets its diff baseline right
+  after injection and always re-posts the effective snapshot once.
 - Page world: `applySettings` arms each subsystem only when its group changed, with these
   equivalents to today's behavior:
   - duplicate/irrelevant pushes (for example `hideComments` or `ghostEnabled` changes, which are not
@@ -152,6 +156,25 @@ if (currentEffectiveSettings && settingsEqual(currentEffectiveSettings, settings
 
 before the `postMessage` and the top-frame control updates.
 
+One guaranteed delivery survives the diff: the post-injection push.
+
+```ts
+await injectScript('/main-world.js');
+// The MAIN-world listener only exists now that the injected script has evaluated, so every push
+// the consent/scope callbacks dispatched was posted into the void. Forget the baseline so this
+// push is never suppressed: the page world must receive the snapshot for the page it loaded with.
+currentEffectiveSettings = null;
+applyEffectiveSettings();
+```
+
+Without the reset, whether the page world ever received the initial snapshot depended on a race
+between the async consent/scope replies and the injection: when a reply landed before injection, the
+pre-injection push set the baseline (and was lost), and the identical post-injection push was then
+suppressed. The hermetic bench exposed exactly that in CI: `m1:toggle-off-reclaims-native-in-place`
+froze on `disabled` (never hijacked, so no reclaim) and
+`fallback-quality:lowest-available-on-fallback` reported `disabled` with zero quality calls, while
+sessions whose replies happened to land after injection passed.
+
 ## Error Handling
 
 - All comparisons are total: non-array/non-number fields compare by identity, `null` previous means
@@ -175,8 +198,11 @@ before the `postMessage` and the top-frame control updates.
   gain `1` when normalization is off, clamps through `loudnessDbToGain` for finite dB, returns `1`
   for a missing/non-finite dB, and forwards the bands unchanged.
 - `vitest.config.ts`: `src/shared/settings-diff.ts` joins the covered core list.
-- Bench: first-application behavior is unchanged, so every seeded-settings case exercises the same
-  paths as before; the mid-session `audioOnlyEnabled` toggles remain in the media group. The graph
+- Bench: the live-bridge cases guard the post-injection delivery contract end-to-end:
+  `m1:toggle-off-reclaims-native-in-place` and `fallback-quality:lowest-available-on-fallback` both
+  start from a seeded page-world activation, which can only happen if the initial snapshot actually
+  reached the page world. Seeded-settings first-application behavior is otherwise unchanged; the
+  mid-session `audioOnlyEnabled` toggles remain in the media group. The graph
   fast path has no bench case (the fixture seeds settings before load); its units are covered by the
   two suites above and the spec calls out a future mid-session EQ bench case as optional.
 - `npm run validate` is the gate.
