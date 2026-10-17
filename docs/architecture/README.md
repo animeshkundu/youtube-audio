@@ -50,7 +50,7 @@ The content entrypoint runs at `document_start` on the four supported YouTube ma
 
 ### MAIN world
 
-The MAIN-world entrypoint is the only layer intended to touch YouTube player APIs and page-owned prototypes. M0 installs no hooks. M1 will implement the proven `<video>.src` hijack behind `PlayerHandle`.
+The MAIN-world entrypoint is the only layer intended to touch YouTube player APIs and page-owned prototypes: the `<video>.src` hijack through `PlayerHandle`, the credentialless media fetch, the background-play visibility override, the idle-nag defeat, and the SponsorBlock seek decision. The page-owned surfaces it touches follow the coexistence contract (ADR-0015): adopt an existing override, wrap additively when wrapping is unavoidable, and revert only what this extension installed.
 
 ### Shared modules
 
@@ -138,6 +138,19 @@ sequenceDiagram
 - Only YouTube page patterns and `*.googlevideo.com` are granted at install time. Third-party access is an optional grant: `sponsor.ajay.app` and `downloads` are requested from the gesture that enables their feature, and `tabs` is not requested at all.
 - SponsorBlock access is limited to `https://sponsor.ajay.app/*`, granted only from the opt-in gesture, and runs only with both that grant and explicit consent.
 - Feature failures must leave native YouTube behavior intact.
+
+## Coexistence with Other Extensions
+
+Other YouTube extensions share the page world. Every surface this extension controls follows one
+contract (ADR-0015, SPEC-019): an existing override is adopted rather than stacked, wrappers chain
+additively (ADR-0013), and teardown restores only what this extension installed. Concretely, the
+visibility override (`src/shared/visibility-override.ts`) adopts an existing own-property
+`document.hidden`/`visibilityState` patch and leaves later foreign patches in place; page-object
+patches (`src/shared/own-patch.ts`, used by the idle-nag defeat) and the media `src` accessor
+(`src/shared/player.ts`) are restored only while this extension's patch is still installed;
+injected player buttons anchor before the native gear and never move or remove foreign controls;
+and sponsor skips go through one decision point (`resolveSegmentSkipTarget`) that never re-seeks a
+playhead already at or past a segment end.
 
 ## M1 Playback Flow
 

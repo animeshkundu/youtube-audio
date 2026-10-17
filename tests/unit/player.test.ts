@@ -143,4 +143,24 @@ describe('PlayerHandle', () => {
 
     expect(reasons).toEqual(['navigate']);
   });
+
+  it('leaves a foreign src accessor that patched over ours in place when disabled', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const generation = handle.navigate();
+    const media = new FakeMedia();
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+
+    const foreignGetter = () => 'blob:foreign';
+    Object.defineProperty(FakeMedia.prototype, 'src', {
+      configurable: true,
+      get: foreignGetter,
+      set: () => undefined,
+    });
+
+    handle.disable();
+
+    // Revert only what we installed (ADR-0015): the later foreign wrapper owns the property now.
+    expect(Object.getOwnPropertyDescriptor(FakeMedia.prototype, 'src')?.get).toBe(foreignGetter);
+    expect(handle.getMediaElement()).toBeNull();
+  });
 });

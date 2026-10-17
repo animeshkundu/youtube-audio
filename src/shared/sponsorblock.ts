@@ -65,6 +65,25 @@ export function selectSegments(
   return merged;
 }
 
+/**
+ * The single skip decision point (SPEC-019, ADR-0015): returns the time to seek to when playback
+ * is inside a segment and the segment end lies ahead, and null otherwise. Null covers the
+ * double-seek guard: a playhead already at or past the segment end (another skipper's seek, a
+ * manual seek, or one of our own completed skips) never triggers a second seek, and a target that
+ * is not ahead of the playhead is never written.
+ */
+export function resolveSegmentSkipTarget(params: {
+  segment: SponsorSegment;
+  currentTime: number;
+  duration: number;
+}): number | null {
+  const [start, end] = params.segment.segment;
+  if (params.currentTime < start || params.currentTime >= end) return null;
+  const target =
+    Number.isFinite(params.duration) && params.duration > 0 ? Math.min(end, params.duration) : end;
+  return target > params.currentTime ? target : null;
+}
+
 function parseSegment(
   value: unknown,
   enabledCategories: ReadonlySet<SponsorCategory>

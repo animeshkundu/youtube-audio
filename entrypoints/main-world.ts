@@ -26,6 +26,7 @@ import {
   type MediaClientWalkOutcome,
   type PlayerResponse,
 } from '../src/shared/innertube';
+import { installValuePatch } from '../src/shared/own-patch';
 import { PlayerHandle } from '../src/shared/player';
 import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
 import { armOneShotPause, createReclaimTracker } from '../src/shared/reclaim';
@@ -35,9 +36,11 @@ import { observeYouTubeSpa } from '../src/shared/spa';
 import { parseVideoId, type PlaybackStatus } from '../src/shared/status';
 import {
   isSponsorCategory,
+  resolveSegmentSkipTarget,
   type SponsorCategory,
   type SponsorSegment,
 } from '../src/shared/sponsorblock';
+import { installVisibilityOverride } from '../src/shared/visibility-override';
 
 const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
@@ -332,7 +335,9 @@ export default defineUnlistedScript(() => {
     settings = next;
     visibilityCleanup();
     visibilityCleanup =
-      settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
+      settings.enabled && settings.backgroundPlayEnabled
+        ? installVisibilityOverride(document)
+        : () => undefined;
     idleNagCleanup();
     idleNagCleanup =
       settings.enabled && settings.backgroundPlayEnabled && settings.idleNagDefeatEnabled
@@ -909,18 +914,18 @@ function installSegmentSkipping(
         if (handled.has(index)) continue;
         const segment = segments[index];
         if (!segment) continue;
-        const [start, end] = segment.segment;
-        if (currentTime < start || currentTime >= end) continue;
-        const target =
-          Number.isFinite(video.duration) && video.duration > 0
-            ? Math.min(end, video.duration)
-            : end;
-        if (target > currentTime) {
-          video.currentTime = target;
-          document.dispatchEvent(
-            new CustomEvent(SEGMENT_SKIPPED_EVENT, { detail: segment.category })
-          );
-        }
+        // One decision point (SPEC-019, ADR-0015): null covers both "outside the segment" and the
+        // double-seek guard (a playhead already at/past the end), so no second seek is ever issued.
+        const target = resolveSegmentSkipTarget({
+          segment,
+          currentTime,
+          duration: video.duration,
+        });
+        if (target === null) continue;
+        video.currentTime = target;
+        document.dispatchEvent(
+          new CustomEvent(SEGMENT_SKIPPED_EVENT, { detail: segment.category })
+        );
         return;
       }
     } catch {
@@ -1086,50 +1091,6 @@ function parseSettings(value: unknown): PageSettings | null {
   };
 }
 
-function enableBackgroundPlay(): () => void {
-  const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
-  const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
-  const swallow = (event: Event) => event.stopImmediatePropagation();
-  let hiddenPatched = false;
-  let visibilityPatched = false;
-  let listenerAdded = false;
-
-  const cleanup = () => {
-    if (listenerAdded) document.removeEventListener('visibilitychange', swallow, true);
-    try {
-      if (hiddenPatched) {
-        if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
-        else delete (document as unknown as Record<string, unknown>).hidden;
-      }
-      if (visibilityPatched) {
-        if (visibilityDescriptor)
-          Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
-        else delete (document as unknown as Record<string, unknown>).visibilityState;
-      }
-    } catch {
-      // Keep the fail-open page boundary intact.
-    }
-  };
-
-  try {
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
-    hiddenPatched = true;
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      get: () => 'visible',
-    });
-    visibilityPatched = true;
-    document.addEventListener('visibilitychange', swallow, true);
-    listenerAdded = true;
-  } catch {
-    // Roll back any partial override so normal YouTube visibility behaviour is preserved.
-    cleanup();
-    return () => undefined;
-  }
-
-  return cleanup;
-}
-
 interface IdleNagPlayerElement extends HTMLElement {
   updateLastActiveTime?(): void;
   youthereDataChanged_?(...args: unknown[]): void;
@@ -1154,8 +1115,8 @@ function enableIdleNagDefeat(): () => void {
   let lastDialogCheck = 0;
   let observer: MutationObserver | null = null;
   let lastHandledRenderer: Element | null = null;
-  let patchedPlayer: IdleNagPlayerElement | null = null;
-  let originalYouThere: IdleNagPlayerElement['youthereDataChanged_'] | undefined;
+  const noopYouThere = () => undefined;
+  let restoreYouThere: (() => void) | null = null;
 
   // The event path is the primary dismissal; the observer is a bounded fallback, so a busy DOM
   // never turns into a query-per-mutation-batch hot loop (at most one check per window, plus one
@@ -1225,18 +1186,15 @@ function enableIdleNagDefeat(): () => void {
   };
 
   const patchYouThere = () => {
-    if (patchedPlayer) return;
+    if (restoreYouThere) return;
     const candidate = document.querySelector<IdleNagPlayerElement>(
       '#movie_player, .html5-video-player'
     );
     if (!candidate || typeof candidate.youthereDataChanged_ !== 'function') return;
-    originalYouThere = candidate.youthereDataChanged_;
-    try {
-      candidate.youthereDataChanged_ = () => undefined;
-      patchedPlayer = candidate;
-    } catch {
-      // A frozen or accessor-only property: skip the layer, keep the rest armed.
-    }
+    // ADR-0015: identity-checked teardown; a later patch over the no-op survives our cleanup. A
+    // frozen or accessor-only property returns null: skip the layer, keep the rest armed.
+    const restore = installValuePatch(candidate, 'youthereDataChanged_', noopYouThere);
+    if (restore) restoreYouThere = restore;
   };
 
   const checkDialogs = () => {
@@ -1263,31 +1221,30 @@ function enableIdleNagDefeat(): () => void {
   const pauseHandler = () => pauseDirectly();
 
   const mediaSession = typeof navigator === 'undefined' ? undefined : navigator.mediaSession;
-  let mediaSessionPatched = false;
-  let hadOwnSetActionHandler = false;
-  let originalSetActionHandler: MediaSession['setActionHandler'] | null = null;
+  let restoreSetActionHandler: (() => void) | null = null;
   let boundSetActionHandler: SetActionHandler | null = null;
   let blockedPauseHandler: MediaSessionActionHandler | null = null;
 
   if (mediaSession && typeof mediaSession.setActionHandler === 'function') {
-    originalSetActionHandler = mediaSession.setActionHandler;
+    const originalSetActionHandler = mediaSession.setActionHandler;
     boundSetActionHandler = originalSetActionHandler.bind(mediaSession) as SetActionHandler;
-    hadOwnSetActionHandler = Object.prototype.hasOwnProperty.call(mediaSession, 'setActionHandler');
-    try {
-      mediaSession.setActionHandler = (action, handler) => {
-        if (action !== 'pause') {
-          boundSetActionHandler?.(action, handler);
-          return;
-        }
-        // Neutralise YouTube's own pause handler, then register a direct pause so a user pause
-        // (media key, headset, notification) still pauses immediately. A null clears as usual.
-        blockedPauseHandler = handler;
-        boundSetActionHandler?.(action, handler === null ? null : pauseHandler);
-      };
-      mediaSessionPatched = true;
-    } catch {
-      mediaSessionPatched = false;
-    }
+    const originalBound = boundSetActionHandler;
+    const patchedSetActionHandler: MediaSession['setActionHandler'] = (action, handler) => {
+      if (action !== 'pause') {
+        originalBound(action, handler);
+        return;
+      }
+      // Neutralise YouTube's own pause handler, then register a direct pause so a user pause
+      // (media key, headset, notification) still pauses immediately. A null clears as usual.
+      blockedPauseHandler = handler;
+      originalBound(action, handler === null ? null : pauseHandler);
+    };
+    // ADR-0015: identity-checked teardown; a wrapper patched over ours survives our cleanup.
+    restoreSetActionHandler = installValuePatch(
+      mediaSession,
+      'setActionHandler',
+      patchedSetActionHandler
+    );
   }
 
   runKeepalive();
@@ -1312,17 +1269,15 @@ function enableIdleNagDefeat(): () => void {
     if (observer) observer.disconnect();
     observer = null;
     document.removeEventListener('yt-popup-opened', handlePopupOpened, true);
-    if (patchedPlayer && originalYouThere) {
-      try {
-        patchedPlayer.youthereDataChanged_ = originalYouThere;
-      } catch {
-        // A frozen player keeps the no-op; teardown stays best effort.
-      }
+    if (restoreYouThere) {
+      restoreYouThere();
+      restoreYouThere = null;
     }
-    if (mediaSessionPatched && mediaSession && originalSetActionHandler) {
+    if (restoreSetActionHandler) {
       try {
-        if (hadOwnSetActionHandler) mediaSession.setActionHandler = originalSetActionHandler;
-        else delete (mediaSession as unknown as Record<string, unknown>).setActionHandler;
+        restoreSetActionHandler();
+        // The registry undo is unconditional: the neutralised pause entry is ours regardless of
+        // who owns the property now.
         if (blockedPauseHandler) boundSetActionHandler?.('pause', blockedPauseHandler);
       } catch {
         // Restoring is best effort; the page keeps working either way.

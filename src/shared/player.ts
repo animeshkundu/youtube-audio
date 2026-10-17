@@ -41,6 +41,11 @@ export class PlayerHandle {
   private readonly maxReassertions: number;
   private readonly mediaPrototype: object;
   private originalDescriptor: PropertyDescriptor | undefined;
+  /** The accessor pair we installed on the media prototype, for identity-checked teardown. */
+  private installedSrcAccessors: {
+    get: (this: HTMLMediaElement) => string;
+    set: (this: HTMLMediaElement, value: string) => void;
+  } | null = null;
   private readonly restoreListeners = new Set<() => void>();
   private releaseHandler:
     | ((record: PlayerReleaseRecord, reason: PlayerReleaseReason) => void)
@@ -138,28 +143,33 @@ export class PlayerHandle {
       return this.reassertions > this.maxReassertions;
     };
     const openCircuit = () => this.openCircuit();
+    // Named accessors (not inline literals) so restore() can prove the installed wrapper is still
+    // the current descriptor before touching it (ADR-0015: revert only what we installed).
+    const wrapperGet = function (this: HTMLMediaElement): string {
+      return descriptor.get!.call(this) as string;
+    };
+    const wrapperSet = function (this: HTMLMediaElement, value: string): void {
+      const activeAudioUrl = getActiveAudioUrl(this);
+      if (activeAudioUrl && typeof value === 'string' && value !== activeAudioUrl) {
+        if (recordReassertion()) {
+          // YouTube keeps reasserting its own src: stop fighting, release, and let its value
+          // stand. Its reassertion IS the native-playback recovery, so restore() writes nothing.
+          openCircuit();
+          descriptor.set!.call(this, value);
+          return;
+        }
+        descriptor.set!.call(this, activeAudioUrl);
+        return;
+      }
+      descriptor.set!.call(this, value);
+    };
     Object.defineProperty(this.mediaPrototype, 'src', {
       configurable: true,
       enumerable: descriptor.enumerable ?? false,
-      get(this: HTMLMediaElement) {
-        return descriptor.get!.call(this) as string;
-      },
-      set(this: HTMLMediaElement, value: string) {
-        const activeAudioUrl = getActiveAudioUrl(this);
-        if (activeAudioUrl && typeof value === 'string' && value !== activeAudioUrl) {
-          if (recordReassertion()) {
-            // YouTube keeps reasserting its own src: stop fighting, release, and let its value
-            // stand. Its reassertion IS the native-playback recovery, so restore() writes nothing.
-            openCircuit();
-            descriptor.set!.call(this, value);
-            return;
-          }
-          descriptor.set!.call(this, activeAudioUrl);
-          return;
-        }
-        descriptor.set!.call(this, value);
-      },
+      get: wrapperGet,
+      set: wrapperSet,
     });
+    this.installedSrcAccessors = { get: wrapperGet, set: wrapperSet };
   }
 
   private restorePlaybackState(
@@ -216,8 +226,15 @@ export class PlayerHandle {
 
     try {
       if (this.originalDescriptor) {
-        Object.defineProperty(this.mediaPrototype, 'src', this.originalDescriptor);
+        // Revert only what we installed (ADR-0015): when a foreign wrapper patched over ours, it
+        // owns the property now and restoring our captured descriptor would clobber it.
+        const current = Object.getOwnPropertyDescriptor(this.mediaPrototype, 'src');
+        const installed = this.installedSrcAccessors;
+        const stillOurs =
+          installed !== null && current?.get === installed.get && current.set === installed.set;
+        if (stillOurs) Object.defineProperty(this.mediaPrototype, 'src', this.originalDescriptor);
         this.originalDescriptor = undefined;
+        this.installedSrcAccessors = null;
       }
       // Deliberately no `<video>.src` write here. The captured native blob URL is backed by a
       // MediaSource YouTube has already discarded, so reassigning it silently stalls the element

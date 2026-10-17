@@ -400,6 +400,56 @@ describe('reconcileInPlayerControls', () => {
     expect(first?.downloadButton.nextElementSibling).toBe(first?.audioOnlyButton);
   });
 
+  it('coexists with foreign control buttons: anchors before the gear, never touching them', () => {
+    // Enhancer for YouTube / Return YouTube Dislike shapes: their own buttons live in the right
+    // cluster, including one before the native gear.
+    document.body.innerHTML = `
+      <div id="movie_player">
+        <div class="ytp-left-controls"><button class="ytp-play-button">Play</button></div>
+        <div class="ytp-right-controls">
+          <button id="enhancer-settings-button">Enhancer</button>
+          <button class="ytp-settings-button">Settings</button>
+          <button id="ryd-dislike">Dislike</button>
+        </div>
+      </div>
+    `;
+    const player = document.querySelector<HTMLElement>('#movie_player')!;
+    const rightControls = document.querySelector<HTMLElement>('.ytp-right-controls')!;
+    const gear = document.querySelector<HTMLButtonElement>('.ytp-settings-button')!;
+    const options = {
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: true,
+      mobile: false,
+    };
+
+    const first = reconcileInPlayerControls(options);
+
+    // Ours sit immediately before the native gear; foreign buttons keep their own order.
+    expect(first?.downloadButton.nextElementSibling).toBe(first?.audioOnlyButton);
+    expect(first?.audioOnlyButton.nextElementSibling).toBe(gear);
+    expect(rightControls.children[0]?.id).toBe('enhancer-settings-button');
+    expect(document.getElementById('ryd-dislike')?.previousElementSibling).toBe(gear);
+
+    // A foreign button inserted between ours and the gear is tolerated with one bounded re-place.
+    const interloper = document.createElement('button');
+    interloper.id = 'enhancer-extra';
+    rightControls.insertBefore(interloper, gear);
+
+    reconcileInPlayerControls(options);
+
+    expect(first?.audioOnlyButton.nextElementSibling).toBe(gear);
+    expect(interloper.nextElementSibling).toBe(first?.downloadButton);
+
+    // Idempotent: a further reconcile performs no DOM move and never duplicates our controls.
+    const snapshot = rightControls.innerHTML;
+    reconcileInPlayerControls(options);
+    expect(rightControls.innerHTML).toBe(snapshot);
+    expect(document.querySelectorAll('#yta-audio-only-toggle')).toHaveLength(1);
+    expect(document.querySelectorAll('#yta-download-audio')).toHaveLength(1);
+    expect(document.getElementById('enhancer-extra')).toBe(interloper);
+  });
+
   it('removes the dead segment status pill and leaves extension controls interactive', () => {
     const { player } = createDesktopPlayer();
     const deadPill = document.createElement('button');
