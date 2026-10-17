@@ -42,6 +42,7 @@ import {
 } from '../src/shared/sponsorblock';
 import {
   acceptsFrameReport,
+  classifyHost,
   GET_STATUS_MESSAGE,
   markEntryStale,
   parseStatusUpdate,
@@ -53,8 +54,21 @@ import {
   type PlaybackUiState,
   type TabStatusEntry,
 } from '../src/shared/status';
+import {
+  createTabScopeStore,
+  GET_TAB_SCOPE_MESSAGE,
+  parseTabScopeSetMessage,
+  resolveTabAudioOnly,
+  SET_TAB_SCOPE_MESSAGE,
+  TAB_SCOPE_CHANGED_MESSAGE,
+  type TabAudioOnlyOverride,
+} from '../src/shared/tab-scope';
 
 declare const __BENCH__: boolean;
+
+// The `toggle-audio-only` commands entry declared in wxt.config.ts (SPEC-012 §5; ADR-0014). Keep the
+// two in lockstep; tests/unit/manifest-declaration.test.ts pins the manifest side.
+const TOGGLE_AUDIO_ONLY_COMMAND = 'toggle-audio-only';
 
 const YOUTUBE_REQUESTS = [
   '*://*.youtube.com/*',
@@ -83,6 +97,11 @@ const PLAYER_RESPONSE_REQUESTS = [
 
 let settings: ExtensionSettings;
 let diagnostics: DiagnosticsHub | undefined;
+/**
+ * In-memory per-tab audio-only overrides (SPEC-012 §5; ADR-0014). Never persisted: entries live
+ * only as long as their tab (`tabs.onRemoved` prunes) and this background context.
+ */
+const tabScope = createTabScopeStore();
 let dataConsent: DataConsentState = {
   granted: false,
   sponsorBlockAllowed: false,
@@ -410,6 +429,82 @@ async function broadcastIfActive(changedTabId: number): Promise<void> {
   }
 }
 
+/**
+ * Whether a tab URL belongs to the extension's supported YouTube families. Bench fixture hosts are
+ * normalized the same way the telemetry filter normalizes them, so the hermetic bench exercises the
+ * real rule instead of a bench-only bypass.
+ */
+function isSupportedTabUrl(url: string | undefined): boolean {
+  try {
+    const policyUrl = __BENCH__ && typeof url === 'string' ? asBenchYouTubeUrl(url) : url;
+    return classifyHost(policyUrl) !== 'not-youtube';
+  } catch {
+    return false;
+  }
+}
+
+/** Push a tab's scope to every frame of that tab; a tab without content scripts is a no-op. */
+function notifyTabScope(tabId: number, audioOnly: TabAudioOnlyOverride): void {
+  void browser.tabs
+    .sendMessage(tabId, { type: TAB_SCOPE_CHANGED_MESSAGE, audioOnly })
+    .catch(() => undefined);
+}
+
+/** Broadcast the scope to the popup, but only when the changed tab is the active one. */
+async function broadcastTabScopeIfActive(
+  changedTabId: number,
+  audioOnly: TabAudioOnlyOverride
+): Promise<void> {
+  try {
+    const tab = await getActiveTab();
+    if (!tab || typeof tab.id !== 'number' || tab.id !== changedTabId) return;
+    void browser.runtime
+      .sendMessage({ type: TAB_SCOPE_CHANGED_MESSAGE, audioOnly })
+      .catch(() => undefined);
+  } catch {
+    // Fail open: a broadcast failure must never affect the background or the page.
+  }
+}
+
+/** Apply a tab-scope override: store it, push to the tab's frames, and refresh an open popup. */
+function applyTabScope(tabId: number, audioOnly: TabAudioOnlyOverride): void {
+  if (audioOnly === null) tabScope.delete(tabId);
+  else tabScope.set(tabId, audioOnly);
+  notifyTabScope(tabId, audioOnly);
+  void broadcastTabScopeIfActive(tabId, audioOnly);
+}
+
+/** Toggle the active tab's audio-only override (the `toggle-audio-only` command path). */
+async function toggleActiveTabAudioOnly(): Promise<void> {
+  try {
+    const tab = await getActiveTab();
+    if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) return;
+    const current = resolveTabAudioOnly(settings.audioOnlyEnabled, tabScope.get(tab.id));
+    applyTabScope(tab.id, !current);
+  } catch {
+    // Fail open: a shortcut failure must never surface.
+  }
+}
+
+/** The active tab's override for the popup (`null` when it follows the global preference). */
+async function resolveActiveTabScope(): Promise<{ audioOnly: TabAudioOnlyOverride }> {
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== 'number') return { audioOnly: null };
+  return { audioOnly: tabScope.get(tab.id) };
+}
+
+/** Set the active tab's audio-only override; only extension pages reach this path. */
+async function setActiveTabAudioOnly(
+  audioOnly: boolean
+): Promise<{ audioOnly: TabAudioOnlyOverride }> {
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) {
+    return { audioOnly: null };
+  }
+  applyTabScope(tab.id, audioOnly);
+  return { audioOnly };
+}
+
 /** Fold a top-frame content-script status report into the per-tab map. Fire-and-forget. */
 function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSender): void {
   const tabId = sender.tab?.id;
@@ -425,7 +520,8 @@ function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSen
   void broadcastIfActive(tabId);
 }
 
-function installStatusChannel(): void {
+/** Install the tab-keyed channel listeners: status staleness and per-tab scope pruning. */
+function installTabChannels(): void {
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     // A document reload (status 'loading', fires even when the url is unchanged) or a navigation to a
     // DIFFERENT video means the stored status describes the previous document — mark it stale so the
@@ -442,6 +538,8 @@ function installStatusChannel(): void {
   });
   browser.tabs.onRemoved.addListener((tabId) => {
     tabStatus.delete(tabId);
+    // The per-tab scope dies with its tab (ADR-0014); nothing is persisted to clean up.
+    tabScope.delete(tabId);
   });
 }
 
@@ -451,6 +549,11 @@ function installStatusChannel(): void {
 // (whose content DOM the headless harness cannot drive). See tests/e2e/bench/run-bench.mjs.
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
 
+// BENCH-ONLY message type (dead-code-eliminated in production): set a tab-scope override for an
+// explicit tab id so the hermetic bench can drive the REAL apply path without the popup DOM, which
+// the headless harness cannot reach (see openBrowserActionPopup in tests/e2e/bench/run-bench.mjs).
+const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
+
 async function benchStatusMapSnapshot(): Promise<{
   entries: Array<{
     tabId: number;
@@ -458,6 +561,7 @@ async function benchStatusMapSnapshot(): Promise<{
     entry: TabStatusEntry;
     resolved: PlaybackUiState;
   }>;
+  scopes: Array<{ tabId: number; audioOnly: boolean }>;
 }> {
   const entries = [];
   for (const [tabId, entry] of tabStatus) {
@@ -469,7 +573,7 @@ async function benchStatusMapSnapshot(): Promise<{
     }
     entries.push({ tabId, url, entry, resolved: resolveUiState(url, entry) });
   }
-  return { entries };
+  return { entries, scopes: tabScope.entries() };
 }
 
 export default defineBackground({
@@ -499,9 +603,44 @@ export default defineBackground({
               kind: 'connecting',
             });
           }
+          if (type === GET_TAB_SCOPE_MESSAGE) {
+            // A content script (any frame) reads its own tab's scope; the popup (no sender tab)
+            // reads the active tab's scope.
+            const senderTabId = sender.tab?.id;
+            if (typeof senderTabId === 'number') {
+              return Promise.resolve({ audioOnly: tabScope.get(senderTabId) });
+            }
+            return withTimeout(resolveActiveTabScope(), GET_STATUS_TIMEOUT_MS, {
+              audioOnly: null,
+            });
+          }
+          if (type === SET_TAB_SCOPE_MESSAGE) {
+            const scopeSet = parseTabScopeSetMessage(message);
+            if (!scopeSet) return undefined;
+            const senderTabId = sender.tab?.id;
+            if (typeof senderTabId === 'number') {
+              // A content script may set only its own tab's scope (the in-player quick control):
+              // the target is derived from the sender, never from the payload.
+              applyTabScope(senderTabId, scopeSet.audioOnly);
+              return Promise.resolve({ audioOnly: scopeSet.audioOnly });
+            }
+            // The popup (an extension page, no sender tab) sets the active tab; the background
+            // resolves that target itself rather than trusting a caller.
+            return withTimeout(setActiveTabAudioOnly(scopeSet.audioOnly), GET_STATUS_TIMEOUT_MS, {
+              audioOnly: null,
+            });
+          }
           if (type === GET_DATA_CONSENT_MESSAGE) return Promise.resolve(dataConsent);
           if (__BENCH__ && type === BENCH_STATUS_MAP_MESSAGE) {
             return benchStatusMapSnapshot();
+          }
+          if (__BENCH__ && type === BENCH_SET_TAB_SCOPE_MESSAGE) {
+            const candidate = message as { tabId?: unknown; audioOnly?: unknown };
+            if (typeof candidate.tabId !== 'number' || typeof candidate.audioOnly !== 'boolean') {
+              return undefined;
+            }
+            applyTabScope(candidate.tabId, candidate.audioOnly);
+            return Promise.resolve({ audioOnly: candidate.audioOnly });
           }
           const sponsorRequest = parseSponsorRequest(message);
           if (sponsorRequest) {
@@ -521,7 +660,13 @@ export default defineBackground({
       // above: a storage failure must never leave pages without network protection or a status
       // channel. The handlers read `settings` per request and no-op while it is still unset, so
       // early registration cannot act on unloaded values.
-      installStatusChannel();
+      installTabChannels();
+      // `commands` is unavailable on Firefox for Android (its manifest entry is ignored there);
+      // guard the registration so an unsupported API can never abort the rest of startup.
+      browser.commands?.onCommand?.addListener((command) => {
+        if (command !== TOGGLE_AUDIO_ONLY_COMMAND) return;
+        void toggleActiveTabAudioOnly();
+      });
       browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
         'blocking',
       ]);

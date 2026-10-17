@@ -223,8 +223,8 @@ export function Options({
     : 'Paused. YouTube works normally.';
   const audioOnlyDescription = stateDescription(
     audioOnlyEnabledSignal.value,
-    'Stops video from loading. Saves data and battery.',
-    'Video loads and plays normally.'
+    'Stops video from loading. Saves data and battery. This is the default for every tab; quick buttons change only the current tab.',
+    'Video loads and plays normally. This is the default for every tab; quick buttons change only the current tab.'
   );
   const backgroundDescription = stateDescription(
     backgroundPlayEnabledSignal.value,

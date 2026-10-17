@@ -1,7 +1,8 @@
 # Specification: Holistic UX Foundations
 
-> **Status:** Shipped. The status channel, honest status-driven popup hero, audio-mode
-> artwork, first-run onboarding, and defaults are implemented.
+> **Status:** Shipped, with the per-tab audio-only scope (§5) landed on the 1.1.0 branch. The
+> status channel, honest status-driven popup hero, audio-mode artwork, first-run onboarding, and
+> defaults are implemented; §5 is implemented and rides the 1.1.0 release.
 
 ## Overview
 
@@ -154,6 +155,62 @@ background play, Ghost mode, ad blocking, and loudness normalization start on. R
 specialized controls remain off until selected, including segment skipping, aggressive telemetry,
 quality capping, autoplay-next suppression, page decluttering, equalizer, and audio download.
 
+### 5. Per-tab audio-only scope: _Implemented_
+
+The popup hero becomes a quick control for the tab in front of the user. It toggles an
+in-memory, tab-keyed override owned by the background (ADR-0014); options and every other
+surface keep editing the global preference.
+
+Behavior:
+
+- Effective audio-only for a tab is `override ?? global`. The override covers only the
+  `audioOnlyEnabled` field; the global pause (`enabled`) still wins when off.
+- The popup hero renders and toggles the effective value for the active tab and carries a small
+  "This tab" tag so the scope is visible before the first toggle; the in-player Audio-only button
+  sets the same tab's override. The footer (pause/resume) and the secondary card (background
+  play) stay global, and the options page remains the global editor of the preference.
+- `Alt+Shift+A` (a new `commands` entry, `toggle-audio-only`) toggles the active tab's override.
+  Firefox for Android does not support `commands`, so the shortcut is desktop-only; the popup and
+  in-player paths work everywhere.
+- The override is in-memory only, pruned on `tabs.onRemoved`, and lost on background reload.
+  It survives document reloads and SPA navigations in the same tab.
+- The override reaches every frame of the tab through the existing settings push, so embedded
+  players follow their tab (SPEC-015).
+
+Channel vocabulary (extends ADR-0007's channel; the pure logic lives in
+`src/shared/tab-scope.ts`):
+
+```
+popup         --yta:set-tab-scope { audioOnly }-->  background (active tab; extension pages only)
+content       --yta:set-tab-scope { audioOnly }-->  background (sender's own tab; in-player toggle)
+popup/content --yta:get-tab-scope --------------->  background --> { audioOnly: boolean | null }
+background    --yta:tab-scope-changed ------------>  the tab's frames (all frames), and the popup
+                                                     (only when the changed tab is the active one)
+```
+
+- `SET`: a popup sender targets the active tab, which the background resolves itself; a content
+  script may set only its own `sender.tab.id` (the in-player toggle). Non-YouTube-family tabs are
+  refused, a malformed payload is dropped, and no caller can target an arbitrary tab. The
+  popup-facing path is time-boxed with a `null` (follow global) fallback.
+- `GET`: from a content script the background answers for `sender.tab.id`; from the popup it
+  answers for the active tab. The reply is `{ audioOnly: boolean | null }` where `null` means
+  "follow the global preference".
+- The content script merges the override into the consented settings snapshot it already
+  pushes per document, and re-applies on every scope push; a fetch failure leaves the global
+  behavior in place. An override push that arrives before the initial fetch wins over the
+  stale startup reply.
+- The popup exposes the override as a signal and renders `resolveTabAudioOnly(...)` in the
+  hero; the existing gate that hides the active state while the global pause is off is
+  unchanged.
+- No storage writes, no new storage keys, no new permissions, and no new origins.
+
+Validation:
+
+- Unit: the precedence table, the settings overlay, the in-memory store, and the message
+  parsers (`tests/unit/tab-scope.test.ts`).
+- Bench: `per-tab-scope:override-beats-global-and-prunes` (see below).
+- Matrix: the same scenario runs once as a dedicated cell in the settings-permutation matrix.
+
 ## Hard-invariant compliance
 
 - **Credentialless / logged-out:** the channel carries only a status enum + reason + a video id
@@ -183,6 +240,13 @@ quality capping, autoplay-next suppression, page decluttering, equalizer, and au
 - `popup-status-channel.test.ts` — the popup client with a stubbed `browser`: honest
   `connecting` default, initial `get-status` fetch, live `status-changed` push, unsubscribe on
   cleanup, and fail-open on a rejected fetch or an unavailable runtime.
+- `tab-scope.test.ts` — the per-tab scope module: precedence (`override ?? global` both ways),
+  the settings overlay (`null` passthrough and boolean override), the store (set/get/delete
+  with a missing key answering `null`), and the message parsers (valid, malformed, and
+  wrong-type payloads). `src/shared/tab-scope.ts` is on the coverage allowlist at ≥90%.
+- `ui/popup.test.tsx` — the hero renders the effective value (`resolveTabAudioOnly`) and the
+  hero toggle calls the tab-scoped action, while the footer and background-play controls stay
+  on their global actions.
 
 ### E2e bench (`tests/e2e/bench/run-bench.mjs`)
 
@@ -196,6 +260,14 @@ quality capping, autoplay-next suppression, page decluttering, equalizer, and au
   - `status-channel:fallback-auth-reaches-background-map` — `AUTHVIDEO01` → entry
     `status: 'fallback', reason: 'LOGIN_REQUIRED'`.
   - `status-channel:active-reaches-background-map` — `FIXTURE0001` → entry `status: 'active'`.
+- **Per-tab scope (real Firefox, real extension).**
+  `per-tab-scope:override-beats-global-and-prunes` seeds the global audio-only preference off,
+  then through the `__BENCH__`-only `yta:__bench-set-tab-scope` seam (which calls the production
+  apply path) asserts: the override turns the tab's hijack on while the global preference stays
+  off; a second YouTube tab without an override stays disabled and then activates with its own
+  override; the override survives a reload and an in-page SPA navigation of the same tab; setting
+  it back to `false` with the global preference changed to on disables the tab again; and closing
+  the second tab prunes its entry from the in-memory scope store.
 - **Browser-action popup DOM lane (attempted; documented limitation).**
   `status-channel:browser-action-popup-lane-opens` exercises the new `openBrowserActionPopup()`
   helper, which drives the **real** toolbar popup via Marionette's chrome context
@@ -219,6 +291,8 @@ quality capping, autoplay-next suppression, page decluttering, equalizer, and au
 ## Related documents
 
 - **ADR-0007** — Popup playback-status delivery (background per-tab map + push).
+- **ADR-0014** — Per-tab audio-only scope (the in-memory, tab-keyed override this adds).
+- `docs/specs/SPEC-015-m9-embedded-player-frames.md` — frames follow the tab's settings push.
 - `docs/design/ux-popup.md` — the popup UX review that motivated this (§1.2, P0-1/P0-2).
 - `docs/adrs/0005-pii-free-diagnostics-and-issue-reporter.md` — the same `emitStatus` value also
   feeds the PII-free diagnostics log.

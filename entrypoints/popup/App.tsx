@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 
-import { setAudioOnlyEnabled, setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
+import { setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
 import {
   adBlockEnabledSignal,
   audioOnlyEnabledSignal,
@@ -9,23 +9,30 @@ import {
   ghostEnabledSignal,
 } from '../../src/shared/settings-signals';
 import type { PlaybackUiState } from '../../src/shared/status';
+import { resolveTabAudioOnly } from '../../src/shared/tab-scope';
 import { Brand, SettingRow, Switch } from '../ui/components';
 import { playbackStatusSignal } from './playback-status';
+import { setActiveTabAudioOnly, tabAudioOnlyOverrideSignal } from './tab-scope';
 
 export type PopupActions = {
   setEnabled: typeof setEnabled;
-  setAudioOnlyEnabled: typeof setAudioOnlyEnabled;
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
   openOptions: () => void;
   openYouTube: () => void;
+  /**
+   * Toggle audio-only for the active tab. This is the per-tab scope (SPEC-012 §5; ADR-0014), not
+   * the global preference: the hero is a quick control for the tab in front of the user, while the
+   * options page keeps editing the global default.
+   */
+  setTabAudioOnly: (enabled: boolean) => Promise<void>;
 };
 
 const defaultActions: PopupActions = {
   setEnabled,
-  setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   openOptions: () => void browser.runtime.openOptionsPage(),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
+  setTabAudioOnly: setActiveTabAudioOnly,
 };
 
 function heroStatusCopy(status: Exclude<PlaybackUiState, { kind: 'not-youtube' }>): string {
@@ -101,7 +108,10 @@ function PlaybackHero({
     <section class={`popup-hero${active ? ' is-active' : ''}`} aria-labelledby="popup-hero-title">
       <div class="popup-hero-row" onClick={() => onChange(!checked)}>
         <span class="popup-hero-copy">
-          <h1 id="popup-hero-title">Audio-only</h1>
+          <h1 id="popup-hero-title">
+            Audio-only
+            <span class="popup-scope-tag">This tab</span>
+          </h1>
           <span class="popup-hero-status" id={statusId}>
             {active && <span class="now-playing" aria-hidden="true" />}
             <span>{heroStatusCopy(displayStatus)}</span>
@@ -145,8 +155,11 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
       <div class="popup-content">
         <PlaybackHero
           status={playbackStatus}
-          checked={audioOnlyEnabledSignal.value}
-          onChange={(checked) => apply(() => actions.setAudioOnlyEnabled(checked))}
+          checked={resolveTabAudioOnly(
+            audioOnlyEnabledSignal.value,
+            tabAudioOnlyOverrideSignal.value
+          )}
+          onChange={(checked) => apply(() => actions.setTabAudioOnly(checked))}
         />
 
         <section class="popup-secondary-card" aria-label="Playback controls">

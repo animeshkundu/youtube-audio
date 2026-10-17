@@ -39,3 +39,12 @@ describe('MV3 capability artifact declarations', () => {
     expect(config).toMatch(/manifestVersion === 3 \? \['webRequestFilterResponse'\] : \[\]/);
   });
 });
+
+describe('per-tab scope command declaration', () => {
+  it('declares toggle-audio-only on Alt+Shift+A', () => {
+    // The background registers a listener for exactly this command name (SPEC-012 §5; ADR-0014);
+    // a rename on either side would silently disable the shortcut, so pin both here.
+    expect(config).toContain("'toggle-audio-only'");
+    expect(config).toMatch(/default: 'Alt\+Shift\+A'/);
+  });
+});

@@ -107,8 +107,9 @@ If you modify code, you **MUST**:
 ```
 youtube-audio/
 ├── entrypoints/            # WXT entrypoints: background.ts, content.ts, main-world.ts, ui/, popup/, options/
-├── src/shared/             # Core logic: innertube, player, audiograph, adblock, scriptlets, rescue,
-│                           #   sponsorblock, telemetry, quality-of-life, download, config, spa, platform,
+├── src/shared/             # Core logic: innertube, player, reclaim, audiograph, adblock, scriptlets,
+│                           #   rescue, sponsorblock, status, tab-scope, telemetry, quality-of-life,
+│                           #   download, config, consent, spa, platform,
 │                           #   logger + redact + report + diagnostics (PII-free local log)
 ├── tests/
 │   ├── unit/               # Vitest unit tests

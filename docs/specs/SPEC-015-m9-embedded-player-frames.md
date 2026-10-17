@@ -18,7 +18,7 @@ frame the controls target, how the popup resolves a tab, and what each frame rep
     runs its own acquisition generation and its own `PlayerHandle`. Frames never coordinate; each
     fails open independently.
   - Toggle target: settings stay global and are applied per frame; embedded players follow the
-    global toggle. The per-tab override (SPEC-016) reaches frames through the same settings push,
+    global toggle. The per-tab override (SPEC-012 §5) reaches frames through the same settings push,
     so it also governs embeds in that tab.
   - Popup resolution: the per-tab status brain stays top-frame authoritative. Only the top frame
     reports status; subframe reports are never sent and (defense in depth) never accepted. A
@@ -70,9 +70,10 @@ takes the existing not-a-watch-page path without fetching.
   media-client walk, playability gate, `PlayerHandle` attach, loudness/EQ, and segment skipping.
   The background response filter and telemetry/ad blocking are URL-scoped and already
   frame-agnostic.
-- The toggle target for the popup, keyboard shortcut, and options remains the global settings
-  object; every frame applies changes instantly through its settings push. A per-tab override keys
-  on the top frame's tab and rides the same push.
+- All quick controls act on the tab (SPEC-012 §5; ADR-0014): the popup hero, the in-player toggle,
+  and `Alt+Shift+A` set the tab's in-memory override, while the options page remains the global
+  editor. Every frame applies the effective value instantly through the settings push, so an
+  override keys on the top frame's tab and governs every frame of that tab.
 - Popup resolution is unchanged at the tab level: `resolveUiState` classifies the tab URL and the
   authoritative top-frame report. With embed URL support, a top-level `/embed/<id>` page resolves
   like a watch page (its status was previously `not-a-watch-page`), which is the one intentional

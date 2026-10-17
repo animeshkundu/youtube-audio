@@ -342,6 +342,63 @@ async function main() {
     await runCombo('single:forceQualityMax-480p', settings({ forceQualityMax: '480p' }), ctx);
     await runCombo('single:forceQualityMax-720p', settings({ forceQualityMax: '720p' }), ctx);
 
+    // --- Per-tab audio-only scope (SPEC-012 §5; ADR-0014) ------------------
+    // The full precedence/isolation proof runs as a run-bench case; the matrix re-runs the same
+    // scenario under a MIXED settings row (audio-only globally off, ad-block + loudness on) so the
+    // per-tab override is exercised alongside other active features, not only in isolation.
+    {
+      const s = settings({
+        audioOnlyEnabled: false,
+        adBlockEnabled: true,
+        loudnessNormalization: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        probePlayerFromPage: true,
+        videoId: 'SCOPE0001',
+        expectedTerminalStatus: 'disabled',
+        probeTabScope: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const scope = r.tabScope;
+      const failures = [];
+      if (scope?.disabledBefore !== 'disabled')
+        failures.push(`scope: expected disabled before the override (${scope?.disabledBefore})`);
+      if (scope?.activeAfterOverride !== true)
+        failures.push('scope: override did not activate the tab');
+      if (scope?.globalAfterOverride !== false)
+        failures.push('scope: override leaked into the global preference in storage');
+      if (scope?.secondDisabled !== true)
+        failures.push('scope: a second tab without an override should follow the global off');
+      if (scope?.secondActiveAfterOverride !== true)
+        failures.push('scope: the second tab override did not activate it');
+      if (scope?.prunedSecondTab !== true || scope?.primaryStillPresent !== true)
+        failures.push('scope: closing a tab did not prune only its entry');
+      if (scope?.persistedAcrossReload !== true)
+        failures.push('scope: override lost across a reload of its tab');
+      if (scope?.persistedAcrossSpa !== true)
+        failures.push('scope: override lost across an in-page SPA navigation');
+      if (scope?.stillActiveWithGlobalOn !== true)
+        failures.push('scope: override-on lost when the global preference turned on');
+      if (scope?.disabledAfterOverrideOff !== true)
+        failures.push('scope: override-off did not beat the global on');
+      if (r.marker !== '1') failures.push(`scope: content script marker missing (marker=${r.marker})`);
+      record('scope:per-tab-override-beats-global-and-prunes', failures, {
+        status: r.status,
+        disabledBefore: scope?.disabledBefore,
+        activeAfterOverride: scope?.activeAfterOverride,
+        globalAfterOverride: scope?.globalAfterOverride,
+        secondDisabled: scope?.secondDisabled,
+        secondActiveAfterOverride: scope?.secondActiveAfterOverride,
+        persistedAcrossReload: scope?.persistedAcrossReload,
+        persistedAcrossSpa: scope?.persistedAcrossSpa,
+        stillActiveWithGlobalOn: scope?.stillActiveWithGlobalOn,
+        disabledAfterOverrideOff: scope?.disabledAfterOverrideOff,
+      });
+    }
+
     // --- Key interactions --------------------------------------------------
     await runCombo('pair:audioOnly+adBlock', settings({ audioOnlyEnabled: true, adBlockEnabled: true }), ctx);
     await runCombo('pair:audioOnly+loudness+eq', settings({ audioOnlyEnabled: true, loudnessNormalization: true, equalizerEnabled: true }), ctx);

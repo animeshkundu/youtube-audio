@@ -13,9 +13,9 @@ import {
 import {
   getSettings,
   initializeSettings,
-  setAudioOnlyEnabled,
   subscribeSettings,
   watchSettings,
+  type ExtensionSettings,
 } from '../src/shared/config';
 import {
   errorFields,
@@ -27,6 +27,15 @@ import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/downloa
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 import { isPlaybackStatus, STATUS_UPDATE_MESSAGE, type StatusUpdate } from '../src/shared/status';
+import {
+  applyTabAudioOnlyOverride,
+  GET_TAB_SCOPE_MESSAGE,
+  parseTabScopePush,
+  parseTabScopeReply,
+  resolveTabAudioOnly,
+  SET_TAB_SCOPE_MESSAGE,
+  type TabAudioOnlyOverride,
+} from '../src/shared/tab-scope';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
 // builds, so the marker below is dead-code-eliminated and never runs on real YouTube.
@@ -107,6 +116,38 @@ function isTopFrame(): boolean {
   return window.top === window.self;
 }
 
+/**
+ * This frame's per-tab audio-only override: `null` follows the global preference. The background
+ * owns the value (SPEC-012 §5; ADR-0014); this frame only mirrors it into its own settings push.
+ */
+let tabAudioOnlyOverride: TabAudioOnlyOverride = null;
+
+/**
+ * The last effective settings snapshot pushed to the page world (consent and tab scope applied).
+ * The in-player control reads it so it renders the tab's effective value instead of the global
+ * preference.
+ */
+let currentEffectiveSettings: ExtensionSettings | null = null;
+
+/** Ask the background for this tab's audio-only override; fail open to "follow the global". */
+async function fetchTabScopeOverride(): Promise<TabAudioOnlyOverride> {
+  try {
+    const reply = await browser.runtime.sendMessage({ type: GET_TAB_SCOPE_MESSAGE });
+    return parseTabScopeReply(reply)?.audioOnly ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the background to set this tab's audio-only override (the in-player quick control). */
+async function requestTabAudioOnly(audioOnly: boolean): Promise<void> {
+  try {
+    await browser.runtime.sendMessage({ type: SET_TAB_SCOPE_MESSAGE, audioOnly });
+  } catch {
+    // Fail open: the page keeps its current effective setting.
+  }
+}
+
 export default defineContentScript({
   matches: MATCHES,
   runAt: 'document_start',
@@ -125,9 +166,17 @@ export default defineContentScript({
       // denial broadcast that lands while that request is in flight cannot be missed. A generation
       // guard prevents that push from being overwritten by an older startup reply.
       let consent: DataConsentState = DENIED_DATA_CONSENT;
+      // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): the background owns this tab's override
+      // and this frame merges it into the consented snapshot it pushes. An early push wins over the
+      // initial fetch's stale startup reply, so a quick control toggled during load is not lost.
+      let scopePushSeen = false;
       watchSettings();
       const applyEffectiveSettings = () => {
-        const settings = applyConsentToSettings(getSettings(), consent);
+        const settings = applyTabAudioOnlyOverride(
+          applyConsentToSettings(getSettings(), consent),
+          tabAudioOnlyOverride
+        );
+        currentEffectiveSettings = settings;
         window.postMessage(
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
           location.origin
@@ -139,6 +188,21 @@ export default defineContentScript({
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
       };
+      const applyTabScope = (override: TabAudioOnlyOverride) => {
+        tabAudioOnlyOverride = override;
+        applyEffectiveSettings();
+      };
+      browser.runtime.onMessage.addListener((message: unknown) => {
+        const scopePush = parseTabScopePush(message);
+        if (scopePush) {
+          scopePushSeen = true;
+          applyTabScope(scopePush.audioOnly);
+        }
+        return undefined;
+      });
+      void fetchTabScopeOverride().then((override) => {
+        if (!scopePushSeen) applyTabScope(override);
+      });
       const consentState = createContentConsentState((nextConsent) => {
         consent = nextConsent;
         applyEffectiveSettings();
@@ -399,15 +463,20 @@ export function installPlayerControls(bridgeNonce: string): () => void {
       document.documentElement.dataset.ytaReconcileRuns = String(runs);
     }
     if (!observedPlayer?.isConnected) return;
-    const settings = getSettings();
+    // The effective snapshot (consent + tab scope) drives the control's state; the global
+    // preference is only the fallback for the instant before the first push.
+    const settings =
+      currentEffectiveSettings ?? applyTabAudioOnlyOverride(getSettings(), tabAudioOnlyOverride);
     const result = reconcileInPlayerControls({
       playerRoot: observedPlayer,
       audioOnlyActive: settings.enabled && settings.audioOnlyEnabled,
       downloadVisible: settings.enabled && settings.downloadEnabled,
       mobile: location.hostname === 'm.youtube.com',
       onAudioOnlyToggle: () => {
-        const current = getSettings();
-        void setAudioOnlyEnabled(!current.audioOnlyEnabled).catch(() => undefined);
+        // Quick controls act on this tab (SPEC-012 §5; ADR-0014): the background applies the
+        // override and pushes it back, so the global preference is never written from a page.
+        const current = resolveTabAudioOnly(settings.audioOnlyEnabled, tabAudioOnlyOverride);
+        void requestTabAudioOnly(!current);
       },
       onDownload: (button) => {
         void requestAudioDownload(bridgeNonce, button);

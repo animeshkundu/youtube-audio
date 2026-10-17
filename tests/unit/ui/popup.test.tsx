@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Popup, type PopupActions } from '../../../entrypoints/popup/App';
 import { playbackStatusSignal } from '../../../entrypoints/popup/playback-status';
+import { tabAudioOnlyOverrideSignal } from '../../../entrypoints/popup/tab-scope';
 import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
@@ -16,10 +17,10 @@ import {
 function actions(): PopupActions {
   return {
     setEnabled: vi.fn(async () => undefined),
-    setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     openOptions: vi.fn(),
     openYouTube: vi.fn(),
+    setTabAudioOnly: vi.fn(async () => undefined),
   };
 }
 
@@ -49,6 +50,7 @@ afterEach(() => {
   audioOnlyEnabledSignal.value = true;
   backgroundPlayEnabledSignal.value = true;
   loudnessNormalizationSignal.value = true;
+  tabAudioOnlyOverrideSignal.value = null;
 });
 
 describe('Popup', () => {
@@ -193,7 +195,36 @@ describe('Popup', () => {
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
 
-  it('instant-applies popup controls and opens full settings', () => {
+  it('renders the per-tab override over the global preference', () => {
+    audioOnlyEnabledSignal.value = true;
+    tabAudioOnlyOverrideSignal.value = false;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+    const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
+
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
+    expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
+    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).toContain('This tab');
+  });
+
+  it('an explicit tab override turns the hero on while the global preference is off', () => {
+    audioOnlyEnabledSignal.value = false;
+    tabAudioOnlyOverrideSignal.value = true;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+    const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
+
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('true');
+    expect(hero?.classList.contains('is-active')).toBe(true);
+    expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
+  });
+
+  it('instant-applies popup controls (audio-only to the tab) and opens full settings', () => {
     playbackStatusSignal.value = { kind: 'active' };
     const popupActions = actions();
     const container = mount(<Popup actions={popupActions} />);
@@ -203,7 +234,7 @@ describe('Popup', () => {
     click(container.querySelector('.popup-pause-action'));
     click(container.querySelector('[aria-label="Open settings"]'));
 
-    expect(popupActions.setAudioOnlyEnabled).toHaveBeenCalledWith(false);
+    expect(popupActions.setTabAudioOnly).toHaveBeenCalledWith(false);
     expect(popupActions.setBackgroundPlayEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.setEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.openOptions).toHaveBeenCalledOnce();

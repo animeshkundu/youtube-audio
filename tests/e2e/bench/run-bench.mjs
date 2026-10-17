@@ -70,6 +70,9 @@ const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const BROWSER_ACTION_WIDGET = `${ADDON_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}-browser-action`;
 // BENCH-ONLY background message that returns the real per-tab status map (see background.ts).
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
+// BENCH-ONLY background message that sets a tab-scope override for an explicit tab id, driving the
+// real apply path without the popup DOM (see background.ts; SPEC-012 §5; ADR-0014).
+const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
 
 const TERMINAL_STATUSES = ['active', 'disabled', 'fallback'];
 
@@ -335,7 +338,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
- *           frameHost?: boolean, probeEmbedFrame?: boolean,
+ *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
@@ -361,6 +364,7 @@ export async function runSession({
   probeRapidRetoggle,
   frameHost,
   probeEmbedFrame,
+  probeTabScope,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -516,6 +520,179 @@ export async function runSession({
       }, 12000);
       embedFrame = frameTerminal || (await driver.executeScript(readFrame));
       await driver.switchTo().defaultContent();
+    }
+
+    let tabScope = null;
+    if (probeTabScope) {
+      // Per-tab audio-only scope (SPEC-012 §5; ADR-0014). The headless harness cannot drive the
+      // popup DOM (see openBrowserActionPopup), so this probe drives the REAL background apply path
+      // through the `__BENCH__`-only set message and asserts the observable consequences: the
+      // override flips the tab's hijack while the global preference stays untouched in storage, a
+      // second tab without an override follows the global, the override survives a reload of its
+      // tab, an explicit override beats a later global change in both directions, and closing a tab
+      // prunes its entry from the in-memory store.
+      const scopeContext = { watchHandle: await driver.getWindowHandle() };
+      const scopeSecondVideoId = 'SCOPE0002';
+      const withOptionsTab = async (script, ...args) => {
+        const returnHandle = await driver.getWindowHandle();
+        if (scopeContext.optionsHandle) {
+          await driver.switchTo().window(scopeContext.optionsHandle);
+        } else {
+          await driver.switchTo().newWindow('tab');
+          scopeContext.optionsHandle = await driver.getWindowHandle();
+          await driver.get(OPTIONS_URL);
+        }
+        try {
+          return await driver.executeAsyncScript(script, ...args);
+        } finally {
+          await driver.switchTo().window(returnHandle);
+        }
+      };
+      const findTabId = (needle) =>
+        withOptionsTab(function (urlNeedle) {
+          const done = arguments[arguments.length - 1];
+          browser.tabs
+            .query({})
+            .then((tabs) => {
+              const match = tabs.find(
+                (tab) => typeof tab.url === 'string' && tab.url.includes(urlNeedle)
+              );
+              done(match && typeof match.id === 'number' ? match.id : null);
+            })
+            .catch(() => done(null));
+        }, needle);
+      const setScope = (tabId, audioOnly) =>
+        withOptionsTab(function (messageType, id, value) {
+          const done = arguments[arguments.length - 1];
+          browser.runtime
+            .sendMessage({ type: messageType, tabId: id, audioOnly: value })
+            .then((reply) => done(reply || null))
+            .catch((error) => done({ error: String(error) }));
+        }, BENCH_SET_TAB_SCOPE_MESSAGE, tabId, audioOnly);
+      const readScopes = () =>
+        withOptionsTab(function (messageType) {
+          const done = arguments[arguments.length - 1];
+          browser.runtime
+            .sendMessage({ type: messageType })
+            .then((snapshot) =>
+              done(snapshot && Array.isArray(snapshot.scopes) ? snapshot.scopes : null)
+            )
+            .catch(() => done(null));
+        }, BENCH_STATUS_MAP_MESSAGE);
+      const readGlobalAudioOnly = () =>
+        withOptionsTab(function () {
+          const done = arguments[arguments.length - 1];
+          browser.storage.local
+            .get('settings')
+            .then((stored) => {
+              const storedSettings =
+                stored && typeof stored.settings === 'object' && stored.settings
+                  ? stored.settings
+                  : {};
+              done(
+                typeof storedSettings.audioOnlyEnabled === 'boolean'
+                  ? storedSettings.audioOnlyEnabled
+                  : null
+              );
+            })
+            .catch(() => done(null));
+        });
+      const waitForStatus = (wanted, timeoutMs = 8000) =>
+        waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === wanted ? snap : null;
+        }, timeoutMs, 50);
+
+      const watchTabId = await findTabId(videoId);
+      if (typeof watchTabId !== 'number') {
+        tabScope = { error: 'watch-tab-id-not-found' };
+      } else {
+        const disabledBefore = await driver.executeScript(snapshotScript);
+        await setScope(watchTabId, true);
+        const activeAfterOverride = await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === 'active' &&
+            typeof snap.videoSrc === 'string' &&
+            snap.videoSrc.includes('/videoplayback')
+            ? snap
+            : null;
+        }, 8000, 50);
+        const globalAfterOverride = await readGlobalAudioOnly();
+
+        // A second YouTube tab with no override follows the global preference, then flips to active
+        // when it gets its own override: the override is per tab, not per window.
+        await driver.switchTo().newWindow('tab');
+        await driver.get(`${origin}/watch?v=${scopeSecondVideoId}`);
+        await driver.wait(until.elementLocated(By.css('video')), 10000);
+        const secondDisabled = await waitForStatus('disabled');
+        const secondTabId = await findTabId(scopeSecondVideoId);
+        await setScope(secondTabId, true);
+        const secondActive = await waitForStatus('active');
+        const scopesBeforeClose = await readScopes();
+
+        await driver.close();
+        await driver.switchTo().window(scopeContext.watchHandle);
+        const scopesAfterClose = await waitFor(async () => {
+          const scopes = await readScopes();
+          return Array.isArray(scopes) && !scopes.some((entry) => entry.tabId === secondTabId)
+            ? scopes
+            : null;
+        }, 4000, 100);
+
+        // The override is tab-keyed, so a document reload of the same tab keeps it.
+        await driver.get(`${origin}/watch?v=${videoId}`);
+        await driver.wait(until.elementLocated(By.css('video')), 10000);
+        const persistedAcrossReload = await waitForStatus('active', 10000);
+
+        // The override is tab-keyed, so an in-page SPA navigation in the same tab keeps it and
+        // re-hijacks the next video as well.
+        await driver.executeScript(function () {
+          history.pushState({}, '', '/watch?v=SCOPE0003');
+          document.dispatchEvent(new Event('yt-navigate-finish'));
+        });
+        const persistedAcrossSpa = await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === 'active' &&
+            typeof snap.videoSrc === 'string' &&
+            snap.videoSrc.includes('videoId=SCOPE0003')
+            ? snap
+            : null;
+        }, 8000, 50);
+
+        // An explicit override wins over a later global change both ways: global on keeps the
+        // overridden-on tab active, and flipping the override off disables it under global on.
+        await mutateSettingMidSession(driver, scopeContext, 'audioOnlyEnabled', true);
+        const stillActiveWithGlobalOn = await waitForStatus('active', 6000);
+        await setScope(watchTabId, false);
+        const disabledAfterOverrideOff = await waitForStatus('disabled');
+        const scopesFinal = await readScopes();
+        const globalFinal = await readGlobalAudioOnly();
+
+        tabScope = {
+          watchTabId,
+          secondTabId,
+          disabledBefore: disabledBefore.status,
+          activeAfterOverride: !!activeAfterOverride,
+          overrideVideoSrc: activeAfterOverride?.videoSrc || null,
+          globalAfterOverride,
+          secondDisabled: !!secondDisabled,
+          secondActiveAfterOverride: !!secondActive,
+          scopesBeforeClose,
+          scopesAfterClose,
+          prunedSecondTab:
+            Array.isArray(scopesAfterClose) &&
+            !scopesAfterClose.some((entry) => entry.tabId === secondTabId),
+          primaryStillPresent:
+            Array.isArray(scopesAfterClose) &&
+            scopesAfterClose.some((entry) => entry.tabId === watchTabId),
+          persistedAcrossReload: !!persistedAcrossReload,
+          persistedAcrossSpa: !!persistedAcrossSpa,
+          stillActiveWithGlobalOn: !!stillActiveWithGlobalOn,
+          disabledAfterOverrideOff: !!disabledAfterOverrideOff,
+          scopesFinal,
+          globalFinal,
+        };
+      }
     }
 
     let toggleOffReclaim = null;
@@ -974,6 +1151,7 @@ export async function runSession({
       toggleOffReclaim,
       rapidRetoggle,
       embedFrame,
+      tabScope,
     };
   } finally {
     try {
@@ -1496,6 +1674,55 @@ async function main() {
         embedFrame: embedRun.embedFrame,
         status: embedRun.status,
         audioOnlyTogglePresent: embedRun.audioOnlyTogglePresent,
+      }
+    );
+
+    // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): the override flips one tab's hijack while
+    // the global preference stays untouched in storage, a second tab follows the global, the
+    // override survives a reload, it beats a later global change both ways, and closing its tab
+    // prunes it from the in-memory store.
+    const scopeRun = await runSession({
+      withAddon: true,
+      seedSettings: { audioOnlyEnabled: false },
+      videoId: 'SCOPE0001',
+      expectedTerminalStatus: 'disabled',
+      probeTabScope: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const scope = scopeRun.tabScope;
+    record(
+      'per-tab-scope:override-beats-global-and-prunes',
+      scope?.disabledBefore === 'disabled' &&
+        scope?.activeAfterOverride === true &&
+        scope?.globalAfterOverride === false &&
+        scope?.secondDisabled === true &&
+        scope?.secondActiveAfterOverride === true &&
+        scope?.prunedSecondTab === true &&
+        scope?.primaryStillPresent === true &&
+        scope?.persistedAcrossReload === true &&
+        scope?.persistedAcrossSpa === true &&
+        scope?.stillActiveWithGlobalOn === true &&
+        scope?.disabledAfterOverrideOff === true &&
+        scope?.globalFinal === true,
+      {
+        watchTabId: scope?.watchTabId,
+        secondTabId: scope?.secondTabId,
+        disabledBefore: scope?.disabledBefore,
+        activeAfterOverride: scope?.activeAfterOverride,
+        overrideVideoSrc: scope?.overrideVideoSrc,
+        globalAfterOverride: scope?.globalAfterOverride,
+        secondDisabled: scope?.secondDisabled,
+        secondActiveAfterOverride: scope?.secondActiveAfterOverride,
+        scopesBeforeClose: scope?.scopesBeforeClose,
+        scopesAfterClose: scope?.scopesAfterClose,
+        persistedAcrossReload: scope?.persistedAcrossReload,
+        persistedAcrossSpa: scope?.persistedAcrossSpa,
+        stillActiveWithGlobalOn: scope?.stillActiveWithGlobalOn,
+        disabledAfterOverrideOff: scope?.disabledAfterOverrideOff,
+        scopesFinal: scope?.scopesFinal,
+        globalFinal: scope?.globalFinal,
+        error: scope?.error,
       }
     );
 

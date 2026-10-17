@@ -138,6 +138,16 @@ export default defineConfig({
       },
       gecko_android: {},
     },
+    // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): Alt+Shift+A toggles the active tab's
+    // override. Firefox for Android does not support `commands`, so the shortcut is desktop-only
+    // there; the popup hero path is the Android surface. Keep the name in lockstep with
+    // `TOGGLE_AUDIO_ONLY_COMMAND` in entrypoints/background.ts.
+    commands: {
+      'toggle-audio-only': {
+        suggested_key: { default: 'Alt+Shift+A' },
+        description: 'Toggle audio-only playback for this tab',
+      },
+    },
   }),
   hooks: {
     'build:manifestGenerated': (_wxt, manifest) => {
