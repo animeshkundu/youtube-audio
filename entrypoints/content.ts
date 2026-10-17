@@ -25,6 +25,7 @@ import {
 } from '../src/shared/diagnostics';
 import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
+import { settingsEqual } from '../src/shared/settings-diff';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 import { isPlaybackStatus, STATUS_UPDATE_MESSAGE, type StatusUpdate } from '../src/shared/status';
 import {
@@ -176,6 +177,10 @@ export default defineContentScript({
           applyConsentToSettings(getSettings(), consent),
           tabAudioOnlyOverride
         );
+        // Every push recomputes the whole snapshot (storage echoes, duplicate consent/scope
+        // broadcasts); an identical one is dropped here so the page world never re-arms for it and
+        // the controls are not rewritten (SPEC-020).
+        if (currentEffectiveSettings && settingsEqual(currentEffectiveSettings, settings)) return;
         currentEffectiveSettings = settings;
         window.postMessage(
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },

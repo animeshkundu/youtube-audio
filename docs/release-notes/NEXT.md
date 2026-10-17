@@ -22,6 +22,7 @@ Everything above is one click away in the popup or options. The essentials are o
 
 - **Toggling audio-only is rock solid now.** Turn it off and you land right back on the video at the exact spot you were listening to, playing or paused. No frozen player, no jump to the start, even if you flip it on and off in a hurry.
 - **Smoother, lighter on your machine.** We tracked down a rare case where the extension could make YouTube feel sluggish and put a stop to it. It stays out of the way now.
+- **Settings, without the stutter.** Changing an option only reloads what that option touches, so flipping a switch mid-song no longer restarts the stream, and equalizer moves apply live.
 - **The popup tells you the truth.** The status you see is the real state of the current video, so when something falls back to normal YouTube, you know, instead of being told all is well.
 - **Nicer in the player.** The audio-only button now matches YouTube's own controls in size and style, and audio mode shows the track artwork instead of a black rectangle.
 - **Hiding recommendations leaves your comments alone.** Ask to hide recommendations and that is all that goes. Comments stay put.

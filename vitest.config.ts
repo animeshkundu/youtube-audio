@@ -26,6 +26,7 @@ export default defineConfig({
         'src/shared/reclaim.ts',
         'src/shared/redact.ts',
         'src/shared/report.ts',
+        'src/shared/settings-diff.ts',
         'src/shared/sponsorblock.ts',
         'src/shared/status.ts',
         'src/shared/tab-scope.ts',

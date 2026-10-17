@@ -32,6 +32,27 @@ export function loudnessDbToGain(loudnessDb: number): number {
   return Math.min(2, Math.max(0.5, 10 ** (-loudnessDb / 20)));
 }
 
+/**
+ * Apply the loudness/EQ settings to a graph (SPEC-020): the single arming/update path. `armAudioGraph`
+ * calls it when a graph is created, and a settings push calls it again on the live handle so a
+ * loudness or equalizer change is absorbed in place (no stream refetch, no media reload). Returns
+ * the applied loudness gain so callers can publish it.
+ */
+export function applyGraphSettings(
+  graph: Pick<AudioGraphHandle, 'setGain' | 'setEqualizer'>,
+  settings: {
+    loudnessNormalization: boolean;
+    equalizerEnabled: boolean;
+    equalizerBands: EqualizerBands;
+  },
+  loudnessDb: number | undefined
+): number {
+  const gain = settings.loudnessNormalization ? loudnessDbToGain(loudnessDb ?? Number.NaN) : 1;
+  graph.setGain(gain);
+  graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
+  return gain;
+}
+
 export function getEqualizerParameters(bands: EqualizerBands): readonly EqualizerParameters[] {
   return EQ_FREQUENCIES.map((frequency, index) => {
     const candidate = bands[index];

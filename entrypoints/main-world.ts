@@ -1,6 +1,10 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
-import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import {
+  applyGraphSettings,
+  createAudioGraph,
+  type AudioGraphHandle,
+} from '../src/shared/audiograph';
 import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
@@ -28,10 +32,11 @@ import {
 } from '../src/shared/innertube';
 import { installValuePatch } from '../src/shared/own-patch';
 import { PlayerHandle } from '../src/shared/player';
-import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
+import { getQualityLabel, isQualityCap } from '../src/shared/quality-of-life';
 import { armOneShotPause, createReclaimTracker } from '../src/shared/reclaim';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
+import { pageSubsystemReArm, type PageSettingsSnapshot } from '../src/shared/settings-diff';
 import { observeYouTubeSpa } from '../src/shared/spa';
 import { parseVideoId, type PlaybackStatus } from '../src/shared/status';
 import {
@@ -52,24 +57,6 @@ const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
 // SPEC-017: one bounded retry when the player (or, on Music, the song toggle) has not mounted yet.
 const FALLBACK_QUALITY_RETRY_MS = 1_000;
-
-interface PageSettings {
-  enabled: boolean;
-  audioOnlyEnabled: boolean;
-  audioArtworkEnabled: boolean;
-  backgroundPlayEnabled: boolean;
-  idleNagDefeatEnabled: boolean;
-  fallbackQualityCapEnabled: boolean;
-  adBlockEnabled: boolean;
-  segmentSkipEnabled: boolean;
-  segmentSkipCategories: readonly SponsorCategory[];
-  forceQualityMax: QualityCap;
-  disableAutoplayNext: boolean;
-  loudnessNormalization: boolean;
-  equalizerEnabled: boolean;
-  equalizerBands: EqualizerBands;
-  downloadEnabled: boolean;
-}
 
 interface YouTubeConfig {
   get?(key: string): unknown;
@@ -151,7 +138,7 @@ export default defineUnlistedScript(() => {
   });
   const bridgeNonce = readAndClearBridgeNonce();
   const log = createPageLogger(bridgeNonce);
-  let settings: PageSettings = {
+  let settings: PageSettingsSnapshot = {
     enabled: false,
     audioOnlyEnabled: false,
     audioArtworkEnabled: true,
@@ -213,10 +200,21 @@ export default defineUnlistedScript(() => {
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
+  // False until the first settings push. The first push arms every subsystem (there is no previous
+  // snapshot to diff against); later pushes re-arm only what changed (SPEC-020).
+  let settingsApplied = false;
+  // The last emitted playback status; a mid-session fallback-quality toggle only re-applies the cap
+  // where the session is already in native fallback (SPEC-020).
+  let lastStatus: PlaybackStatus | null = null;
   let audioGraphCleanup: () => void = () => undefined;
+  // The live graph handle and the loudness dB it was armed with, kept beside the cleanup so a
+  // graph-only settings change can be applied in place instead of refetching the stream (SPEC-020).
+  let audioGraphHandle: AudioGraphHandle | null = null;
+  let liveLoudnessDb: number | undefined;
 
   const emitStatus = (status: PlaybackStatus, operation: PlaybackOperation, reason?: string) => {
     log('playback.status', { status, ...(reason ? { reason } : {}) });
+    lastStatus = status;
     // Resolve any pending native reclaim against this operation's outcome BEFORE dispatching (the
     // dispatch is synchronous, so ordering the bookkeeping first keeps it insulated from listeners).
     // 'fetching' is transient, so it neither reclaims nor clears.
@@ -331,40 +329,84 @@ export default defineUnlistedScript(() => {
     return { videoId, generation: player.navigate() };
   };
 
-  const applySettings = (next: PageSettings) => {
-    settings = next;
-    visibilityCleanup();
-    visibilityCleanup =
-      settings.enabled && settings.backgroundPlayEnabled
-        ? installVisibilityOverride(document)
-        : () => undefined;
-    idleNagCleanup();
-    idleNagCleanup =
-      settings.enabled && settings.backgroundPlayEnabled && settings.idleNagDefeatEnabled
-        ? enableIdleNagDefeat()
-        : () => undefined;
-    const nextScriptletGeneration = ++scriptletGeneration;
-    scriptletCleanup();
-    scriptletCleanup = () => undefined;
-    if (settings.enabled && settings.adBlockEnabled) {
-      void loadRescueConfig()
-        .then((config) => {
-          if (nextScriptletGeneration !== scriptletGeneration) return;
-          scriptletCleanup = applyScriptletOperations(config.scriptlets).cleanup;
-        })
-        .catch(() => undefined);
-    }
-    const operation = startPlaybackOperation();
-    restartSegmentSkipping();
-    qualityOfLifeCleanup();
-    qualityOfLifeCleanup = applyQualityOfLife(settings);
-    audioGraphCleanup();
+  // Runs the armed graph cleanup exactly once and forgets the live handle, so a later push cannot
+  // update a disposed graph and a second dispose is a no-op.
+  const disposeAudioGraph = () => {
+    const cleanup = audioGraphCleanup;
     audioGraphCleanup = () => undefined;
-    if (!settings.enabled) {
+    audioGraphHandle = null;
+    cleanup();
+  };
+
+  const applySettings = (next: PageSettingsSnapshot) => {
+    // Re-arm only the subsystems whose inputs changed (SPEC-020): the first push arms everything
+    // (no previous snapshot), a duplicate or content-only push re-arms nothing, and a graph-only
+    // change is absorbed by the live audio graph instead of restarting the media operation.
+    const groups = pageSubsystemReArm(settingsApplied ? settings : null, next);
+    settings = next;
+    settingsApplied = true;
+
+    if (groups.visibility) {
+      visibilityCleanup();
+      visibilityCleanup =
+        next.enabled && next.backgroundPlayEnabled
+          ? installVisibilityOverride(document)
+          : () => undefined;
+    }
+    if (groups.idleNag) {
+      idleNagCleanup();
+      idleNagCleanup =
+        next.enabled && next.backgroundPlayEnabled && next.idleNagDefeatEnabled
+          ? enableIdleNagDefeat()
+          : () => undefined;
+    }
+    if (groups.scriptlets) {
+      const nextScriptletGeneration = ++scriptletGeneration;
+      scriptletCleanup();
+      scriptletCleanup = () => undefined;
+      if (next.enabled && next.adBlockEnabled) {
+        void loadRescueConfig()
+          .then((config) => {
+            if (nextScriptletGeneration !== scriptletGeneration) return;
+            scriptletCleanup = applyScriptletOperations(config.scriptlets).cleanup;
+          })
+          .catch(() => undefined);
+      }
+    }
+    if (groups.qualityOfLife) {
+      qualityOfLifeCleanup();
+      qualityOfLifeCleanup = applyQualityOfLife(next);
+    }
+    if (groups.segments) restartSegmentSkipping();
+    // The cap is a fallback-time policy: when the session is already fallen back, apply it now; a
+    // media restart below re-derives the status and applies it through emitStatus instead.
+    if (groups.fallbackQuality && !groups.media && lastStatus === 'fallback')
+      applyFallbackQuality();
+
+    let restartMedia = groups.media;
+    if (!restartMedia && groups.graph) {
+      const graph = audioGraphHandle;
+      if (graph) {
+        if (!next.loudnessNormalization && !next.equalizerEnabled) {
+          disposeAudioGraph();
+        } else {
+          const gain = applyGraphSettings(graph, next, liveLoudnessDb);
+          publishAudioGraphBench(gain, graph);
+        }
+      } else if (next.loudnessNormalization || next.equalizerEnabled) {
+        // A feature turned on with no live graph: the full path arms one from a fresh response.
+        restartMedia = true;
+      }
+    }
+    if (!restartMedia) return;
+
+    const operation = startPlaybackOperation();
+    disposeAudioGraph();
+    if (!next.enabled) {
       emitStatus('disabled', operation);
       return;
     }
-    if (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled) {
+    if (next.audioOnlyEnabled || next.loudnessNormalization || next.equalizerEnabled) {
       void activateEnhancements(operation);
     } else {
       emitStatus('disabled', operation);
@@ -708,24 +750,27 @@ export default defineUnlistedScript(() => {
     }
   }
 
+  function publishAudioGraphBench(gain: number, graph: AudioGraphHandle): void {
+    if (!__BENCH__) return;
+    document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
+      gain,
+      eqGains: graph.getEqualizerGains(),
+    });
+  }
+
   function armAudioGraph(media: HTMLMediaElement, loudnessDb: number | undefined): void {
     if (!settings.loudnessNormalization && !settings.equalizerEnabled) return;
     const graph = createAudioGraph(media);
     if (!graph) return;
-    const gain = settings.loudnessNormalization ? loudnessDbToGain(loudnessDb ?? Number.NaN) : 1;
-    graph.setGain(gain);
-    graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
+    const gain = applyGraphSettings(graph, settings, loudnessDb);
     audioGraphCleanup = () => graph.dispose();
+    audioGraphHandle = graph;
+    liveLoudnessDb = loudnessDb;
     log('audio.graph', {
       loudness: settings.loudnessNormalization,
       eq: settings.equalizerEnabled,
     });
-    if (__BENCH__) {
-      document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
-        gain,
-        eqGains: graph.getEqualizerGains(),
-      });
-    }
+    publishAudioGraphBench(gain, graph);
   }
 
   async function waitForVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
@@ -748,7 +793,7 @@ export default defineUnlistedScript(() => {
   }
 });
 
-function applyQualityOfLife(settings: PageSettings): () => void {
+function applyQualityOfLife(settings: PageSettingsSnapshot): () => void {
   if (!settings.enabled) return () => undefined;
   const qualityLabel = getQualityLabel(settings.forceQualityMax);
   const timers: number[] = [];
@@ -1045,9 +1090,9 @@ function getConfigString(key: string): string | null {
   }
 }
 
-function parseSettings(value: unknown): PageSettings | null {
+function parseSettings(value: unknown): PageSettingsSnapshot | null {
   if (typeof value !== 'object' || value === null) return null;
-  const candidate = value as Partial<PageSettings>;
+  const candidate = value as Partial<PageSettingsSnapshot>;
   if (
     typeof candidate.enabled !== 'boolean' ||
     typeof candidate.audioOnlyEnabled !== 'boolean' ||

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  applyGraphSettings,
   createAudioGraph,
   EQ_FREQUENCIES,
   getEqualizerParameters,
@@ -75,6 +76,54 @@ describe('loudnessDbToGain', () => {
     expect(loudnessDbToGain(-30)).toBe(2);
     expect(loudnessDbToGain(30)).toBe(0.5);
     expect(loudnessDbToGain(Number.NaN)).toBe(1);
+  });
+});
+
+describe('applyGraphSettings', () => {
+  it('applies gain first, then the equalizer, and returns the applied gain', () => {
+    const calls: string[] = [];
+    const graph = {
+      setGain(value: number) {
+        calls.push(`gain:${value}`);
+      },
+      setEqualizer(enabled: boolean, bands: readonly number[]) {
+        calls.push(`eq:${enabled}:${bands.join(',')}`);
+      },
+    };
+
+    const gain = applyGraphSettings(
+      graph,
+      { loudnessNormalization: true, equalizerEnabled: true, equalizerBands: [1, 2, 3, 4, 5] },
+      -6.0206
+    );
+
+    expect(gain).toBeCloseTo(2, 4);
+    expect(calls).toEqual([`gain:${gain}`, 'eq:true:1,2,3,4,5']);
+  });
+
+  it('uses unity gain when normalization is off or the loudness dB is missing', () => {
+    const gains: number[] = [];
+    const graph = {
+      setGain(value: number) {
+        gains.push(value);
+      },
+      setEqualizer() {
+        // Not under test here.
+      },
+    };
+
+    applyGraphSettings(
+      graph,
+      { loudnessNormalization: false, equalizerEnabled: true, equalizerBands: [0, 0, 0, 0, 0] },
+      -6
+    );
+    applyGraphSettings(
+      graph,
+      { loudnessNormalization: true, equalizerEnabled: false, equalizerBands: [] },
+      undefined
+    );
+
+    expect(gains).toEqual([1, 1]);
   });
 });
 
