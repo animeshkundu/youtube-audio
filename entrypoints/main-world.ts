@@ -26,10 +26,19 @@ import {
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  pickBestCipheredAudioFormat,
+  TVHTML5_CLIENT,
   walkMediaClients,
   type MediaClientWalkOutcome,
   type PlayerResponse,
 } from '../src/shared/innertube';
+import {
+  buildSignedAudioUrl,
+  extractCipherOperations,
+  extractPlayerJsUrl,
+  extractSignatureTimestamp,
+  type CipherOperation,
+} from '../src/shared/cipher';
 import { installValuePatch } from '../src/shared/own-patch';
 import { PlayerHandle } from '../src/shared/player';
 import { getQualityLabel, isQualityCap } from '../src/shared/quality-of-life';
@@ -457,9 +466,72 @@ export default defineUnlistedScript(() => {
     }
   });
 
+  // ---------------------------------------------------------------------------------------------
+  // Phase B (SPEC-030): signature-cipher support for the ciphered TVHTML5 embedded client.
+  // The player script and its parsed transform are cached per page load. Every step fails open: a
+  // missing script, an unrecognised bundle, or a network error simply makes the ciphered client
+  // unusable, and the walk continues / falls back to native playback.
+  // ---------------------------------------------------------------------------------------------
+  const TVHTML5_EMBED_URL = 'https://www.youtube.com';
+  interface CipherProgram {
+    operations: CipherOperation[];
+    signatureTimestamp: number | null;
+  }
+  let cipherProgram: CipherProgram | null = null;
+  let cipherProgramPromise: Promise<CipherProgram | null> | null = null;
+
+  async function resolveBaseJsUrl(): Promise<string | null> {
+    // The page's own ytcfg already names the exact player script it loaded; prefer it over a fetch.
+    const fromConfig = extractPlayerJsUrl(getConfigString('PLAYER_JS_URL') ?? '');
+    if (fromConfig) {
+      try {
+        return new URL(fromConfig, location.origin).toString();
+      } catch {
+        // Fall through to the HTML scan.
+      }
+    }
+    try {
+      const response = await fetch(location.href, { credentials: 'omit' });
+      if (!response.ok) return null;
+      const path = extractPlayerJsUrl(await response.text());
+      return path ? new URL(path, location.origin).toString() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function ensureCipherProgram(): Promise<CipherProgram | null> {
+    if (cipherProgram) return Promise.resolve(cipherProgram);
+    if (cipherProgramPromise) return cipherProgramPromise;
+    cipherProgramPromise = (async () => {
+      try {
+        const url = await resolveBaseJsUrl();
+        if (!url) return null;
+        const response = await fetch(url, { credentials: 'omit' });
+        if (!response.ok) return null;
+        const baseJs = await response.text();
+        const operations = extractCipherOperations(baseJs);
+        if (!operations) return null;
+        cipherProgram = { operations, signatureTimestamp: extractSignatureTimestamp(baseJs) };
+        return cipherProgram;
+      } catch {
+        return null;
+      } finally {
+        cipherProgramPromise = null;
+      }
+    })();
+    return cipherProgramPromise;
+  }
+
+  async function resolveCipheredUrl(cipher: string): Promise<string | null> {
+    const program = await ensureCipherProgram();
+    if (!program) return null;
+    return buildSignedAudioUrl(cipher, program.operations);
+  }
+
   // Thin adapter over the pure, unit-tested walk in src/shared/innertube.ts (SPEC-014,
   // ADR-0012). This function owns only the page-world specifics: the endpoint, the credentialless
-  // POST, the ytcfg visitorData, and the bench-aware URL allowlist.
+  // POST, the ytcfg visitorData, the bench-aware URL allowlist, and the ciphered-client resolver.
   function fetchPlayerResponse(
     videoId: string,
     apiKey: string,
@@ -472,14 +544,28 @@ export default defineUnlistedScript(() => {
       requireDirectAudio,
       isStale,
       pageVisitorData: getConfigString('VISITOR_DATA') ?? null,
-      fetchPlayer: (client, visitorData) =>
-        fetch(endpoint, {
+      fetchPlayer: async (client, visitorData) => {
+        // The ciphered embedded client needs the player's signatureTimestamp and an embed origin in
+        // the body. If the player script cannot be parsed we throw, which cleanly skips this client.
+        const isEmbedded = client.clientName === TVHTML5_CLIENT.clientName;
+        let options: { signatureTimestamp?: number; embedUrl?: string } = {};
+        if (isEmbedded) {
+          const program = await ensureCipherProgram();
+          const signatureTimestamp = program?.signatureTimestamp ?? null;
+          if (!signatureTimestamp) throw new Error('cipher-unavailable');
+          options = { signatureTimestamp, embedUrl: TVHTML5_EMBED_URL };
+        }
+        return fetch(endpoint, {
           method: 'POST',
           credentials: 'omit',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPlayerRequest(client, videoId, visitorData ?? undefined)),
-        }),
+          body: JSON.stringify(
+            buildPlayerRequest(client, videoId, visitorData ?? undefined, options)
+          ),
+        });
+      },
       isAllowedUrl: (url) => isAllowedAudioUrl(url, benchOrigin),
+      resolveCipheredUrl,
     });
   }
 
@@ -549,8 +635,12 @@ export default defineUnlistedScript(() => {
         return;
       }
       const playerResponse = outcome.response;
-      const format = pickBestAudioFormat(playerResponse, true);
-      const url = format?.url;
+      const directFormat = pickBestAudioFormat(playerResponse, true);
+      const cipheredFormat = outcome.resolvedAudioUrl
+        ? pickBestCipheredAudioFormat(playerResponse, true)
+        : null;
+      const format = directFormat ?? cipheredFormat;
+      const url = outcome.resolvedAudioUrl ?? directFormat?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
       const author = (playerResponse as PlayerResponse).videoDetails?.author;
       const benchOrigin = __BENCH__ ? location.origin : undefined;
@@ -563,7 +653,7 @@ export default defineUnlistedScript(() => {
         url,
         filename: buildAudioFilename(
           title,
-          format.itag,
+          format?.itag,
           typeof author === 'string' ? author : undefined
         ),
       });
@@ -780,7 +870,9 @@ export default defineUnlistedScript(() => {
         emitStatus('fallback', operation, 'live');
         return;
       }
-      const audioUrl = pickBestAudioUrl(playerResponse);
+      const audioUrl =
+        (outcome.kind === 'ok' ? outcome.resolvedAudioUrl : undefined) ??
+        pickBestAudioUrl(playerResponse);
       if (!audioUrl || !isAllowedAudioUrl(audioUrl, __BENCH__ ? location.origin : undefined)) {
         emitStatus('fallback', operation, 'no-direct-audio');
         return;

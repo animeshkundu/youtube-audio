@@ -109,6 +109,15 @@ export const PERSONAS = [
       gl: 'US',
     },
   },
+  {
+    id: 'tvhtml5',
+    client: {
+      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+      clientVersion: '2.0',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
 ];
 
 const videos = process.argv.slice(2).filter(Boolean);

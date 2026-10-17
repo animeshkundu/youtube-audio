@@ -440,7 +440,12 @@ export function reconcileInPlayerControls(
 
   let loopButton: HTMLButtonElement | null = null;
   if (options.loopVisible) {
-    const loop = getOrCreatePlayerButton(documentRef, LOOP_BUTTON_ID, 'Toggle loop', LOOP_ICON_PATH);
+    const loop = getOrCreatePlayerButton(
+      documentRef,
+      LOOP_BUTTON_ID,
+      'Toggle loop',
+      LOOP_ICON_PATH
+    );
     loopButton = loop;
     if (isMobile) loop.classList.add('yta-player-button--mobile');
     else loop.classList.remove('yta-player-button--mobile');
@@ -753,8 +758,7 @@ const AUDIO_ONLY_ICON_PATH =
 const DOWNLOAD_ICON_PATH =
   'M11 4h2v9.17l3.59-3.58L18 11l-6 6-6-6 1.41-1.41L11 13.17V4ZM5 19h14v2H5v-2Z';
 // Material "repeat" glyph: two arrows chasing a loop, at the same 0-24 weight as the others.
-const LOOP_ICON_PATH =
-  'M7 7h10v3l4-4-4-4v3H5v6h2V7Zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4Z';
+const LOOP_ICON_PATH = 'M7 7h10v3l4-4-4-4v3H5v6h2V7Zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4Z';
 
 function getOrCreatePlayerButton(
   documentRef: Document,

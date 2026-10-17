@@ -99,7 +99,10 @@ describe('validateLogEvent', () => {
       data: { where: 'page.media-error' },
     });
     expect(
-      validateLogEvent({ code: 'playback.status', data: { status: 'fallback', reason: 'media-error' } })
+      validateLogEvent({
+        code: 'playback.status',
+        data: { status: 'fallback', reason: 'media-error' },
+      })
     ).toEqual({ code: 'playback.status', data: { status: 'fallback', reason: 'media-error' } });
     expect(
       validateLogEvent({

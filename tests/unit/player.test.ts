@@ -114,7 +114,11 @@ describe('PlayerHandle', () => {
 
     // A same-video re-attach (SPA/settings push) must inherit the updated snapshot, not the value
     // captured at the original attach.
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', handle.navigate());
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://media.example/audio',
+      handle.navigate()
+    );
     expect(media.loop).toBe(true);
 
     handle.setLoop(false);
@@ -139,7 +143,11 @@ describe('PlayerHandle', () => {
     media.playbackRate = 1.75;
     rateHandler?.();
 
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', handle.navigate());
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://media.example/audio',
+      handle.navigate()
+    );
     expect(media.playbackRate).toBe(1.75);
   });
 

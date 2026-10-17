@@ -12,8 +12,10 @@ import {
   MEDIA_CLIENTS,
   MWEB_CLIENT,
   pickBestAudioFormat,
+  pickBestAudioCipher,
   pickBestAudioUrl,
   retryVisitorData,
+  TVHTML5_CLIENT,
   VISIONOS_CLIENT,
   walkMediaClients,
   type MediaClientFetchResult,
@@ -60,13 +62,14 @@ describe('buildAndroidVrPlayerRequest', () => {
 });
 
 describe('media-client table (SPEC-014, ADR-0012)', () => {
-  it('orders VISIONOS first, ANDROID_VR second, then IOS, ANDROID, MWEB', () => {
+  it('orders VISIONOS first, ANDROID_VR second, then IOS, ANDROID, MWEB, TVHTML5 last', () => {
     expect(MEDIA_CLIENTS.map((entry) => entry.id)).toEqual([
       'visionos',
       'android-vr',
       'ios',
       'android',
       'mweb',
+      'tvhtml5',
     ]);
     expect(MEDIA_CLIENTS.map((entry) => entry.client)).toEqual([
       VISIONOS_CLIENT,
@@ -74,6 +77,7 @@ describe('media-client table (SPEC-014, ADR-0012)', () => {
       IOS_CLIENT,
       ANDROID_CLIENT,
       MWEB_CLIENT,
+      TVHTML5_CLIENT,
     ]);
   });
 
@@ -264,6 +268,39 @@ describe('player response helpers', () => {
     expect(pickBestAudioUrl({ streamingData: { adaptiveFormats: {} } })).toBeNull();
     expect(pickBestAudioUrl(undefined)).toBeNull();
   });
+
+  it('selects the best ciphered audio format for the TVHTML5 decoder', () => {
+    const response = {
+      streamingData: {
+        adaptiveFormats: [
+          { itag: 140, mimeType: 'audio/mp4', bitrate: 128000, signatureCipher: 'c140' },
+          { itag: 251, mimeType: 'audio/webm', bitrate: 120000, signatureCipher: 'c251' },
+          { itag: 22, mimeType: 'video/mp4', signatureCipher: 'video' },
+          { itag: 249, mimeType: 'audio/webm', url: 'https://media/direct' },
+        ],
+      },
+    };
+    // Opus 251 wins for playback; the direct-url-only 249 is not a cipher candidate.
+    expect(pickBestAudioCipher(response)).toBe('c251');
+    expect(pickBestAudioCipher(response, true)).toBe('c140');
+    expect(pickBestAudioCipher({ streamingData: { adaptiveFormats: [] } })).toBeNull();
+    expect(pickBestAudioCipher(null)).toBeNull();
+  });
+
+  it('adds the TVHTML5 signatureTimestamp and embedUrl to the request body only when supplied', () => {
+    const request = buildPlayerRequest(TVHTML5_CLIENT, 'abc', undefined, {
+      signatureTimestamp: 20456,
+      embedUrl: 'https://www.youtube.com',
+    });
+    expect(request.context.thirdParty).toEqual({ embedUrl: 'https://www.youtube.com' });
+    expect(request.playbackContext).toEqual({
+      contentPlaybackContext: { signatureTimestamp: 20456 },
+    });
+    // The plain persona path is unchanged: no thirdParty, no playbackContext.
+    const plain = buildPlayerRequest(VISIONOS_CLIENT, 'abc');
+    expect(plain.context.thirdParty).toBeUndefined();
+    expect(plain.playbackContext).toBeUndefined();
+  });
 });
 
 describe('isLiveStream', () => {
@@ -320,6 +357,22 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
     playabilityStatus: { status: 'OK' },
     streamingData: { adaptiveFormats: [audioFormat(url)] },
   });
+  const ciphered = (
+    cipher = 'url=https%3A%2F%2Frr1---sn-x.googlevideo.com%2Fvideoplayback%3Fx%3D1&sp=sig&s=abcdef'
+  ) => ({
+    playabilityStatus: { status: 'OK' },
+    streamingData: {
+      adaptiveFormats: [
+        {
+          itag: 251,
+          mimeType: 'audio/webm',
+          bitrate: 130000,
+          contentLength: '3400000',
+          signatureCipher: cipher,
+        },
+      ],
+    },
+  });
   const loginRequired = (visitorData?: string) => ({
     playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' },
     ...(visitorData ? { responseContext: { visitorData } } : {}),
@@ -346,6 +399,7 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       allow?: (url: string) => boolean;
       isStale?: () => boolean;
       pageVisitorData?: string | null;
+      resolveCipheredUrl?: (cipher: string) => Promise<string | null>;
     } = {}
   ): { outcome: Promise<MediaClientWalkOutcome>; calls: FetchCall[] } {
     const calls: FetchCall[] = [];
@@ -363,6 +417,7 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
         return next;
       },
       isAllowedUrl: options.allow ?? (() => true),
+      ...(options.resolveCipheredUrl ? { resolveCipheredUrl: options.resolveCipheredUrl } : {}),
     });
     return { outcome, calls };
   }
@@ -396,10 +451,12 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       reply(loginRequired('t8')),
       reply(loginRequired('t9')),
       reply(loginRequired('t10')),
+      reply(loginRequired('t11')),
+      reply(loginRequired('t12')),
     ]);
 
     await expect(outcome).resolves.toMatchObject({ kind: 'failed', reason: 'LOGIN_REQUIRED' });
-    // Ten attempts total (two per client) and no eleventh: a broken cap would ask for an unscripted reply.
+    // Twelve attempts total (two per client) and no thirteenth: a broken cap would ask for an unscripted reply.
     expect(calls).toEqual([
       { clientName: 'VISIONOS', visitorData: null },
       { clientName: 'VISIONOS', visitorData: 't1' },
@@ -411,6 +468,8 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       { clientName: 'ANDROID', visitorData: 't7' },
       { clientName: 'MWEB', visitorData: null },
       { clientName: 'MWEB', visitorData: 't9' },
+      { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', visitorData: null },
+      { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', visitorData: 't11' },
     ]);
   });
 
@@ -432,6 +491,7 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       { clientName: 'IOS', visitorData: null },
       { clientName: 'ANDROID', visitorData: null },
       { clientName: 'MWEB', visitorData: null },
+      { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', visitorData: null },
     ]);
   });
 
@@ -489,8 +549,9 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
     const third = playable('https://not-allowed.example/three');
     const fourth = playable('https://not-allowed.example/four');
     const fifth = playable('https://not-allowed.example/five');
+    const sixth = playable('https://not-allowed.example/six');
     const { outcome } = runWalk(
-      [reply(first), reply(second), reply(third), reply(fourth), reply(fifth)],
+      [reply(first), reply(second), reply(third), reply(fourth), reply(fifth), reply(sixth)],
       { allow: () => false }
     );
 
@@ -498,9 +559,78 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
     expect(result).toMatchObject({
       kind: 'failed',
       reason: 'no-direct-audio',
-      lastPlayable: fifth,
+      lastPlayable: sixth,
     });
-    if (result.kind === 'failed') expect(result.lastParsed).toBe(fifth);
+    if (result.kind === 'failed') expect(result.lastParsed).toBe(sixth);
+  });
+
+  it('resolves a ciphered response and returns the decoded attachable URL', async () => {
+    const { outcome } = runWalk([reply(ciphered())], {
+      resolveCipheredUrl: async () => 'https://rr1---sn-x.googlevideo.com/decoded',
+    });
+
+    await expect(outcome).resolves.toMatchObject({
+      kind: 'ok',
+      clientId: 'visionos',
+      resolvedAudioUrl: 'https://rr1---sn-x.googlevideo.com/decoded',
+    });
+  });
+
+  it('continues the walk when a cipher cannot be resolved', async () => {
+    const { outcome, calls } = runWalk([reply(ciphered()), reply(playable())], {
+      resolveCipheredUrl: async () => null,
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'android-vr' });
+    const result = await outcome;
+    if (result.kind === 'ok') expect(result.resolvedAudioUrl).toBeUndefined();
+    expect(calls.map((call) => call.clientName)).toEqual(['VISIONOS', 'ANDROID_VR']);
+  });
+
+  it('rejects a decoded URL that fails the allowlist and continues the walk', async () => {
+    const { outcome } = runWalk([reply(ciphered()), reply(playable())], {
+      allow: (url) => url.startsWith('https://rr1---sn-x.googlevideo.com/'),
+      resolveCipheredUrl: async () => 'https://evil.example/audio',
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'android-vr' });
+  });
+
+  it('does not consult the cipher resolver when a direct URL is present', async () => {
+    let called = 0;
+    const { outcome } = runWalk([reply(playable())], {
+      resolveCipheredUrl: async () => {
+        called += 1;
+        return null;
+      },
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'visionos' });
+    expect(called).toBe(0);
+  });
+
+  it('does not resolve ciphers when audio-only is off (no direct audio required)', async () => {
+    let called = 0;
+    const { outcome } = runWalk([reply(ciphered())], {
+      requireDirectAudio: false,
+      resolveCipheredUrl: async () => {
+        called += 1;
+        return null;
+      },
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'visionos' });
+    expect(called).toBe(0);
+  });
+
+  it('absorbs a throwing cipher resolver without failing the walk', async () => {
+    const { outcome } = runWalk([reply(ciphered()), reply(playable())], {
+      resolveCipheredUrl: async () => {
+        throw new Error('decoder exploded');
+      },
+    });
+
+    await expect(outcome).resolves.toMatchObject({ kind: 'ok', clientId: 'android-vr' });
   });
 
   it('aborts as stale when the operation is superseded mid-walk', async () => {

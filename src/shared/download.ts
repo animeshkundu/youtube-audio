@@ -165,7 +165,10 @@ export function buildAudioFilename(
 ): string {
   const extension = audioExtensionForItag(itag);
   const safeTitle = sanitizeDownloadTitle(title);
-  const safeAuthor = author ? sanitizeDownloadTitle(author) : '';
+  // A missing or blank author is treated as absent, so a whitespace-only metadata field can never
+  // prepend the generic fallback name to the filename.
+  const trimmedAuthor = typeof author === 'string' ? author.trim() : '';
+  const safeAuthor = trimmedAuthor ? sanitizeDownloadTitle(trimmedAuthor) : '';
   const combined = safeAuthor ? `${safeAuthor} - ${safeTitle}` : safeTitle;
   const maxTitleLength = MAX_FILENAME_LENGTH - extension.length;
   const safeCombined = combined.slice(0, maxTitleLength).trimEnd();
