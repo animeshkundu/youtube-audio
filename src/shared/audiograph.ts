@@ -19,7 +19,7 @@ export interface AudioGraphHandle {
 
 interface GraphRecord {
   context: AudioContext;
-  gain: GainNode;
+  gain: GainNode | null;
   filters: readonly BiquadFilterNode[];
   handle: AudioGraphHandle;
 }
@@ -47,18 +47,28 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
   const existing = graphs.get(media);
   if (existing) return existing.handle;
 
+  let context: AudioContext;
+  let source: MediaElementAudioSourceNode;
   try {
     media.crossOrigin = 'anonymous';
     const AudioContextConstructor = window.AudioContext;
     if (!AudioContextConstructor) return null;
-    const context = sharedContext ?? new AudioContextConstructor();
+    context = sharedContext ?? new AudioContextConstructor();
     sharedContext = context;
-    const source = context.createMediaElementSource(media);
-    // A MediaElementAudioSourceNode takes over native output immediately. Install a dry
-    // fail-open route before creating optional nodes so a later Web Audio failure cannot
-    // silence the page element.
-    source.connect(context.destination);
-    const filters = getEqualizerParameters(FLAT_EQUALIZER).map((parameters) => {
+    source = context.createMediaElementSource(media);
+  } catch {
+    return null;
+  }
+
+  // Capture is permanent from here on, so a handle must always be registered once this point is
+  // reached: an unregistered captured element would be unrecoverable, because a second
+  // createMediaElementSource for the same element throws. Install the dry fail-open route before
+  // creating optional nodes so a later Web Audio failure cannot silence the page element.
+  source.connect(context.destination);
+  let filters: BiquadFilterNode[] = [];
+  let gain: GainNode | null = null;
+  try {
+    filters = getEqualizerParameters(FLAT_EQUALIZER).map((parameters) => {
       const filter = context.createBiquadFilter();
       filter.type = parameters.type;
       filter.frequency.value = parameters.frequency;
@@ -66,41 +76,51 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
       filter.gain.value = parameters.gain;
       return filter;
     });
-    const gain = context.createGain();
+    const createdGain = context.createGain();
+    gain = createdGain;
     for (let index = 0; index < filters.length - 1; index += 1) {
       filters[index]?.connect(filters[index + 1]!);
     }
-    filters.at(-1)?.connect(gain);
-    gain.connect(context.destination);
+    filters.at(-1)?.connect(createdGain);
+    createdGain.connect(context.destination);
     source.connect(filters[0]!);
     source.disconnect(context.destination);
-
-    const handle: AudioGraphHandle = {
-      setGain(value) {
-        if (Number.isFinite(value)) gain.gain.value = Math.min(2, Math.max(0.5, value));
-      },
-      setEqualizer(enabled, bands) {
-        const parameters = getEqualizerParameters(bands);
-        filters.forEach((filter, index) => {
-          filter.gain.value = enabled ? (parameters[index]?.gain ?? 0) : 0;
-        });
-      },
-      getEqualizerGains() {
-        return filters.map((filter) => filter.gain.value);
-      },
-      dispose() {
-        // MediaElementAudioSourceNode ownership is permanent for this element. Keep the
-        // pass-through graph connected so disposal can never silence native playback.
-        gain.gain.value = 1;
-        filters.forEach((filter) => {
-          filter.gain.value = 0;
-        });
-      },
-    };
-    graphs.set(media, { context, gain, filters, handle });
-    void context.resume().catch(() => undefined);
-    return handle;
   } catch {
-    return null;
+    // Degrade to the dry pass-through: whatever half-built chain exists is dropped so the element
+    // stays audible at unity and no orphaned nodes keep feeding the destination.
+    filters = [];
+    gain = null;
+    try {
+      source.disconnect();
+    } catch {
+      // Nothing was connected.
+    }
+    source.connect(context.destination);
   }
+
+  const handle: AudioGraphHandle = {
+    setGain(value) {
+      if (gain && Number.isFinite(value)) gain.gain.value = Math.min(2, Math.max(0.5, value));
+    },
+    setEqualizer(enabled, bands) {
+      const parameters = getEqualizerParameters(bands);
+      filters.forEach((filter, index) => {
+        filter.gain.value = enabled ? (parameters[index]?.gain ?? 0) : 0;
+      });
+    },
+    getEqualizerGains() {
+      return filters.map((filter) => filter.gain.value);
+    },
+    dispose() {
+      // MediaElementAudioSourceNode ownership is permanent for this element. Keep the
+      // pass-through graph connected so disposal can never silence native playback.
+      if (gain) gain.gain.value = 1;
+      filters.forEach((filter) => {
+        filter.gain.value = 0;
+      });
+    },
+  };
+  graphs.set(media, { context, gain, filters, handle });
+  void context.resume().catch(() => undefined);
+  return handle;
 }

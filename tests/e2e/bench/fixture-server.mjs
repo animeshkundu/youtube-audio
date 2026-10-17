@@ -615,16 +615,18 @@ export function createFixtureServer() {
       const unplayable =
         typeof videoId === 'string' &&
         (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE'));
-      return sendJson(
-        res,
-        200,
-        fixturePlayerResponse(origin, videoId, {
-          live,
-          loginRequired,
-          unplayable,
-          visitorData: visitorRetry && !acceptedAfterRetry ? 'v2' : undefined,
-        })
-      );
+      const response = fixturePlayerResponse(origin, videoId, {
+        live,
+        loginRequired,
+        unplayable,
+        visitorData: visitorRetry && !acceptedAfterRetry ? 'v2' : undefined,
+      });
+      if (typeof videoId === 'string' && videoId.startsWith('BIG')) {
+        // Over-budget fixture response (SPEC-004): far above MAX_PRUNABLE_RESPONSE_BYTES (8 MiB)
+        // so the background response filter must stream it through unparsed instead of buffering.
+        response.fixturePadding = 'x'.repeat(9 * 1024 * 1024);
+      }
+      return sendJson(res, 200, response);
     }
     if (path.startsWith('/api/skipSegments/')) {
       const videoId = url.searchParams.get('videoID') || undefined;

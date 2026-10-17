@@ -20,6 +20,7 @@ export default defineConfig({
         'src/shared/consent.ts',
         'src/shared/innertube.ts',
         'src/shared/logger.ts',
+        'src/shared/reclaim.ts',
         'src/shared/redact.ts',
         'src/shared/report.ts',
         'src/shared/sponsorblock.ts',

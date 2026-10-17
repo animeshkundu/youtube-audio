@@ -13,7 +13,7 @@ import {
   watchSettings,
   type ExtensionSettings,
 } from '../src/shared/config';
-import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
+import { createResponseBudget, pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import {
   consentStorageChangeGrants,
   consentStorageKey,
@@ -146,16 +146,35 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
   try {
     if (!settings.enabled || !settings.adBlockEnabled || details.method !== 'POST') return;
     const filter = browser.webRequest.filterResponseData(details.requestId);
-    const chunks: Uint8Array[] = [];
+    const budget = createResponseBudget();
     let settled = false;
 
     filter.ondata = (event) => {
-      if (!settled) chunks.push(new Uint8Array(event.data.slice(0)));
+      if (settled) return;
+      const flush = budget.push(new Uint8Array(event.data.slice(0)));
+      if (!flush) return;
+      // The budget was crossed (a non-positive budget streams from the first chunk): everything
+      // held so far is written through verbatim and the rest of the body follows unparsed.
+      try {
+        for (const chunk of flush) filter.write(chunk);
+      } catch {
+        settled = true;
+        try {
+          filter.disconnect();
+        } catch {
+          // The channel may already be closed; never surface the response-filter failure.
+        }
+      }
     };
     filter.onstop = () => {
       if (settled) return;
       settled = true;
-      const original = joinChunks(chunks);
+      if (budget.streaming) {
+        // Over budget: the whole body was streamed through as it arrived, unparsed on purpose.
+        filter.close();
+        return;
+      }
+      const original = joinChunks(budget.bufferedChunks());
       try {
         const json = new TextDecoder('utf-8', { fatal: true }).decode(original);
         const pruned = pruneAdsFromPlayerResponse(json);
@@ -173,7 +192,7 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
       if (settled) return;
       settled = true;
       try {
-        filter.write(joinChunks(chunks));
+        filter.write(joinChunks(budget.bufferedChunks()));
       } catch {
         // The channel may already be closed; never surface the response-filter failure.
       }

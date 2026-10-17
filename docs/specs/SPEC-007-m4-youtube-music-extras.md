@@ -24,6 +24,8 @@ M4 provides local Web Audio loudness normalization and equalization. Loudness no
 
 Loudness gain is `10 ** (-loudnessDb / 20)`, clamped to `0.5..2`. Invalid values use unity gain. Disabling normalization uses unity gain. AudioContext creation, source creation, connection, and updates are guarded; failure leaves the native media path untouched.
 
+Lifecycle rules keep the graph fail-open across source swaps. A `MediaElementAudioSourceNode` capture is permanent for the life of the element, so the moment capture succeeds a reusable handle is registered even if the optional nodes fail to build: the element then keeps a dry unity pass-through handle (inert setters, `getEqualizerGains()` of `[]`) instead of becoming an unregistered captured element whose next capture attempt would throw. Reuse is keyed by element, so hijack source swaps and settings echoes never add nodes. Disabling loudness/EQ is a bypass, never a disconnect or close: `dispose()` returns the chain to unity gain and flat bands while keeping it connected, so the permanent capture can never silence the page. There is no teardown goal; the shared context lives for the page's lifetime.
+
 ### Navigation lifecycle
 
 The SPA history observation remains because audio-only playback and per-track audio enhancements rely on it to re-arm after YouTube Music navigation.
@@ -42,7 +44,7 @@ All graph, response, DOM, and synchronization failures are caught and affect onl
 
 ## Testing Strategy
 
-- Unit tests import real source functions for loudness conversion and clamps and EQ parameter mapping. `tests/unit/spa.test.ts` locks immediate song-change detection through `history.pushState` without `yt-navigate-finish`, plus restoration of patched history methods on `stop()`.
+- Unit tests import real source functions for loudness conversion and clamps and EQ parameter mapping. Graph-state tests lock the lifecycle: one capture and one filter chain per element across repeated arms, one shared `AudioContext` across elements, `dispose()` restoring unity without disconnecting, and the degraded dry pass-through handle when optional node construction fails. `tests/unit/spa.test.ts` locks immediate song-change detection through `history.pushState` without `yt-navigate-finish`, plus restoration of patched history methods on `stop()`.
 - The packaged bench seeds settings through the options-page storage path (not the UI) and compares graph-on versus graph-off sessions using a bench-only graph marker.
 - Release gates: strict typecheck, zero-warning lint, real-source unit coverage, packaged Firefox bench, production build, and manifest inspection.
 

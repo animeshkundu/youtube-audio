@@ -14,8 +14,9 @@ import {
   type MediaClientWalkOutcome,
   type PlayerResponse,
 } from '../src/shared/innertube';
-import { PlayerHandle, type PlayerReleaseRecord } from '../src/shared/player';
+import { PlayerHandle } from '../src/shared/player';
 import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
+import { armOneShotPause, createReclaimTracker } from '../src/shared/reclaim';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
@@ -87,7 +88,9 @@ export default defineUnlistedScript(() => {
   // to the exact video we hijacked, so an SPA navigation (which changes the live videoId) never
   // reloads the wrong video at the old position.
   let currentHijackVideoId: string | null = null;
-  let pendingReclaim: (PlayerReleaseRecord & { videoId: string | null }) | null = null;
+  // The single pending reclaim, held by the bounded, atomically-consumed tracker in
+  // src/shared/reclaim.ts (TTL plus a one-generation skew bound; interleavings unit-tested there).
+  const reclaims = createReclaimTracker();
   // Set while a toggle-off reclaim's loadVideoById is still reloading the native element (which is
   // transiently at currentTime 0 / playing). A fast re-hijack of the same video reads this intent so
   // it resumes at the real pre-toggle-off position/paused instead of that transient. Cleared once the
@@ -106,8 +109,16 @@ export default defineUnlistedScript(() => {
     settlingReclaim.dispose();
     settlingReclaim = null;
   };
+  // The single armed one-shot pause for a paused reclaim. Single-winner: arming for a newer reclaim
+  // disposes the previous arm, and a re-hijack that attaches clears it, so two terminal statuses for
+  // one release can never pause twice.
+  let reclaimPauseArm: () => void = () => undefined;
+  const clearReclaimPause = () => {
+    reclaimPauseArm();
+    reclaimPauseArm = () => undefined;
+  };
   player.onRelease((record, reason) => {
-    pendingReclaim = { ...record, videoId: currentHijackVideoId };
+    reclaims.set(record, currentHijackVideoId, player.generation);
     if (reason === 'circuit' || reason === 'disable') queueMicrotask(reclaimNativePlayback);
   });
   let artworkCleanup: () => void = () => undefined;
@@ -150,7 +161,7 @@ export default defineUnlistedScript(() => {
     // Resolve any pending native reclaim against this operation's outcome BEFORE dispatching (the
     // dispatch is synchronous, so ordering the bookkeeping first keeps it insulated from listeners).
     // 'fetching' is transient, so it neither reclaims nor clears.
-    if (status === 'active') pendingReclaim = null;
+    if (status === 'active') reclaims.clear();
     else if (status === 'disabled' || status === 'fallback') reclaimNativePlayback();
     // Carries only display fields. The ordering provenance (runStart + generation) is owned by the
     // isolated content script, which never trusts this page-observable event for ordering.
@@ -172,25 +183,26 @@ export default defineUnlistedScript(() => {
   // already reasserted its own src, native playback is (or will be) restored by YouTube itself, so we
   // drop the record and never touch the element (preserving the sole-writer + fail-open invariants).
   function reclaimNativePlayback(): void {
-    const record = pendingReclaim;
+    const record = reclaims.match(undefined, player.generation);
     if (!record) return;
     if (
       !record.videoId ||
       record.videoId !== getVideoId() ||
       record.element.src !== record.ownedUrl
     ) {
-      pendingReclaim = null;
+      reclaims.clear();
       return;
     }
     const playerElement = document.querySelector<YouTubePlayerElement>(
       '#movie_player, .html5-video-player'
     );
     if (!playerElement) return; // Player not mounted yet: keep the record for the next terminal status.
-    pendingReclaim = null;
+    const consumed = reclaims.take(record.videoId, player.generation);
+    if (!consumed) return; // Another path consumed the reclaim: at most one reclaim may ever run.
     try {
       const videoId = record.videoId;
-      const startSeconds = Number.isFinite(record.currentTime)
-        ? Math.max(0, record.currentTime)
+      const startSeconds = Number.isFinite(consumed.currentTime)
+        ? Math.max(0, consumed.currentTime)
         : 0;
       // Always load (never cue): cueVideoById only fetches a thumbnail and, per YouTube's own
       // player-API contract, defers requesting the actual media stream until playVideo()/seekTo()
@@ -202,8 +214,8 @@ export default defineUnlistedScript(() => {
       // the load to land first, mirroring the readyState-then-event pattern PlayerHandle already
       // uses for restorePlaybackState).
       playerElement.loadVideoById?.({ videoId, startSeconds });
-      armReclaimSettling(record.element, videoId, startSeconds, record.paused);
-      if (record.paused) pauseOnceLoaded(record.element, playerElement, videoId);
+      armReclaimSettling(consumed.element, videoId, startSeconds, consumed.paused);
+      if (consumed.paused) armReclaimPause(consumed.element, playerElement, videoId);
     } catch {
       // Fail open: leave native-playback control with YouTube.
     }
@@ -229,37 +241,29 @@ export default defineUnlistedScript(() => {
     element.addEventListener('loadeddata', onSettled, { once: true });
   }
 
-  // Calls pauseVideo() once the element has actually attached real media after a loadVideoById()
-  // reclaim, instead of racing it synchronously (which YouTube silently drops, leaving the video
-  // auto-playing instead of paused). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
-  // we leave YouTube's autoplay in control rather than pausing a still-loading element. Guarded by
-  // videoId (so a mid-wait SPA navigation never pauses the newly-navigated video) and by an active
-  // hijack (so a fast re-toggle-on that re-hijacks the same element is not paused by this stale call).
-  function pauseOnceLoaded(
+  // Arm the paused reclaim's pause once the freshly loaded media has actually attached. Single
+  // winner: arming for a newer reclaim disposes the previous arm, so two terminal statuses for one
+  // release can never pause twice. Still guarded by videoId (a mid-wait SPA navigation is never
+  // paused) and by an active hijack (a fast re-toggle-on that re-hijacks the same element is not
+  // paused by this stale call). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
+  // YouTube's autoplay stays in control rather than pausing a still-loading element.
+  function armReclaimPause(
     element: HTMLMediaElement,
     playerElement: YouTubePlayerElement,
     videoId: string
   ): void {
-    const tryPause = () => {
-      if (getVideoId() !== videoId || player.getMediaElement() !== null) return;
-      try {
-        playerElement.pauseVideo?.();
-      } catch {
-        // Fail open: leave native-playback control with YouTube.
-      }
-    };
-    if (element.readyState >= 2) {
-      tryPause();
-      return;
-    }
-    const onLoadedData = () => {
-      window.clearTimeout(timeout);
-      tryPause();
-    };
-    const timeout = window.setTimeout(() => {
-      element.removeEventListener('loadeddata', onLoadedData);
-    }, VIDEO_WAIT_MS);
-    element.addEventListener('loadeddata', onLoadedData, { once: true });
+    clearReclaimPause();
+    reclaimPauseArm = armOneShotPause(element, {
+      isCurrent: () => getVideoId() === videoId && player.getMediaElement() === null,
+      pause: () => {
+        try {
+          playerElement.pauseVideo?.();
+        } catch {
+          // Fail open: leave native-playback control with YouTube.
+        }
+      },
+      timeoutMs: VIDEO_WAIT_MS,
+    });
   }
 
   const startPlaybackOperation = (): PlaybackOperation => {
@@ -595,10 +599,10 @@ export default defineUnlistedScript(() => {
       // A plain player-element replacement (mobile: the native player swaps the <video> mid-playback)
       // arms no settling reclaim, so fall back to the release record's live position for the same
       // video; otherwise the re-hijack would restart at the fresh element's zero/stale clock.
-      const releasedPosition =
-        pendingReclaim && pendingReclaim.videoId === videoId
-          ? { currentTime: pendingReclaim.currentTime, paused: pendingReclaim.paused }
-          : undefined;
+      const releasedRecord = reclaims.match(videoId, operationGeneration);
+      const releasedPosition = releasedRecord
+        ? { currentTime: releasedRecord.currentTime, paused: releasedRecord.paused }
+        : undefined;
       const intent =
         settlingReclaim && settlingReclaim.videoId === videoId
           ? { currentTime: settlingReclaim.currentTime, paused: settlingReclaim.paused }
@@ -607,8 +611,11 @@ export default defineUnlistedScript(() => {
         // The released position is one-shot: once a same-video re-hijack has consumed it, drop it so a
         // later same-video attach (a replay or re-navigation) cannot resume at a stale position. This
         // only clears when releasedPosition was actually used, never another video's pending record.
-        if (releasedPosition && intent === releasedPosition) pendingReclaim = null;
+        if (releasedPosition && intent === releasedPosition) {
+          reclaims.take(videoId, operationGeneration);
+        }
         clearSettling();
+        clearReclaimPause();
         currentHijackVideoId = videoId;
         if (settings.audioArtworkEnabled) {
           const overlayEpoch = artworkEpoch;

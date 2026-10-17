@@ -343,6 +343,7 @@ export async function runSession({
   seedConsent = true,
   sponsorBlockAllowed,
   probePlayerFromPage,
+  probePlayerVideoId,
   probeCoach,
   probeSegmentSkip,
   probeQol,
@@ -737,12 +738,13 @@ export async function runSession({
 
     let player = null;
     if (probePlayerFromPage) {
-      player = await driver.executeAsyncScript(function () {
+      const probeVideoId = probePlayerVideoId || 'FIXTURE0001';
+      player = await driver.executeAsyncScript(function (videoId) {
         const done = arguments[arguments.length - 1];
-        fetch('/youtubei/v1/player?v=FIXTURE0001', {
+        fetch('/youtubei/v1/player?v=' + encodeURIComponent(videoId), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ videoId: 'FIXTURE0001' }),
+          body: JSON.stringify({ videoId: videoId }),
         })
           .then((r) => r.json())
           .then((j) => {
@@ -760,7 +762,7 @@ export async function runSession({
             });
           })
           .catch((e) => done({ ok: false, error: String(e) }));
-      });
+      }, [probeVideoId]);
     }
 
     let segmentSkip = null;
@@ -1609,6 +1611,37 @@ async function main() {
       'm2b:enabled-prunes-inline-player-response',
       !enabled.inlinePlayerResponse.hasAdPlacements && !enabled.inlinePlayerResponse.hasPlayerAds,
       enabled.inlinePlayerResponse
+    );
+    // Over-budget responses stream through unparsed (SPEC-004 bounded parse): the fixture serves a
+    // 9 MiB padded body far above MAX_PRUNABLE_RESPONSE_BYTES, so the page-visible body keeps its
+    // ad descriptors (proving it was never buffered for pruning) while the session still reaches
+    // active promptly. The bounded-memory contract itself is pinned by the unit tests; this case is
+    // the end-to-end fail-open plus latency-sanity proof.
+    const overBudgetStarted = Date.now();
+    const overBudget = await runSession({
+      withAddon: true,
+      videoId: 'BIGRESP0001',
+      expectedTerminalStatus: 'active',
+      probePlayerFromPage: true,
+      probePlayerVideoId: 'BIGRESP0001',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const overBudgetElapsedMs = Date.now() - overBudgetStarted;
+    record(
+      'm2b:over-budget-response-streams-through-unparsed',
+      overBudget.status === 'active' &&
+        typeof overBudget.videoSrc === 'string' &&
+        overBudget.videoSrc.includes('/videoplayback') &&
+        overBudget.player?.ok === true &&
+        overBudget.player.hasAdPlacements === true &&
+        overBudgetElapsedMs < 20_000,
+      {
+        status: overBudget.status,
+        videoSrc: overBudget.videoSrc,
+        player: overBudget.player,
+        elapsedMs: overBudgetElapsedMs,
+      }
     );
     // Dedicated segment-skip session: audio-only OFF so no hijack reset races the skip's
     // one-shot seek on the (preload=auto, seekable) fixture WAV timeline.

@@ -31,3 +31,11 @@ describe('manifest data-collection declaration', () => {
     expect(config).not.toContain("'management'");
   });
 });
+
+describe('MV3 capability artifact declarations', () => {
+  it('declares webRequestFilterResponse only in the MV3 lane', () => {
+    // MV2 (the shipping target) filters responses without a permission; MV3 declares the explicit
+    // permission for its capability artifact, and it must never leak into the MV2 manifest.
+    expect(config).toMatch(/manifestVersion === 3 \? \['webRequestFilterResponse'\] : \[\]/);
+  });
+});
