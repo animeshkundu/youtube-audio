@@ -26,11 +26,14 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Nicer in the player.** The audio-only button now matches YouTube's own controls in size and style, and audio mode shows the track artwork instead of a black rectangle.
 - **Hiding recommendations leaves your comments alone.** Ask to hide recommendations and that is all that goes. Comments stay put.
 - **Cleaner downloads.** One track, one well-behaved `.m4a`, no pile of stray files.
+- **Playback that stays awake.** YouTube's "are you still there?" pause no longer interrupts audio-only listening, including long background sessions.
+- **Nothing extra at install.** The SponsorBlock lookup and the file-download ability now ask for their access at the moment you switch each one on, and only then. Say no, and everything else keeps working.
+- **Honest while a choice is pending.** Until you accept the data notice, the popup points you straight to it instead of showing switches that could not do anything yet.
 
 ## Good to know
 
 - **Logged out, always.** The extension never needs, reads, or touches your YouTube account. Everything works while signed out, on purpose.
-- **Collects nothing.** No analytics, no phone-home. The add-on declares no data collection, and the media it fetches is requested without your cookies.
+- **Collects nothing.** No accounts, no analytics, no phone-home. The media it fetches is requested without your cookies, and nothing is ever collected, stored, or shared.
 - **Firefox desktop and Android**, Firefox 128 and up.
 - **Falls back gracefully, and lightly.** When a video cannot be played as audio-only (live streams, made-for-kids, age-restricted, or members-only), it keeps playing on normal YouTube at the lowest quality, and YouTube Music switches to the song version when there is one. No broken playback, ever.
 

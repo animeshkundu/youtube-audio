@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Revised 2026-10-16 (optional permissions and minimal required set; see below).
 
 ## Date
 
@@ -52,6 +52,46 @@ On storage changes or permission removal, the background first replaces its cach
 ### Chosen Option
 
 Hybrid consent provides truthful disclosure and fail-closed control without sacrificing Firefox 128 support. It confines custom complexity to versions that need it.
+
+## Revision (2026-10-16): optional permissions and the minimal required set
+
+### Context
+
+The 1.1.0 release narrows the install-time permission set. Three changes are bundled with the
+consent work because they all touch the same trust boundary:
+
+- `tabs` is not a real signal or security boundary for us: status classification only reads the
+  active tab's URL for origins the extension already holds host permissions for, and a tab
+  without one correctly resolves to the not-YouTube state.
+- `downloads` is unnecessary on Firefox for Android, where the API is absent.
+- `sponsor.ajay.app` access should be co-extensive with the SponsorBlock opt-in, not granted at
+  install time.
+
+### Decision
+
+- Drop `tabs` from the manifest.
+- Make `downloads` and the `sponsor.ajay.app` origin optional permissions in production builds.
+  MV2 declares both through `optional_permissions`; MV3 splits the origin into
+  `optional_host_permissions`.
+- Request each grant from the gesture that turns the dependent feature on
+  (`browser.permissions.request` is only honored inside a user-action handler). A denied request
+  leaves the feature off with an inline message, and no consent record or setting is persisted.
+- Enforce the double gate at the privileged boundaries: the SponsorBlock proxy requires both the
+  stored SponsorBlock consent and the granted host permission; the download handler requires the
+  granted API permission.
+- When a feature is on without its permission (an upgrade from a build where it was required, or
+  revocation in the Add-ons Manager), the affected options row shows a re-grant notice and the
+  feature fails open until the user grants access again.
+- BENCH builds keep both permissions required so hermetic cases never need browser-chrome
+  prompts. This is a build-only divergence, like the bench match patterns.
+
+### Consequences
+
+- Install-time disclosure is smaller and closer to what the extension actually needs.
+- Upgrades from a build where these permissions were required lose the grant; the affected
+  features degrade open and say so until re-granted.
+- The optional request/deny/revoke paths are covered by unit tests, and the hermetic bench runs
+  with `tabs` absent, which is its classification proof.
 
 ## Consequences
 

@@ -2,9 +2,10 @@
 
 import { render, type ComponentChild } from 'preact';
 import { act } from 'preact/test-utils';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Popup, type PopupActions } from '../../../entrypoints/popup/App';
+import { defaultActions, Popup, type PopupActions } from '../../../entrypoints/popup/App';
+import { consentSignal } from '../../../entrypoints/popup/consent-state';
 import { playbackStatusSignal } from '../../../entrypoints/popup/playback-status';
 import { tabAudioOnlyOverrideSignal } from '../../../entrypoints/popup/tab-scope';
 import {
@@ -22,6 +23,7 @@ function actions(): PopupActions {
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     openOptions: vi.fn(),
     openYouTube: vi.fn(),
+    openConsentSettings: vi.fn(),
     setTabAudioOnly: vi.fn(async () => undefined),
   };
 }
@@ -41,7 +43,18 @@ function click(element: Element | null): void {
   act(() => element.click());
 }
 
+beforeEach(() => {
+  // Most cases exercise a granted install; the consent-specific cases override this.
+  consentSignal.value = {
+    granted: true,
+    sponsorBlockAllowed: false,
+    source: 'firefox',
+    pending: false,
+  };
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   act(() => {
     for (const container of mountedContainers) render(null, container);
   });
@@ -284,5 +297,55 @@ describe('Popup', () => {
     expect(popupActions.setBackgroundPlayEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.setEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.openOptions).toHaveBeenCalledOnce();
+  });
+
+  it.each([[true], [false]])(
+    'denied consent (pending=%s) replaces every playback control with the consent card',
+    (pending: boolean) => {
+      consentSignal.value = {
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+        pending,
+      };
+      playbackStatusSignal.value = { kind: 'active' };
+      const popupActions = actions();
+
+      const container = mount(<Popup actions={popupActions} />);
+
+      expect(container.textContent).toContain('Consent needed');
+      expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+      expect(container.querySelector('.popup-hero')).toBeNull();
+      expect(container.querySelector('.popup-pause-action')).toBeNull();
+      expect(container.querySelector('.now-playing')).toBeNull();
+
+      click(container.querySelector('.popup-consent-state .primary-action'));
+      expect(popupActions.openConsentSettings).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('unresolved consent renders only the header, never a dead control', () => {
+    consentSignal.value = null;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    expect(container.querySelector('.popup-hero')).toBeNull();
+    expect(container.textContent).not.toContain('Consent needed');
+  });
+
+  it('the default consent action deep-links to the options Data & consent section', () => {
+    const create = vi.fn();
+    vi.stubGlobal('browser', {
+      tabs: { create },
+      runtime: { getURL: (path: string) => `moz-extension://test/${path.replace(/^\//, '')}` },
+    });
+
+    defaultActions.openConsentSettings();
+
+    expect(create).toHaveBeenCalledWith({
+      url: 'moz-extension://test/options.html#data-consent',
+    });
   });
 });

@@ -15,6 +15,7 @@ import {
 } from '../src/shared/config';
 import { createResponseBudget, pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import {
+  consentBadgeText,
   consentStorageChangeGrants,
   consentStorageKey,
   createConsentStateController,
@@ -24,6 +25,7 @@ import {
   supportsBuiltInDataConsent,
   type DataConsentState,
 } from '../src/shared/consent';
+import { DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN } from '../src/shared/permissions';
 import {
   createDiagnosticsHub,
   errorFields,
@@ -106,6 +108,7 @@ let dataConsent: DataConsentState = {
   granted: false,
   sponsorBlockAllowed: false,
   source: 'custom',
+  pending: false,
 };
 
 type OnboardingInstallDetails = Pick<browser.runtime._OnInstalledDetails, 'reason'>;
@@ -324,9 +327,46 @@ function parseDownloadRequest(
   };
 }
 
+/** Granted-optional-permission checks for the double gate (SPEC-013); fail closed. */
+async function sponsorPermissionGranted(): Promise<boolean> {
+  try {
+    return await browser.permissions.contains({ origins: [SPONSORBLOCK_ORIGIN] });
+  } catch {
+    return false;
+  }
+}
+
+async function downloadsPermissionGranted(): Promise<boolean> {
+  try {
+    return await browser.permissions.contains({ permissions: [DOWNLOADS_PERMISSION] });
+  } catch {
+    return false;
+  }
+}
+
+type BadgeAction = { setBadgeText?: (details: { text: string }) => Promise<unknown> | void };
+
+/**
+ * Reflects the undecided-consent badge (`!`) on the toolbar action (SPEC-013). Cosmetic and
+ * best-effort: a missing action API or a rejection never affects consent behavior.
+ */
+function syncConsentBadge(consent: DataConsentState): void {
+  const candidate = browser as unknown as { action?: BadgeAction; browserAction?: BadgeAction };
+  const action = candidate.action ?? candidate.browserAction;
+  if (typeof action?.setBadgeText !== 'function') return;
+  try {
+    void Promise.resolve(action.setBadgeText({ text: consentBadgeText(consent) })).catch(
+      () => undefined
+    );
+  } catch {
+    // Ignore: the badge is cosmetic.
+  }
+}
+
 async function downloadAudio(
   request: NonNullable<ReturnType<typeof parseDownloadRequest>>
 ): Promise<{ ok: boolean }> {
+  if (!(await downloadsPermissionGranted())) return { ok: false };
   let objectUrl: string | null = null;
   try {
     const media = await assembleAudioMedia(request.url);
@@ -646,10 +686,15 @@ export default defineBackground({
           if (sponsorRequest) {
             if (!dataConsent.granted || !dataConsent.sponsorBlockAllowed)
               return Promise.resolve([]);
-            return fetchSponsorSegments(
-              sponsorRequest.videoId,
-              sponsorRequest.categories,
-              sponsorRequest.benchOrigin
+            // Double gate (SPEC-013): consent alone never authorizes third-party transmission.
+            return sponsorPermissionGranted().then((granted) =>
+              granted
+                ? fetchSponsorSegments(
+                    sponsorRequest.videoId,
+                    sponsorRequest.categories,
+                    sponsorRequest.benchOrigin
+                  )
+                : []
             );
           }
           const downloadRequest = parseDownloadRequest(message);
@@ -689,6 +734,7 @@ export default defineBackground({
       let publishChain: Promise<unknown> = Promise.resolve();
       const publishConsent = (consent: DataConsentState) => {
         dataConsent = consent;
+        syncConsentBadge(consent);
         const message = { type: DATA_CONSENT_CHANGED_MESSAGE, consent };
         publishChain = publishChain
           .then(() => browser.tabs.query({}))

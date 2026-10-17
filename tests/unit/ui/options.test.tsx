@@ -37,19 +37,29 @@ function actions(): OptionsActions {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: false,
     })),
     revokeDataConsent: vi.fn(async () => undefined),
     setSponsorBlockConsent: vi.fn(async () => undefined),
     openConsent: vi.fn(),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
+    requestSponsorPermission: vi.fn(async () => true),
+    sponsorPermissionGranted: vi.fn(async () => true),
+    requestDownloadsPermission: vi.fn(async () => true),
+    downloadsPermissionGranted: vi.fn(async () => true),
+    downloadsAvailable: vi.fn(() => true),
   };
 }
 
 function mount(component: ComponentChild): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
-  render(component, container);
+  // act() flushes mount effects synchronously so permission lookups and the deep-link scroll are
+  // observable right after mount (their promise continuations still need flushPromises()).
+  act(() => {
+    render(component, container);
+  });
   return container;
 }
 
@@ -196,13 +206,97 @@ describe('Options', () => {
     click(container.querySelector('#option-skip [role="switch"]'));
     await flushPromises();
 
+    expect(optionsActions.requestSponsorPermission).toHaveBeenCalledOnce();
     expect(optionsActions.setSponsorBlockConsent).toHaveBeenCalledWith(true);
     expect(optionsActions.setSegmentSkipEnabled).toHaveBeenCalledWith(true);
+    expect(
+      vi.mocked(optionsActions.requestSponsorPermission).mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      vi.mocked(optionsActions.setSponsorBlockConsent).mock.invocationCallOrder[0] ?? 0
+    );
     expect(
       vi.mocked(optionsActions.setSponsorBlockConsent).mock.invocationCallOrder[0]
     ).toBeLessThan(
       vi.mocked(optionsActions.setSegmentSkipEnabled).mock.invocationCallOrder[0] ?? 0
     );
+  });
+
+  it('keeps segment skipping off when the SponsorBlock permission is denied', async () => {
+    segmentSkipEnabledSignal.value = false;
+    const optionsActions = actions();
+    optionsActions.requestSponsorPermission = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-skip [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setSponsorBlockConsent).not.toHaveBeenCalled();
+    expect(optionsActions.setSegmentSkipEnabled).not.toHaveBeenCalled();
+    expect(container.querySelector('#option-skip [role="alert"]')?.textContent).toBe(
+      "SponsorBlock access wasn't granted."
+    );
+  });
+
+  it('offers a one-gesture re-grant when skipping is on without its permission', async () => {
+    segmentSkipEnabledSignal.value = true;
+    const optionsActions = actions();
+    optionsActions.sponsorPermissionGranted = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+    await flushPromises();
+
+    const notice = container.querySelector('.permission-notice-row');
+    expect(notice?.textContent).toContain("SponsorBlock access isn't granted");
+    const grant = Array.from(notice?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent?.trim() === 'Grant access'
+    );
+    expect(grant).toBeDefined();
+
+    click(grant ?? null);
+    await flushPromises();
+
+    expect(optionsActions.requestSponsorPermission).toHaveBeenCalledOnce();
+    expect(container.querySelector('.permission-notice-row')).toBeNull();
+  });
+
+  it('hides the downloads row entirely where the downloads API is absent', () => {
+    const optionsActions = actions();
+    optionsActions.downloadsAvailable = vi.fn(() => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    expect(container.querySelector('#option-download')).toBeNull();
+    expect(container.querySelector('#downloads')).toBeNull();
+  });
+
+  it('keeps downloads off when the downloads permission is denied', async () => {
+    const optionsActions = actions();
+    optionsActions.requestDownloadsPermission = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-download [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setDownloadEnabled).not.toHaveBeenCalled();
+    expect(container.querySelector('#option-download [role="alert"]')?.textContent).toBe(
+      "Download access wasn't granted."
+    );
+  });
+
+  it('deep-links to the Data & consent row when opened with its hash', () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    window.location.hash = 'data-consent';
+
+    try {
+      const container = mount(<Options actions={actions()} />);
+      expect(container.querySelector('#data-consent')).not.toBeNull();
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      window.location.hash = '';
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
   });
 
   it('keeps SponsorBlock category rows absent until segment skipping is enabled', () => {
@@ -333,13 +427,16 @@ describe('Options', () => {
     expect(adSwitch?.getAttribute('aria-describedby')).toContain('option-ads-error');
   });
 
-  it('instant-applies options controls', () => {
+  it('instant-applies options controls', async () => {
     const optionsActions = actions();
     const container = mount(<Options actions={optionsActions} />);
 
     click(container.querySelector('#audio-only-page [role="switch"]'));
     click(container.querySelector('#option-ads [role="switch"]'));
     click(container.querySelector('#option-download [role="switch"]'));
+    // The download toggle requests its optional permission first (SPEC-013), so the setter runs
+    // after the permission promise settles.
+    await flushPromises();
 
     expect(optionsActions.setAudioOnlyEnabled).toHaveBeenCalledWith(false);
     expect(optionsActions.setAdBlockEnabled).toHaveBeenCalledWith(false);

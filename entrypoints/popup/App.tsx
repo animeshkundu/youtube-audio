@@ -13,6 +13,7 @@ import {
 import type { PlaybackUiState } from '../../src/shared/status';
 import { resolveTabAudioOnly } from '../../src/shared/tab-scope';
 import { Brand, SettingRow, Switch } from '../ui/components';
+import { consentSignal } from './consent-state';
 import { playbackStatusSignal } from './playback-status';
 import { setActiveTabAudioOnly, tabAudioOnlyOverrideSignal } from './tab-scope';
 
@@ -21,6 +22,8 @@ export type PopupActions = {
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
   openOptions: () => void;
   openYouTube: () => void;
+  /** SPEC-013: the consent card's action, deep-linking to the options Data & consent section. */
+  openConsentSettings: () => void;
   /**
    * Toggle audio-only for the active tab. This is the per-tab scope (SPEC-012 §5; ADR-0014), not
    * the global preference: the hero is a quick control for the tab in front of the user, while the
@@ -29,11 +32,13 @@ export type PopupActions = {
   setTabAudioOnly: (enabled: boolean) => Promise<void>;
 };
 
-const defaultActions: PopupActions = {
+export const defaultActions: PopupActions = {
   setEnabled,
   setBackgroundPlayEnabled,
   openOptions: () => void browser.runtime.openOptionsPage(),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
+  openConsentSettings: () =>
+    void browser.tabs.create({ url: browser.runtime.getURL('/options.html#data-consent') }),
   setTabAudioOnly: setActiveTabAudioOnly,
 };
 
@@ -100,6 +105,22 @@ function PopupHeader({
   );
 }
 
+function ConsentCard({ onOpenConsent }: { onOpenConsent: () => void }) {
+  // SPEC-013 "no dead switch": while consent is not granted every playback control would be inert,
+  // so the popup renders this card instead.
+  return (
+    <section class="popup-empty-state popup-consent-state" aria-labelledby="popup-consent-title">
+      <h1 id="popup-consent-title">Consent needed</h1>
+      <p class="popup-consent-copy">
+        YouTube Audio can't play audio until you allow data transmission.
+      </p>
+      <button class="primary-action" type="button" onClick={onOpenConsent}>
+        Review data &amp; consent
+      </button>
+    </section>
+  );
+}
+
 function PlaybackHero({
   status,
   checked,
@@ -149,6 +170,26 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
     void operation().catch(() => setError("Couldn't apply that change. Try again."));
   };
   const playbackStatus = playbackStatusSignal.value;
+  const consent = consentSignal.value;
+
+  // Consent is resolved over a message round trip; until it lands, show only the header so a
+  // denied install never flashes controls that could not take effect.
+  if (consent === null) {
+    return (
+      <main class="popup-shell popup-shell-empty">
+        <PopupHeader onOpenOptions={actions.openOptions} compact />
+      </main>
+    );
+  }
+
+  if (!consent.granted) {
+    return (
+      <main class="popup-shell popup-shell-empty">
+        <PopupHeader onOpenOptions={actions.openOptions} compact />
+        <ConsentCard onOpenConsent={actions.openConsentSettings} />
+      </main>
+    );
+  }
 
   if (playbackStatus.kind === 'not-youtube') {
     return (

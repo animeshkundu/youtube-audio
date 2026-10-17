@@ -218,6 +218,10 @@ body {
   width: 100%;
 }
 
+.popup-consent-copy {
+  margin: 0 0 var(--space-2);
+}
+
 @keyframes popup-enter {
   from {
     opacity: 0;

@@ -45,6 +45,7 @@ describe('requestDataConsent', () => {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     }));
     vi.stubGlobal('browser', { runtime: { sendMessage } });
 
@@ -52,6 +53,7 @@ describe('requestDataConsent', () => {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
     expect(sendMessage).toHaveBeenCalledWith({ type: 'yta:get-data-consent' });
   });
@@ -66,6 +68,7 @@ describe('requestDataConsent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 });

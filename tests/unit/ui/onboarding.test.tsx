@@ -31,12 +31,18 @@ function actions(): OptionsActions {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: false,
     })),
     revokeDataConsent: vi.fn(async () => undefined),
     setSponsorBlockConsent: vi.fn(async () => undefined),
     openConsent: vi.fn(),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
+    requestSponsorPermission: vi.fn(async () => true),
+    sponsorPermissionGranted: vi.fn(async () => true),
+    requestDownloadsPermission: vi.fn(async () => true),
+    downloadsPermissionGranted: vi.fn(async () => true),
+    downloadsAvailable: vi.fn(() => true),
   };
 }
 

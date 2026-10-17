@@ -7,12 +7,19 @@ export interface DataConsentState {
   granted: boolean;
   sponsorBlockAllowed: boolean;
   source: 'firefox' | 'custom';
+  /**
+   * True only on the custom path while no well-formed stored decision exists. Drives the toolbar
+   * badge: an undecided install should say so, while a deliberate revocation stays quiet. The
+   * built-in path is never pending because Firefox owns the prompt.
+   */
+  pending: boolean;
 }
 
 export const DENIED_DATA_CONSENT: DataConsentState = {
   granted: false,
   sponsorBlockAllowed: false,
   source: 'firefox',
+  pending: false,
 };
 
 interface StoredConsent {
@@ -64,6 +71,7 @@ export async function resolveDataConsent(): Promise<DataConsentState> {
         granted: false,
         sponsorBlockAllowed: false,
         source: builtInSupported ? 'firefox' : 'custom',
+        pending: false,
       };
     }
     if (builtInSupported) {
@@ -77,15 +85,17 @@ export async function resolveDataConsent(): Promise<DataConsentState> {
         granted: requiredCategoryGranted,
         sponsorBlockAllowed: requiredCategoryGranted && record?.sponsorBlockAllowed === true,
         source: 'firefox',
+        pending: false,
       };
     }
     return {
       granted: record?.decision === 'granted',
       sponsorBlockAllowed: record?.decision === 'granted' && record.sponsorBlockAllowed,
       source: 'custom',
+      pending: record === null,
     };
   } catch {
-    return { granted: false, sponsorBlockAllowed: false, source: 'firefox' };
+    return { granted: false, sponsorBlockAllowed: false, source: 'firefox', pending: false };
   }
 }
 
@@ -139,6 +149,11 @@ export function consentStorageChangeGrants(value: unknown): boolean {
   return parseStoredConsent(value)?.decision === 'granted';
 }
 
+/** The toolbar badge text for a resolved consent state: `!` while undecided, empty otherwise. */
+export function consentBadgeText(consent: DataConsentState): string {
+  return consent.pending ? '!' : '';
+}
+
 /** Parses the fixed background-to-content consent payload; malformed values deny consent. */
 export function parseDataConsentMessage(value: unknown): DataConsentState | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -147,7 +162,9 @@ export function parseDataConsentMessage(value: unknown): DataConsentState | null
     typeof candidate.granted !== 'boolean' ||
     typeof candidate.sponsorBlockAllowed !== 'boolean' ||
     (candidate.source !== 'firefox' && candidate.source !== 'custom') ||
-    (!candidate.granted && candidate.sponsorBlockAllowed)
+    typeof candidate.pending !== 'boolean' ||
+    (!candidate.granted && candidate.sponsorBlockAllowed) ||
+    (candidate.granted && candidate.pending)
   ) {
     return null;
   }
@@ -155,6 +172,7 @@ export function parseDataConsentMessage(value: unknown): DataConsentState | null
     granted: candidate.granted,
     sponsorBlockAllowed: candidate.sponsorBlockAllowed,
     source: candidate.source,
+    pending: candidate.pending,
   };
 }
 
@@ -218,7 +236,12 @@ export function createConsentStateController(
     resolve: resolveCurrent,
     denyThenResolve: async () => {
       generation += 1;
-      consent = { granted: false, sponsorBlockAllowed: false, source: consent.source };
+      consent = {
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: consent.source,
+        pending: false,
+      };
       publish(consent);
       return resolveCurrent();
     },

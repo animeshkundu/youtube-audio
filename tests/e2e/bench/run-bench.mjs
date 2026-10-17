@@ -70,6 +70,8 @@ const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const BROWSER_ACTION_WIDGET = `${ADDON_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}-browser-action`;
 // BENCH-ONLY background message that returns the real per-tab status map (see background.ts).
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
+// Background consent message (SPEC-013); same string the content script and popup send.
+const GET_DATA_CONSENT_MESSAGE = 'yta:get-data-consent';
 // BENCH-ONLY background message that sets a tab-scope override for an explicit tab id, driving the
 // real apply path without the popup DOM (see background.ts; SPEC-012 §5; ADR-0014).
 const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
@@ -1169,8 +1171,15 @@ export async function runSession({
     // Faithfully verifies the honest per-video status reached the background map. The task's
     // sanctioned "read the map" path: we exercise the real popup lane (best-effort, headless-
     // limited) while the fixture tab is active, then read the REAL map from the extension's own
-    // page. Asserting the raw entry (status + reason) is robust to the navigation to options.html
-    // marking that tab's entry stale (markEntryStale preserves the payload).
+    // page. Asserting the raw entry (status + reason) is robust to tab-focus effects: the map
+    // stores what the content script reported, before any URL cross-check.
+    //
+    // The read happens from a SECOND tab (the pinned options page) so the fixture tab keeps its
+    // watch URL. That matters for SPEC-013: `browser.tabs.get(tabId).url` inside the background
+    // resolves the fixture URL through host permissions alone (the bench manifest deliberately
+    // has no `tabs` permission), so a visible fixture URL in the snapshot is the no-`tabs`
+    // classification proof. The same read returns the resolved consent state, the toolbar badge
+    // text, and the real manifest permission lists for the permission-model cases.
     let browserActionPopup = null;
     let statusMap = null;
     if ((probeStatusMap || probeBrowserActionPopup) && withAddon) {
@@ -1181,14 +1190,47 @@ export async function runSession({
           browserActionPopup = await openBrowserActionPopup(driver);
         }
         if (probeStatusMap) {
-          await driver.get(OPTIONS_URL);
-          statusMap = await driver.executeAsyncScript(function (messageType) {
-            const done = arguments[arguments.length - 1];
-            browser.runtime
-              .sendMessage({ type: messageType })
-              .then((r) => done({ ok: true, entries: (r && r.entries) || [] }))
-              .catch((e) => done({ ok: false, error: String(e) }));
-          }, BENCH_STATUS_MAP_MESSAGE);
+          const fixtureHandle = await driver.getWindowHandle();
+          await driver.switchTo().newWindow('tab');
+          try {
+            await driver.get(OPTIONS_URL);
+            statusMap = await driver.executeAsyncScript(function (
+              messageType,
+              getConsentType
+            ) {
+              const done = arguments[arguments.length - 1];
+              const action = browser.browserAction || browser.action;
+              const badge = action
+                ? Promise.resolve(action.getBadgeText({})).catch(() => null)
+                : Promise.resolve(null);
+              Promise.all([
+                browser.runtime.sendMessage({ type: messageType }),
+                browser.runtime.sendMessage({ type: getConsentType }),
+                badge,
+              ])
+                .then(([map, consent, text]) => {
+                  const manifest = browser.runtime.getManifest();
+                  done({
+                    ok: true,
+                    entries: (map && map.entries) || [],
+                    consent: consent || null,
+                    badge: typeof text === 'string' ? text : null,
+                    manifest: {
+                      permissions: manifest.permissions || [],
+                      optional_permissions: manifest.optional_permissions || [],
+                      optional_host_permissions: manifest.optional_host_permissions || [],
+                      host_permissions: manifest.host_permissions || [],
+                    },
+                  });
+                })
+                .catch((e) => done({ ok: false, error: String(e) }));
+            },
+            BENCH_STATUS_MAP_MESSAGE,
+            GET_DATA_CONSENT_MESSAGE);
+          } finally {
+            await driver.close();
+            await driver.switchTo().window(fixtureHandle);
+          }
         }
       } catch (e) {
         statusMap = statusMap || { ok: false, error: String(e).slice(0, 200) };
@@ -1314,6 +1356,7 @@ async function main() {
     const unconsented = await runSession({
       withAddon: true,
       seedConsent: false,
+      probeStatusMap: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -1334,6 +1377,53 @@ async function main() {
         artwork: unconsented.ytaArtwork,
         artworkRequests: unconsentedLog.filter((request) => request.path.startsWith('/vi/')),
       }
+    );
+    // SPEC-013: the toolbar badge marks exactly the undecided custom-consent state and stays
+    // clear otherwise. On Firefox < 140 an unseeded profile is pending (custom path, no record)
+    // and must badge `!`; on 140+ the built-in category is denied-but-decided (pending false)
+    // because the bench suppresses the automatic grant, so no badge may appear.
+    record(
+      'consent:badge-marks-undecided-installs',
+      unconsented.statusMap?.consent?.granted === false &&
+        unconsented.statusMap?.badge ===
+          (unconsented.statusMap?.consent?.pending === true ? '!' : ''),
+      { consent: unconsented.statusMap?.consent, badge: unconsented.statusMap?.badge }
+    );
+
+    // SPEC-013 (1.1.0 permission model). One real seeded session asserts the shipped manifest
+    // shape and that classification still works without the `tabs` permission:
+    // - the bench build keeps `downloads` and the SponsorBlock origin REQUIRED (build-only
+    //   divergence so no browser-chrome prompt is ever needed) and declares no optional keys;
+    // - `tabs` is absent, yet `browser.tabs.get(tabId).url` inside the background resolves the
+    //   fixture tab's URL through its host permission, which is the input classification needs;
+    // - a granted install clears the toolbar badge.
+    const permissionRun = await runSession({
+      withAddon: true,
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const permissionEntry = statusMapEntry(permissionRun.statusMap);
+    const manifestPermissions = permissionRun.statusMap?.manifest?.permissions || [];
+    record(
+      'manifest:no-tabs-with-bench-optional-grants-required',
+      permissionRun.statusMap?.ok === true &&
+        !manifestPermissions.includes('tabs') &&
+        manifestPermissions.includes('downloads') &&
+        manifestPermissions.includes('https://sponsor.ajay.app/*') &&
+        (permissionRun.statusMap?.manifest?.optional_permissions || []).length === 0 &&
+        (permissionRun.statusMap?.manifest?.optional_host_permissions || []).length === 0,
+      { manifest: permissionRun.statusMap?.manifest }
+    );
+    record(
+      'status-channel:fixture-url-visible-without-tabs-permission',
+      typeof permissionEntry?.url === 'string' && permissionEntry.url.startsWith(`${origin}/watch`),
+      { url: permissionEntry?.url, entries: permissionRun.statusMap?.entries?.length }
+    );
+    record(
+      'consent:badge-stays-clear-once-granted',
+      permissionRun.statusMap?.consent?.granted === true && permissionRun.statusMap?.badge === '',
+      { consent: permissionRun.statusMap?.consent, badge: permissionRun.statusMap?.badge }
     );
 
     record('treatment:content-script-marker', enabled.marker === '1', {
