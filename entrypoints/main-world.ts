@@ -20,7 +20,7 @@ import { armOneShotPause, createReclaimTracker } from '../src/shared/reclaim';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
 import { observeYouTubeSpa } from '../src/shared/spa';
-import type { PlaybackStatus } from '../src/shared/status';
+import { parseVideoId, type PlaybackStatus } from '../src/shared/status';
 import {
   isSponsorCategory,
   type SponsorCategory,
@@ -954,13 +954,10 @@ function describePlayer(
   return props;
 }
 
+// Watch pages, embedded players (/embed/<id>), and legacy embeds (/v/<id>) all resolve here through
+// the shared classifier, so the page world and the popup agree on one URL model (SPEC-015).
 function getVideoId(): string | null {
-  try {
-    const id = new URL(location.href).searchParams.get('v');
-    return id && /^[A-Za-z0-9_-]{6,20}$/.test(id) ? id : null;
-  } catch {
-    return null;
-  }
+  return parseVideoId(location.href);
 }
 
 function getConfigString(key: string): string | null {

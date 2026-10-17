@@ -146,6 +146,9 @@ export default defineConfig({
       );
       if (contentScript) {
         contentScript.matches = BENCH ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES] : YOUTUBE_MATCHES;
+        // SPEC-015: embedded players run in subframes, so every matching frame gets the content
+        // script. The top frame stays the only status reporter and UI host (enforced in content.ts).
+        contentScript.all_frames = true;
       }
     },
   },

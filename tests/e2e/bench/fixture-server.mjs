@@ -175,6 +175,25 @@ function fixtureSkipSegments(videoId) {
 }
 
 /** The fake YouTube watch page. Static except for requested deterministic regression modes. */
+/** A third-party host page framing a player (SPEC-015): the top document owns no video. */
+function frameHostHtml(embedVideoId) {
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>Fixture Frame Host</title></head>
+<body>
+  <h1>Fixture third-party host</h1>
+  <iframe
+    id="fixture-embed"
+    src="/embed/${encodeURIComponent(embedVideoId)}"
+    width="560"
+    height="315"
+    allow="autoplay; encrypted-media"
+    title="Fixture embedded player"
+  ></iframe>
+</body>
+</html>`;
+}
+
 function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
   return `<!doctype html>
 <html lang="en">
@@ -577,6 +596,15 @@ export function createFixtureServer() {
         watchPageHtml({ coldConfig, elementSwap }),
         'text/html; charset=utf-8'
       );
+    }
+    // Embedded player page (SPEC-015): the same player surface served under an /embed/<id> URL.
+    if (path.startsWith('/embed/')) {
+      return sendText(res, 200, watchPageHtml(), 'text/html; charset=utf-8');
+    }
+    // Third-party frame host (SPEC-015): a page that frames an embedded player.
+    if (path === '/frame-host') {
+      const embedId = url.searchParams.get('embed') || 'EMBED0001';
+      return sendText(res, 200, frameHostHtml(embedId), 'text/html; charset=utf-8');
     }
     if (path === '/youtubei/v1/player') {
       let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;

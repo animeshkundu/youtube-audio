@@ -41,6 +41,7 @@ import {
   type SponsorSegment,
 } from '../src/shared/sponsorblock';
 import {
+  acceptsFrameReport,
   GET_STATUS_MESSAGE,
   markEntryStale,
   parseStatusUpdate,
@@ -414,7 +415,7 @@ function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSen
   const tabId = sender.tab?.id;
   // Accept only a genuine top-frame report tagged with a real tab id (sub-frames and extension
   // pages are ignored). Untrusted shapes are dropped by `parseStatusUpdate`.
-  if (typeof tabId !== 'number' || sender.frameId !== 0) return;
+  if (typeof tabId !== 'number' || !acceptsFrameReport(sender.frameId)) return;
   const update = parseStatusUpdate(message);
   if (!update) return;
   const current = tabStatus.get(tabId);

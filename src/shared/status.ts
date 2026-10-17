@@ -134,15 +134,32 @@ export function classifyHost(url: string | undefined): HostClass {
   return host === 'music.youtube.com' ? 'music' : 'youtube';
 }
 
-/** Extract a valid YouTube video id from a URL's `?v=` parameter, or `null`. Mirrors the page world. */
+/**
+ * Extract a valid YouTube video id from a URL, or `null`. Accepts the watch-page `?v=` parameter
+ * and the embedded-player path forms `/embed/<id>` and `/v/<id>` (SPEC-015).
+ */
 export function parseVideoId(url: string | undefined): string | null {
   if (typeof url !== 'string') return null;
   try {
-    const id = new URL(url).searchParams.get('v');
-    return id && VIDEO_ID_PATTERN.test(id) ? id : null;
+    const parsed = new URL(url);
+    const queryId = parsed.searchParams.get('v');
+    if (queryId && VIDEO_ID_PATTERN.test(queryId)) return queryId;
+    const [, kind, candidate] = parsed.pathname.split('/');
+    if ((kind === 'embed' || kind === 'v') && candidate && VIDEO_ID_PATTERN.test(candidate)) {
+      return candidate;
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Frame-report policy (SPEC-015): only a top-frame (`frameId === 0`) status report may feed the
+ * per-tab map. Kept as a pure rule so the background gate and its tests share one source of truth.
+ */
+export function acceptsFrameReport(frameId: unknown): boolean {
+  return frameId === 0;
 }
 
 /** A YouTube-family watch page: a supported host carrying a valid `?v=` video id. */

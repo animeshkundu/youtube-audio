@@ -98,6 +98,15 @@ export async function requestDataConsent(): Promise<DataConsentState> {
   }
 }
 
+/**
+ * True when this content-script instance runs in the tab's top frame (SPEC-015). The identity
+ * comparison reads no cross-origin properties, so it is safe inside embedded players. Only the top
+ * frame hosts UI and relays status; every frame still applies settings to its own document.
+ */
+function isTopFrame(): boolean {
+  return window.top === window.self;
+}
+
 export default defineContentScript({
   matches: MATCHES,
   runAt: 'document_start',
@@ -123,6 +132,9 @@ export default defineContentScript({
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
           location.origin
         );
+        // Embedded-player frames (SPEC-015) still receive and apply every setting, but all visible
+        // UI stays top-frame only: the popup and in-player controls are tab-scoped.
+        if (!isTopFrame()) return;
         updateToggle(settings.enabled && settings.audioOnlyEnabled);
         updateDownloadButton(settings.enabled && settings.downloadEnabled);
         updateDistractionStyle(settings);
@@ -153,7 +165,7 @@ export default defineContentScript({
       document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
       applyEffectiveSettings();
-      installPlayerControls(bridgeNonce);
+      if (isTopFrame()) installPlayerControls(bridgeNonce);
     } catch (error) {
       logFromContent('error', { where: 'content.init', ...errorFields(error) });
       console.error('[YouTube Audio] Content initialization failed', error);
@@ -1392,9 +1404,10 @@ function updateStatusMarker(event: Event): void {
     else delete document.documentElement.dataset.ytaReason;
   }
 
-  // Production: relay the real per-video status to the background per-tab map so the popup can read
-  // the honest state of THIS tab. Additive to the bench marker; both run under the bench build.
-  pushStatusToBackground(message);
+  // Production: only the top frame relays the real per-video status to the background per-tab map
+  // (SPEC-015). An embedded player's status stays local to its frame, so it can never overwrite the
+  // honest state of the tab in front of the user.
+  if (isTopFrame()) pushStatusToBackground(message);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  acceptsFrameReport,
   classifyHost,
   GET_STATUS_MESSAGE,
   isPlaybackStatus,
@@ -74,14 +75,40 @@ describe('parseVideoId', () => {
     expect(parseVideoId('::::')).toBeNull();
     expect(parseVideoId(undefined)).toBeNull();
   });
+
+  it('accepts the embedded-player path forms (SPEC-015)', () => {
+    expect(parseVideoId('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(parseVideoId('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1')).toBe(
+      'dQw4w9WgXcQ'
+    );
+    expect(parseVideoId('https://www.youtube.com/v/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(parseVideoId('https://www.youtube.com/embed/$$bad$$')).toBeNull();
+    expect(parseVideoId('https://www.youtube.com/embed')).toBeNull();
+    expect(parseVideoId('https://www.youtube.com/embed/')).toBeNull();
+    // The path forms are a URL-shape rule; host classification stays the caller's job.
+    expect(parseVideoId('https://example.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+  });
 });
 
 describe('isWatchPage', () => {
   it('is true only for a YouTube-family host with a valid video id', () => {
     expect(isWatchPage(WATCH)).toBe(true);
     expect(isWatchPage(MUSIC)).toBe(true);
+    expect(isWatchPage('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://www.youtube.com/v/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://example.com/embed/dQw4w9WgXcQ')).toBe(false);
     expect(isWatchPage('https://www.youtube.com/feed/subscriptions')).toBe(false);
     expect(isWatchPage('https://example.com/watch?v=dQw4w9WgXcQ')).toBe(false);
+  });
+});
+
+describe('acceptsFrameReport', () => {
+  it('accepts only the top frame (SPEC-015)', () => {
+    expect(acceptsFrameReport(0)).toBe(true);
+    expect(acceptsFrameReport(1)).toBe(false);
+    expect(acceptsFrameReport(undefined)).toBe(false);
+    expect(acceptsFrameReport('0')).toBe(false);
   });
 });
 

@@ -335,6 +335,7 @@ function visibilityProbeScript() {
  * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
+ *           frameHost?: boolean, probeEmbedFrame?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
@@ -358,6 +359,8 @@ export async function runSession({
   probeElementSwap,
   probeToggleOffReclaim,
   probeRapidRetoggle,
+  frameHost,
+  probeEmbedFrame,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -425,25 +428,35 @@ export async function runSession({
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
-    await driver.wait(until.elementLocated(By.css('video')), 10000);
-    await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
-    // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
-    // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
-    // rejected). Waiting for it here means the request log is quiescent before any telemetry
-    // count assertion reads it, so a "blocked 0 times" check can't pass merely because an
-    // un-blocked beacon had not yet reached the server.
-    await driver.wait(
-      async () => (await driver.executeScript(snapshotScript)).telemetryReady === '1',
-      8000,
-    );
+    if (frameHost) {
+      // Embedded-player session (SPEC-015): a third-party host page frames the player, so the top
+      // document owns no video and none of the watch-page readiness markers.
+      await driver.get(`${origin}/frame-host?embed=${encodeURIComponent(videoId)}`);
+      await driver.wait(until.elementLocated(By.css('#fixture-embed')), 10000);
+    } else {
+      await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
+      await driver.wait(until.elementLocated(By.css('video')), 10000);
+      await driver.wait(
+        async () => (await driver.executeScript(snapshotScript)).ready === '1',
+        10000
+      );
+      // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
+      // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
+      // rejected). Waiting for it here means the request log is quiescent before any telemetry
+      // count assertion reads it, so a "blocked 0 times" check can't pass merely because an
+      // un-blocked beacon had not yet reached the server.
+      await driver.wait(
+        async () => (await driver.executeScript(snapshotScript)).telemetryReady === '1',
+        8000
+      );
+    }
 
     // With the add-on, wait for the in-player reconciler to mount and for playback to reach a
     // terminal status. The optional coach probe latches its transient first-run marker before the
     // tooltip's eight-second dismissal removes it.
     let coachObserved = false;
     let terminalSnap = null;
-    if (withAddon) {
+    if (withAddon && !frameHost) {
       await waitFor(async () => {
         const snap = await driver.executeScript(snapshotScript);
         return snap.audioOnlyTogglePresent ? snap : null;
@@ -454,7 +467,7 @@ export async function runSession({
           return snap.ytaCoach === '1' ? snap : null;
         }, 4000));
       }
-      if (seedConsent) {
+      if (seedConsent && !frameHost) {
         terminalSnap = await waitFor(async () => {
           const snap = await driver.executeScript(snapshotScript);
           if (expectedTerminalStatus) {
@@ -475,6 +488,34 @@ export async function runSession({
           return snap.ytaArtwork ? snap : null;
         }, 4000);
       }
+    }
+
+    let embedFrame = null;
+    if (probeEmbedFrame) {
+      // The framed player must hijack on its own document (SPEC-015) while the top document stays
+      // untouched. The fixture frame is same-origin, so its document can be read directly.
+      await driver.switchTo().frame(await driver.findElement(By.css('#fixture-embed')));
+      const readFrame = function () {
+        const root = document.documentElement;
+        const video = document.querySelector('video');
+        return {
+          status: root.dataset.ytaStatus || null,
+          reason: root.dataset.ytaReason || null,
+          videoSrc: video ? video.src : null,
+          videoDeclaredSrc: video ? video.getAttribute('src') : null,
+          toggleButton: document.getElementById('yta-audio-only-toggle') !== null,
+          downloadButton: document.getElementById('yta-download-audio') !== null,
+          tooltip: document.querySelector('.yta-player-tooltip') !== null,
+          segmentToast: document.querySelector('.yta-segment-toast') !== null,
+          distractionStyle: document.getElementById('yta-distraction-style') !== null,
+        };
+      };
+      const frameTerminal = await waitFor(async () => {
+        const state = await driver.executeScript(readFrame);
+        return state.status === 'active' ? state : null;
+      }, 12000);
+      embedFrame = frameTerminal || (await driver.executeScript(readFrame));
+      await driver.switchTo().defaultContent();
     }
 
     let toggleOffReclaim = null;
@@ -932,6 +973,7 @@ export async function runSession({
       statusMap,
       toggleOffReclaim,
       rapidRetoggle,
+      embedFrame,
     };
   } finally {
     try {
@@ -1425,6 +1467,35 @@ async function main() {
         videoSrc: elementSwapRun.elementSwap?.videoSrc,
         entry: elementSwapEntry?.entry,
         statusMap: elementSwapRun.statusMap,
+      }
+    );
+
+    // Embedded player frames (SPEC-015): a third-party host page frames a player. The frame hijacks
+    // audio-only on its own document, the frame receives no extension UI (top-frame-only mounts),
+    // and the top document neither hijacks nor reports a status of its own.
+    const embedRun = await runSession({
+      withAddon: true,
+      videoId: 'EMBED0001',
+      frameHost: true,
+      probeEmbedFrame: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm9:embedded-frame-hijacks-audio-only-without-ui',
+      embedRun.embedFrame?.status === 'active' &&
+        (embedRun.embedFrame.videoSrc || '').includes('/videoplayback') &&
+        embedRun.embedFrame.toggleButton === false &&
+        embedRun.embedFrame.downloadButton === false &&
+        embedRun.embedFrame.tooltip === false &&
+        embedRun.embedFrame.segmentToast === false &&
+        embedRun.embedFrame.distractionStyle === false &&
+        embedRun.status === null &&
+        embedRun.audioOnlyTogglePresent === false,
+      {
+        embedFrame: embedRun.embedFrame,
+        status: embedRun.status,
+        audioOnlyTogglePresent: embedRun.audioOnlyTogglePresent,
       }
     );
 

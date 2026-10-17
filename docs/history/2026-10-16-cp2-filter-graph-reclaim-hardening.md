@@ -57,7 +57,7 @@ user: everything ships as one consolidated 1.1.0 from this branch.
     `loadeddata`, bounded by the caller's timeout) with a disposer; the caller keeps exactly one arm
     and disposes it before re-arming, so a double pause cannot happen.
 - `entrypoints/main-world.ts` rewired onto the tracker: releases record `(record, videoId,
-  generation)`; `emitStatus('active')` clears; the reclaim coordinator matches with TTL/skew,
+generation)`; `emitStatus('active')` clears; the reclaim coordinator matches with TTL/skew,
   rejects untracked or stale records, and consumes atomically; the attach path consumes the
   released position via the same tracker; a successful re-hijack clears the pause arm.
 

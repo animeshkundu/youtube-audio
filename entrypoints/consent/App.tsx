@@ -68,7 +68,9 @@ export function ConsentPage({ actions = defaultConsentActions }: { actions?: Con
             <strong>www.youtube.com</strong>
             <p>
               Sends the <b>ID of the video you open</b>, standard page config (<b>VISITOR_DATA</b>),
-              and a client descriptor (<b>Android VR</b>) to get the direct audio link.
+              and a credentialless client descriptor (<b>VisionOS</b>, with <b>Android VR</b> as a
+              fallback) to get the direct audio link. An embedded player, on any page that shows
+              one, sends the same request for the video it frames.
             </p>
           </article>
           <article>
