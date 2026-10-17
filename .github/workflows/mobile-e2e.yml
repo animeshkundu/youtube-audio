@@ -37,7 +37,7 @@ env:
 jobs:
   mobile-probe:
     name: Fenix Android emulator core probe (non-gating)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     # Best-effort: never fail the workflow / block a merge on mobile-emulator or live-YouTube flake.
     continue-on-error: true

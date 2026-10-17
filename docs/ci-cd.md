@@ -25,6 +25,12 @@ Each `master` push gets a run-ID-scoped CI concurrency group so every merge comp
 the release job then uses a shared non-cancelling `release-on-merge` group so two merges cannot
 publish or bump concurrently.
 
+Every workflow pins `runs-on: ubuntu-24.04` rather than `ubuntu-latest`, which is a no-op while
+`ubuntu-latest` still resolves to 24.04. GitHub begins phasing the label to Ubuntu 26 on 2026-10-19
+(`actions/runner-images#14748`), inside the 1.1.0 soak and publish window, and the explicit pin
+keeps the gates on the image the pinned Firefox and geckodriver installs were validated against.
+Revisit the pin once the migration is validated.
+
 ## CI (gating)
 
 Five executable gate outcomes must pass:

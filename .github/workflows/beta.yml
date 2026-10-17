@@ -30,7 +30,7 @@ concurrency:
 jobs:
   beta:
     name: Validate, sign unlisted, publish beta prerelease
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
       AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -84,7 +84,7 @@ jobs:
       - name: Run gates
         run: npm run typecheck && npm run lint && npm test
 
-      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # The runner image's system Firefox is a snap, which geckodriver cannot drive.
       # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
       # latest mainline release (proven green): latest-esr regressed the seeded-settings
       # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.
