@@ -1,6 +1,6 @@
 # YouTube Audio, just the sound
 
-Version: (set on release)
+Version: 1.1.0
 
 YouTube Audio plays only the audio of YouTube and YouTube Music, so your battery and your mobile data last a lot longer. Install it, and the tab you never look at stops shovelling video down your connection. The music keeps going.
 
