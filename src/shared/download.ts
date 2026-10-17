@@ -158,11 +158,18 @@ export function sanitizeDownloadTitle(title: string): string {
   return sanitized || FALLBACK_TITLE;
 }
 
-export function buildAudioFilename(title: string, itag: number | undefined): string {
+export function buildAudioFilename(
+  title: string,
+  itag: number | undefined,
+  author?: string
+): string {
   const extension = audioExtensionForItag(itag);
+  const safeTitle = sanitizeDownloadTitle(title);
+  const safeAuthor = author ? sanitizeDownloadTitle(author) : '';
+  const combined = safeAuthor ? `${safeAuthor} - ${safeTitle}` : safeTitle;
   const maxTitleLength = MAX_FILENAME_LENGTH - extension.length;
-  const safeTitle = sanitizeDownloadTitle(title).slice(0, maxTitleLength).trimEnd();
-  return `${safeTitle || FALLBACK_TITLE}${extension}`;
+  const safeCombined = combined.slice(0, maxTitleLength).trimEnd();
+  return `${safeCombined || FALLBACK_TITLE}${extension}`;
 }
 
 export function isSafeDownloadFilename(value: unknown): value is string {

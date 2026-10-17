@@ -529,12 +529,21 @@ export default defineUnlistedScript(() => {
       const format = pickBestAudioFormat(playerResponse, true);
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
+      const author = (playerResponse as PlayerResponse).videoDetails?.author;
       const benchOrigin = __BENCH__ ? location.origin : undefined;
       if (!url || !isAllowedAudioUrl(url, benchOrigin) || typeof title !== 'string') {
         respond({ ok: false, reason: 'no-direct-audio' });
         return;
       }
-      respond({ ok: true, url, filename: buildAudioFilename(title, format.itag) });
+      respond({
+        ok: true,
+        url,
+        filename: buildAudioFilename(
+          title,
+          format.itag,
+          typeof author === 'string' ? author : undefined
+        ),
+      });
     } catch {
       respond({ ok: false, reason: 'request-failed' });
     }
