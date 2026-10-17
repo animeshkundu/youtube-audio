@@ -89,11 +89,20 @@ describe('applyGraphSettings', () => {
       setEqualizer(enabled: boolean, bands: readonly number[]) {
         calls.push(`eq:${enabled}:${bands.join(',')}`);
       },
+      setBoost(_enabled: boolean, _amount: number) {
+        // Not under test here.
+      },
     };
 
     const gain = applyGraphSettings(
       graph,
-      { loudnessNormalization: true, equalizerEnabled: true, equalizerBands: [1, 2, 3, 4, 5] },
+      {
+        loudnessNormalization: true,
+        equalizerEnabled: true,
+        equalizerBands: [1, 2, 3, 4, 5],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       -6.0206
     );
 
@@ -110,16 +119,31 @@ describe('applyGraphSettings', () => {
       setEqualizer() {
         // Not under test here.
       },
+      setBoost() {
+        // Not under test here.
+      },
     };
 
     applyGraphSettings(
       graph,
-      { loudnessNormalization: false, equalizerEnabled: true, equalizerBands: [0, 0, 0, 0, 0] },
+      {
+        loudnessNormalization: false,
+        equalizerEnabled: true,
+        equalizerBands: [0, 0, 0, 0, 0],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       -6
     );
     applyGraphSettings(
       graph,
-      { loudnessNormalization: true, equalizerEnabled: false, equalizerBands: [] },
+      {
+        loudnessNormalization: true,
+        equalizerEnabled: false,
+        equalizerBands: [],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       undefined
     );
 

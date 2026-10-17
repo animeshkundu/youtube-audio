@@ -153,6 +153,8 @@ export default defineUnlistedScript(() => {
     loudnessNormalization: false,
     equalizerEnabled: false,
     equalizerBands: [],
+    volumeBoostEnabled: false,
+    volumeBoostAmount: 1,
     downloadEnabled: false,
   };
   // SPEC-017: keep the data cost of a native fallback low. The Music path prefers the site's own
@@ -387,13 +389,13 @@ export default defineUnlistedScript(() => {
     if (!restartMedia && groups.graph) {
       const graph = audioGraphHandle;
       if (graph) {
-        if (!next.loudnessNormalization && !next.equalizerEnabled) {
+        if (!next.loudnessNormalization && !next.equalizerEnabled && !next.volumeBoostEnabled) {
           disposeAudioGraph();
         } else {
           const gain = applyGraphSettings(graph, next, liveLoudnessDb);
           publishAudioGraphBench(gain, graph);
         }
-      } else if (next.loudnessNormalization || next.equalizerEnabled) {
+      } else if (next.loudnessNormalization || next.equalizerEnabled || next.volumeBoostEnabled) {
         // A feature turned on with no live graph: the full path arms one from a fresh response.
         restartMedia = true;
       }
@@ -406,7 +408,12 @@ export default defineUnlistedScript(() => {
       emitStatus('disabled', operation);
       return;
     }
-    if (next.audioOnlyEnabled || next.loudnessNormalization || next.equalizerEnabled) {
+    if (
+      next.audioOnlyEnabled ||
+      next.loudnessNormalization ||
+      next.equalizerEnabled ||
+      next.volumeBoostEnabled
+    ) {
       void activateEnhancements(operation);
     } else {
       emitStatus('disabled', operation);
@@ -541,7 +548,10 @@ export default defineUnlistedScript(() => {
     qualityOfLifeCleanup = applyQualityOfLife(settings);
     if (
       settings.enabled &&
-      (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled)
+      (settings.audioOnlyEnabled ||
+        settings.loudnessNormalization ||
+        settings.equalizerEnabled ||
+        settings.volumeBoostEnabled)
     ) {
       void activateEnhancements(operation);
     } else {
@@ -759,7 +769,12 @@ export default defineUnlistedScript(() => {
   }
 
   function armAudioGraph(media: HTMLMediaElement, loudnessDb: number | undefined): void {
-    if (!settings.loudnessNormalization && !settings.equalizerEnabled) return;
+    if (
+      !settings.loudnessNormalization &&
+      !settings.equalizerEnabled &&
+      !settings.volumeBoostEnabled
+    )
+      return;
     const graph = createAudioGraph(media);
     if (!graph) return;
     const gain = applyGraphSettings(graph, settings, loudnessDb);
@@ -769,6 +784,7 @@ export default defineUnlistedScript(() => {
     log('audio.graph', {
       loudness: settings.loudnessNormalization,
       eq: settings.equalizerEnabled,
+      boost: settings.volumeBoostEnabled,
     });
     publishAudioGraphBench(gain, graph);
   }
@@ -1113,6 +1129,11 @@ function parseSettings(value: unknown): PageSettingsSnapshot | null {
     !candidate.equalizerBands.every(
       (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
     ) ||
+    typeof candidate.volumeBoostEnabled !== 'boolean' ||
+    typeof candidate.volumeBoostAmount !== 'number' ||
+    !Number.isFinite(candidate.volumeBoostAmount) ||
+    candidate.volumeBoostAmount < 1 ||
+    candidate.volumeBoostAmount > 3 ||
     typeof candidate.downloadEnabled !== 'boolean'
   ) {
     return null;
@@ -1132,6 +1153,8 @@ function parseSettings(value: unknown): PageSettingsSnapshot | null {
     loudnessNormalization: candidate.loudnessNormalization,
     equalizerEnabled: candidate.equalizerEnabled,
     equalizerBands: candidate.equalizerBands,
+    volumeBoostEnabled: candidate.volumeBoostEnabled,
+    volumeBoostAmount: candidate.volumeBoostAmount,
     downloadEnabled: candidate.downloadEnabled,
   };
 }

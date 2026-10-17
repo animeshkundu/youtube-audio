@@ -17,6 +17,7 @@ class FakeMedia {
   readyState = 1;
   play = vi.fn(() => Promise.resolve());
   addEventListener = vi.fn();
+  removeEventListener = vi.fn();
 
   get src() {
     return this.source;

@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ANDROID_CLIENT,
   ANDROID_VR_CLIENT,
   buildAndroidVrPlayerRequest,
   buildPlayerRequest,
   extractVisitorData,
   getPlayability,
+  IOS_CLIENT,
   isLiveStream,
   MEDIA_CLIENTS,
+  MWEB_CLIENT,
   pickBestAudioFormat,
   pickBestAudioUrl,
   retryVisitorData,
@@ -57,11 +60,20 @@ describe('buildAndroidVrPlayerRequest', () => {
 });
 
 describe('media-client table (SPEC-014, ADR-0012)', () => {
-  it('orders VISIONOS first and ANDROID_VR second', () => {
-    expect(MEDIA_CLIENTS.map((entry) => entry.id)).toEqual(['visionos', 'android-vr']);
+  it('orders VISIONOS first, ANDROID_VR second, then IOS, ANDROID, MWEB', () => {
+    expect(MEDIA_CLIENTS.map((entry) => entry.id)).toEqual([
+      'visionos',
+      'android-vr',
+      'ios',
+      'android',
+      'mweb',
+    ]);
     expect(MEDIA_CLIENTS.map((entry) => entry.client)).toEqual([
       VISIONOS_CLIENT,
       ANDROID_VR_CLIENT,
+      IOS_CLIENT,
+      ANDROID_CLIENT,
+      MWEB_CLIENT,
     ]);
   });
 
@@ -89,6 +101,77 @@ describe('media-client table (SPEC-014, ADR-0012)', () => {
     });
     expect(request.context.client.userAgent).toContain('Safari/605.1.15');
     expect(VISIONOS_CLIENT).not.toHaveProperty('visitorData');
+  });
+
+  it('pins the IOS persona to the yt-dlp definition', () => {
+    expect(IOS_CLIENT).toEqual({
+      clientName: 'IOS',
+      clientVersion: '21.26.4',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      userAgent: 'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+      hl: 'en',
+      gl: 'US',
+    });
+  });
+
+  it('builds an IOS body with the user agent inside the client context', () => {
+    const request = buildPlayerRequest(IOS_CLIENT, 'abc', 'visitor-token');
+
+    expect(request.context.client).toMatchObject({
+      clientName: 'IOS',
+      visitorData: 'visitor-token',
+    });
+    expect(request.context.client.userAgent).toContain('com.google.ios.youtube');
+    expect(IOS_CLIENT).not.toHaveProperty('visitorData');
+  });
+
+  it('pins the ANDROID persona to the yt-dlp definition', () => {
+    expect(ANDROID_CLIENT).toEqual({
+      clientName: 'ANDROID',
+      clientVersion: '21.26.364',
+      osName: 'Android',
+      osVersion: '11',
+      androidSdkVersion: 30,
+      userAgent: 'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      hl: 'en',
+      gl: 'US',
+    });
+  });
+
+  it('builds an ANDROID body with the user agent inside the client context', () => {
+    const request = buildPlayerRequest(ANDROID_CLIENT, 'abc', 'visitor-token');
+
+    expect(request.context.client).toMatchObject({
+      clientName: 'ANDROID',
+      visitorData: 'visitor-token',
+    });
+    expect(request.context.client.userAgent).toContain('com.google.android.youtube');
+    expect(ANDROID_CLIENT).not.toHaveProperty('visitorData');
+  });
+
+  it('pins the MWEB persona to the yt-dlp definition', () => {
+    expect(MWEB_CLIENT).toEqual({
+      clientName: 'MWEB',
+      clientVersion: '2.20260708.05.00',
+      userAgent:
+        'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)',
+      hl: 'en',
+      gl: 'US',
+    });
+  });
+
+  it('builds an MWEB body with the user agent inside the client context', () => {
+    const request = buildPlayerRequest(MWEB_CLIENT, 'abc', 'visitor-token');
+
+    expect(request.context.client).toMatchObject({
+      clientName: 'MWEB',
+      visitorData: 'visitor-token',
+    });
+    expect(request.context.client.userAgent).toContain('Safari/604.1');
+    expect(MWEB_CLIENT).not.toHaveProperty('visitorData');
   });
 
   it('keeps the ANDROID_VR compatibility wrapper equivalent to the generic builder', () => {
@@ -307,15 +390,27 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       reply(loginRequired('t2')),
       reply(loginRequired('t3')),
       reply(loginRequired('t4')),
+      reply(loginRequired('t5')),
+      reply(loginRequired('t6')),
+      reply(loginRequired('t7')),
+      reply(loginRequired('t8')),
+      reply(loginRequired('t9')),
+      reply(loginRequired('t10')),
     ]);
 
     await expect(outcome).resolves.toMatchObject({ kind: 'failed', reason: 'LOGIN_REQUIRED' });
-    // Four attempts total and no fifth: a broken cap would ask for an unscripted reply.
+    // Ten attempts total (two per client) and no eleventh: a broken cap would ask for an unscripted reply.
     expect(calls).toEqual([
       { clientName: 'VISIONOS', visitorData: null },
       { clientName: 'VISIONOS', visitorData: 't1' },
       { clientName: 'ANDROID_VR', visitorData: null },
       { clientName: 'ANDROID_VR', visitorData: 't3' },
+      { clientName: 'IOS', visitorData: null },
+      { clientName: 'IOS', visitorData: 't5' },
+      { clientName: 'ANDROID', visitorData: null },
+      { clientName: 'ANDROID', visitorData: 't7' },
+      { clientName: 'MWEB', visitorData: null },
+      { clientName: 'MWEB', visitorData: 't9' },
     ]);
   });
 
@@ -324,6 +419,9 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       reply(loginRequired('same')),
       reply(loginRequired('same')),
       reply(loginRequired()),
+      reply(loginRequired()),
+      reply(loginRequired()),
+      reply(loginRequired()),
     ]);
 
     await expect(outcome).resolves.toMatchObject({ kind: 'failed' });
@@ -331,6 +429,9 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
       { clientName: 'VISIONOS', visitorData: null },
       { clientName: 'VISIONOS', visitorData: 'same' },
       { clientName: 'ANDROID_VR', visitorData: null },
+      { clientName: 'IOS', visitorData: null },
+      { clientName: 'ANDROID', visitorData: null },
+      { clientName: 'MWEB', visitorData: null },
     ]);
   });
 
@@ -385,15 +486,21 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
   it('keeps the last playable response when every client refuses a direct URL', async () => {
     const first = playable('https://not-allowed.example/one');
     const second = playable('https://not-allowed.example/two');
-    const { outcome } = runWalk([reply(first), reply(second)], { allow: () => false });
+    const third = playable('https://not-allowed.example/three');
+    const fourth = playable('https://not-allowed.example/four');
+    const fifth = playable('https://not-allowed.example/five');
+    const { outcome } = runWalk(
+      [reply(first), reply(second), reply(third), reply(fourth), reply(fifth)],
+      { allow: () => false }
+    );
 
     const result = await outcome;
     expect(result).toMatchObject({
       kind: 'failed',
       reason: 'no-direct-audio',
-      lastPlayable: second,
+      lastPlayable: fifth,
     });
-    if (result.kind === 'failed') expect(result.lastParsed).toBe(second);
+    if (result.kind === 'failed') expect(result.lastParsed).toBe(fifth);
   });
 
   it('aborts as stale when the operation is superseded mid-walk', async () => {

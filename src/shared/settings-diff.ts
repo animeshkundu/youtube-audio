@@ -23,6 +23,8 @@ export interface PageSettingsSnapshot {
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
+  volumeBoostEnabled: boolean;
+  volumeBoostAmount: number;
   downloadEnabled: boolean;
 }
 
@@ -101,6 +103,8 @@ export function pageSubsystemReArm(
       'loudnessNormalization',
       'equalizerEnabled',
       'equalizerBands',
+      'volumeBoostEnabled',
+      'volumeBoostAmount',
     ]),
   };
 }

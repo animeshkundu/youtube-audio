@@ -71,6 +71,44 @@ export const PERSONAS = [
       gl: 'US',
     },
   },
+  {
+    id: 'ios',
+    client: {
+      clientName: 'IOS',
+      clientVersion: '21.26.4',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      userAgent: 'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    id: 'android',
+    client: {
+      clientName: 'ANDROID',
+      clientVersion: '21.26.364',
+      osName: 'Android',
+      osVersion: '11',
+      androidSdkVersion: 30,
+      userAgent: 'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    id: 'mweb',
+    client: {
+      clientName: 'MWEB',
+      clientVersion: '2.20260708.05.00',
+      userAgent:
+        'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
 ];
 
 const videos = process.argv.slice(2).filter(Boolean);

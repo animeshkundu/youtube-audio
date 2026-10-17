@@ -35,6 +35,38 @@ export const ANDROID_VR_CLIENT = Object.freeze({
   gl: 'US',
 });
 
+export const IOS_CLIENT = Object.freeze({
+  clientName: 'IOS',
+  clientVersion: '21.26.4',
+  deviceMake: 'Apple',
+  deviceModel: 'iPhone16,2',
+  osName: 'iPhone',
+  osVersion: '18.3.2.22D82',
+  userAgent: 'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+  hl: 'en',
+  gl: 'US',
+});
+
+export const ANDROID_CLIENT = Object.freeze({
+  clientName: 'ANDROID',
+  clientVersion: '21.26.364',
+  osName: 'Android',
+  osVersion: '11',
+  androidSdkVersion: 30,
+  userAgent: 'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+  hl: 'en',
+  gl: 'US',
+});
+
+export const MWEB_CLIENT = Object.freeze({
+  clientName: 'MWEB',
+  clientVersion: '2.20260708.05.00',
+  userAgent:
+    'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)',
+  hl: 'en',
+  gl: 'US',
+});
+
 export interface MediaClientPersona {
   clientName: string;
   clientVersion: string;
@@ -48,17 +80,20 @@ export interface MediaClientPersona {
   gl: string;
 }
 
-export type MediaClientId = 'visionos' | 'android-vr';
+export type MediaClientId = 'visionos' | 'android-vr' | 'ios' | 'android' | 'mweb';
 
 export interface MediaClientDescriptor {
   readonly id: MediaClientId;
   readonly client: MediaClientPersona;
 }
 
-/** Ordered attempt table. The order is the feature: primary first, fallback second. */
+/** Ordered attempt table. The order is the feature: primary first, fallbacks after. */
 export const MEDIA_CLIENTS: readonly MediaClientDescriptor[] = Object.freeze([
   { id: 'visionos', client: VISIONOS_CLIENT },
   { id: 'android-vr', client: ANDROID_VR_CLIENT },
+  { id: 'ios', client: IOS_CLIENT },
+  { id: 'android', client: ANDROID_CLIENT },
+  { id: 'mweb', client: MWEB_CLIENT },
 ]);
 
 export type PlayerClient = MediaClientPersona & {
@@ -284,7 +319,8 @@ export type MediaClientWalkOutcome =
 
 /**
  * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012): VISIONOS first,
- * ANDROID_VR second, at most two HTTP attempts per client (the initial request plus one retry
+ * then ANDROID_VR, IOS, ANDROID, MWEB (unciphered clients, Phase A of the audio-only fallback
+ * chain), at most two HTTP attempts per client (the initial request plus one retry
  * carrying fresh `visitorData` harvested from the previous response). A live response is terminal:
  * liveness is a property of the broadcast, not of the client, so no other client can change it.
  * Acceptance requires a playable response whose best audio URL passes the injected allowlist;

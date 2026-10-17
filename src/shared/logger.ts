@@ -153,7 +153,7 @@ const LOG_SCHEMA: Record<LogCode, Record<string, Validator>> = {
     playable: bool,
     duration: enumOf(DURATION_BUCKETS),
   },
-  'media.client': { client: enumOf(MEDIA_CLIENT_IDS), attempt: boundedInt(1, 8) },
+  'media.client': { client: enumOf(MEDIA_CLIENT_IDS), attempt: boundedInt(1, 12) },
   'audio.graph': { loudness: bool, eq: bool },
   'segment.armed': { count: boundedInt(0, 1000) },
   'download.result': { ok: bool, reason: enumOrHttp(DOWNLOAD_REASONS) },

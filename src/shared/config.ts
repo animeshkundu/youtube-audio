@@ -24,6 +24,8 @@ export interface ExtensionSettings {
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
+  volumeBoostEnabled: boolean;
+  volumeBoostAmount: number;
   downloadEnabled: boolean;
 }
 
@@ -37,6 +39,7 @@ export type QualityOfLifeSetting =
   | 'hideThumbnails'
   | 'hideAvatars';
 export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled';
+export type VolumeBoostSetting = 'volumeBoostEnabled' | 'volumeBoostAmount';
 export type DownloadSetting = 'downloadEnabled';
 
 const STORAGE_KEY = 'settings';
@@ -51,7 +54,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   aggressiveTelemetry: false,
   adBlockEnabled: true,
   segmentSkipEnabled: false,
-  segmentSkipCategories: SPONSOR_CATEGORIES,
+  segmentSkipCategories: ['sponsor', 'music_offtopic'],
   forceQualityMax: 'off',
   disableAutoplayNext: false,
   hideShorts: false,
@@ -62,6 +65,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   loudnessNormalization: true,
   equalizerEnabled: false,
   equalizerBands: FLAT_EQUALIZER,
+  volumeBoostEnabled: false,
+  volumeBoostAmount: 1,
   downloadEnabled: false,
 };
 
@@ -146,6 +151,15 @@ export async function setQualityOfLifeSetting(
 
 export async function setMusicSetting(setting: MusicSetting, enabled: boolean): Promise<void> {
   await persistSettings({ ...currentSettings, [setting]: enabled });
+}
+
+export async function setVolumeBoostEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, volumeBoostEnabled: enabled });
+}
+
+export async function setVolumeBoostAmount(amount: number): Promise<void> {
+  const clamped = Number.isFinite(amount) ? Math.min(3, Math.max(1, amount)) : 1;
+  await persistSettings({ ...currentSettings, volumeBoostAmount: clamped });
 }
 
 export async function setDownloadEnabled(enabled: boolean): Promise<void> {
@@ -295,6 +309,15 @@ function normalizeSettings(value: unknown): ExtensionSettings {
         ? candidate.equalizerEnabled
         : DEFAULT_SETTINGS.equalizerEnabled,
     equalizerBands: normalizeEqualizerBands(candidate.equalizerBands),
+    volumeBoostEnabled:
+      typeof candidate.volumeBoostEnabled === 'boolean'
+        ? candidate.volumeBoostEnabled
+        : DEFAULT_SETTINGS.volumeBoostEnabled,
+    volumeBoostAmount:
+      typeof candidate.volumeBoostAmount === 'number' &&
+      Number.isFinite(candidate.volumeBoostAmount)
+        ? Math.min(3, Math.max(1, candidate.volumeBoostAmount))
+        : DEFAULT_SETTINGS.volumeBoostAmount,
     downloadEnabled:
       typeof candidate.downloadEnabled === 'boolean'
         ? candidate.downloadEnabled
