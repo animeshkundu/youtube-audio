@@ -199,6 +199,8 @@ export default defineUnlistedScript(() => {
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
   let qualityOfLifeCleanup: () => void = () => undefined;
+  let stallRetryCount = 0;
+  let stallListenerCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
@@ -405,6 +407,8 @@ export default defineUnlistedScript(() => {
     const operation = startPlaybackOperation();
     disposeAudioGraph();
     if (!next.enabled) {
+      stallListenerCleanup();
+      stallListenerCleanup = () => undefined;
       emitStatus('disabled', operation);
       return;
     }
@@ -588,6 +592,9 @@ export default defineUnlistedScript(() => {
 
   observeYouTubeSpa(() => {
     log('spa.rearm');
+    stallRetryCount = 0;
+    stallListenerCleanup();
+    stallListenerCleanup = () => undefined;
     const operation = startPlaybackOperation();
     restartSegmentSkipping();
     qualityOfLifeCleanup();
@@ -795,6 +802,44 @@ export default defineUnlistedScript(() => {
           });
         }
         emitStatus('active', operation);
+        // Bounded stall retry (fail-open): if the hijacked audio stalls, re-fetch and re-attach
+        // at most twice. After that, emit fallback and let YouTube's native player take over.
+        // Never retries on `ended` or `pause` (those are normal, not stalls).
+        stallRetryCount = 0;
+        stallListenerCleanup();
+        const media = mediaElement;
+        const stallVideoId = operation.videoId;
+        const gen = operationGeneration;
+        const onStalled = () => {
+          try {
+            if (gen !== player.generation || getVideoId() !== stallVideoId) return;
+            if (stallRetryCount >= 2) {
+              log('error', { where: 'page.stall-exhausted' });
+              emitStatus('fallback', operation, 'stall-exhausted');
+              stallListenerCleanup();
+              return;
+            }
+            stallRetryCount += 1;
+            log('error', { where: 'page.stall-retry', attempt: stallRetryCount });
+            const retryOperation = startPlaybackOperation();
+            void activateEnhancements(retryOperation);
+          } catch {
+            // Fail open: leave native playback in control.
+            emitStatus('fallback', operation, 'stall-error');
+            stallListenerCleanup();
+          }
+        };
+        media.addEventListener('stalled', onStalled);
+        media.addEventListener('waiting', onStalled);
+        stallListenerCleanup = () => {
+          try {
+            media.removeEventListener('stalled', onStalled);
+            media.removeEventListener('waiting', onStalled);
+          } catch {
+            // Fail open.
+          }
+          stallListenerCleanup = () => undefined;
+        };
       } else {
         emitStatus('fallback', operation, 'media-attach-failed');
       }
