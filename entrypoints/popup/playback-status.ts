@@ -20,6 +20,7 @@ import {
   STATUS_CHANGED_MESSAGE,
   type PlaybackUiState,
 } from '../../src/shared/status';
+import { requireWithin } from '../../src/shared/timers';
 
 const GET_STATUS_TIMEOUT_MS = 1_500;
 
@@ -35,20 +36,12 @@ function isStatusChanged(message: unknown): message is { type: string; state: Pl
   );
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      setTimeout(() => reject(new Error('status-timeout')), ms);
-    }),
-  ]);
-}
-
 async function fetchInitialStatus(): Promise<void> {
   try {
-    const state = await withTimeout(
+    const state = await requireWithin(
       browser.runtime.sendMessage({ type: GET_STATUS_MESSAGE }) as Promise<unknown>,
-      GET_STATUS_TIMEOUT_MS
+      GET_STATUS_TIMEOUT_MS,
+      'status-timeout'
     );
     if (isPlaybackUiState(state)) playbackStatusSignal.value = state;
   } catch {

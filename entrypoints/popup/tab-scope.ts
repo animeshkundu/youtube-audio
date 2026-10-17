@@ -17,26 +17,19 @@ import {
   SET_TAB_SCOPE_MESSAGE,
   type TabAudioOnlyOverride,
 } from '../../src/shared/tab-scope';
+import { requireWithin } from '../../src/shared/timers';
 
 const TAB_SCOPE_TIMEOUT_MS = 1_500;
 
 /** The active tab's audio-only override; `null` means "follow the global preference". */
 export const tabAudioOnlyOverrideSignal = signal<TabAudioOnlyOverride>(null);
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      setTimeout(() => reject(new Error('tab-scope-timeout')), ms);
-    }),
-  ]);
-}
-
 async function fetchInitialTabScope(): Promise<void> {
   try {
-    const reply = await withTimeout(
+    const reply = await requireWithin(
       browser.runtime.sendMessage({ type: GET_TAB_SCOPE_MESSAGE }) as Promise<unknown>,
-      TAB_SCOPE_TIMEOUT_MS
+      TAB_SCOPE_TIMEOUT_MS,
+      'tab-scope-timeout'
     );
     const parsed = parseTabScopeReply(reply);
     if (parsed) tabAudioOnlyOverrideSignal.value = parsed.audioOnly;

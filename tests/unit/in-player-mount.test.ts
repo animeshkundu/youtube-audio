@@ -39,6 +39,44 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'visibilityState');
 });
 
+/** Manual animation-frame pump for observer tests (SPEC-018). */
+function stubManualFrames(): { frames: Map<number, FrameRequestCallback>; pump: () => void } {
+  const frames = new Map<number, FrameRequestCallback>();
+  let calls = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    calls += 1;
+    frames.set(calls, callback);
+    return calls;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (handle: number) => frames.delete(handle));
+  return {
+    frames,
+    // The reconciler's own DOM writes re-trigger the player observer, so drain bounded rounds.
+    pump: () => {
+      for (let round = 0; round < 5 && frames.size > 0; round += 1) {
+        const callbacks = Array.from(frames.values());
+        frames.clear();
+        for (const callback of callbacks) callback(16);
+      }
+    },
+  };
+}
+
+/** Storage stub that keeps the one-time audio-only coach quiet in observer tests. */
+function stubSeenCoachStorage(): void {
+  vi.stubGlobal('browser', {
+    storage: {
+      local: {
+        get: vi.fn(async () => ({ seenAudioOnlyCoach: true })),
+        set: vi.fn(async () => undefined),
+      },
+    },
+  });
+}
+
+/** Lets queued MutationObserver records (microtasks) deliver before assertions. */
+const settleObserverRecords = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe('requestDataConsent', () => {
   it('returns a validated background reply', async () => {
     const sendMessage = vi.fn(async () => ({
@@ -134,6 +172,51 @@ describe('in-player observer scheduling', () => {
     expect(requestFrame).toHaveBeenCalledTimes(2);
     frames.get(2)?.(32);
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('filters document churn: only player-replacing batches re-arm the lookup', async () => {
+    const { frames, pump } = stubManualFrames();
+    stubSeenCoachStorage();
+    createDesktopPlayer();
+
+    const cleanup = installPlayerControls('test-nonce');
+    pump();
+    await settleObserverRecords();
+    pump();
+    await settleObserverRecords();
+    frames.clear();
+
+    // Routine churn outside the player must not schedule any lookup (SPEC-018 scope filter).
+    document.body.append(document.createElement('div'));
+    await settleObserverRecords();
+    expect(frames.size).toBe(0);
+
+    // Detaching the player is the cheap connectivity check: exactly one reconnect frame.
+    document.querySelector('#movie_player')?.remove();
+    await settleObserverRecords();
+    expect(frames.size).toBe(1);
+    cleanup();
+  });
+
+  it('detects a player that appears after mount through the added-node filter', async () => {
+    const { frames, pump } = stubManualFrames();
+    stubSeenCoachStorage();
+    document.body.innerHTML = '';
+
+    const cleanup = installPlayerControls('test-nonce');
+    pump();
+    await settleObserverRecords();
+    pump();
+    await settleObserverRecords();
+    frames.clear();
+
+    createDesktopPlayer();
+    await settleObserverRecords();
+    expect(frames.size).toBe(1);
+
+    pump();
+    expect(document.querySelector('#yta-audio-only-toggle')).not.toBeNull();
+    cleanup();
   });
 
   it('disconnects both observers while hidden and reconnects them when visible', () => {

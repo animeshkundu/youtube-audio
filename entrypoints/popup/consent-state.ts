@@ -13,27 +13,20 @@ import {
   parseDataConsentMessage,
   type DataConsentState,
 } from '../../src/shared/consent';
+import { requireWithin } from '../../src/shared/timers';
 
 const GET_CONSENT_TIMEOUT_MS = 1_500;
 
 /** The popup's resolved consent state; null means "still asking the background". */
 export const consentSignal = signal<DataConsentState | null>(null);
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      setTimeout(() => reject(new Error('consent-timeout')), ms);
-    }),
-  ]);
-}
-
 /** Asks the background for the resolved state; safe to call once on popup open. */
 export async function refreshConsent(): Promise<void> {
   try {
-    const reply = await withTimeout(
+    const reply = await requireWithin(
       browser.runtime.sendMessage({ type: GET_DATA_CONSENT_MESSAGE }) as Promise<unknown>,
-      GET_CONSENT_TIMEOUT_MS
+      GET_CONSENT_TIMEOUT_MS,
+      'consent-timeout'
     );
     consentSignal.value = parseDataConsentMessage(reply) ?? DENIED_DATA_CONSENT;
   } catch {

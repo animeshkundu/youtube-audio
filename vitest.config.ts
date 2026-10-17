@@ -29,6 +29,7 @@ export default defineConfig({
         'src/shared/status.ts',
         'src/shared/tab-scope.ts',
         'src/shared/telemetry.ts',
+        'src/shared/timers.ts',
       ],
       provider: 'v8',
       reporter: ['text', 'json-summary'],

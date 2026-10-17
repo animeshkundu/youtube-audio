@@ -65,6 +65,7 @@ import {
   TAB_SCOPE_CHANGED_MESSAGE,
   type TabAudioOnlyOverride,
 } from '../src/shared/tab-scope';
+import { withTimeout } from '../src/shared/timers';
 
 declare const __BENCH__: boolean;
 
@@ -427,15 +428,6 @@ function messageType(message: unknown): string | undefined {
   if (typeof message !== 'object' || message === null) return undefined;
   const { type } = message as { type?: unknown };
   return typeof type === 'string' ? type : undefined;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => {
-      setTimeout(() => resolve(fallback), ms);
-    }),
-  ]);
 }
 
 async function getActiveTab(): Promise<browser.tabs.Tab | null> {

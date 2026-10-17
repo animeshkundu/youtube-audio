@@ -538,19 +538,21 @@ export function installPlayerControls(bridgeNonce: string): () => void {
     if (observersActive) reconnectPlayerObserver();
   });
   const mutationMayReplacePlayer = (records: readonly MutationRecord[]): boolean => {
+    // Cheap checks first (SPEC-018). A detached observed player is the strongest replacement signal
+    // and needs no record walk; it also covers every removal path, because detaching any ancestor
+    // disconnects the player, so a removed-node scan could only re-find an already-disconnected
+    // reference. The added-node scan is the one path that can surface a replacement while the
+    // observed reference is still connectable.
     if (observedPlayer && !observedPlayer.isConnected) return true;
     const containsPlayer = (node: Node) =>
       node instanceof Element &&
       (node.matches(playerSelector) || node.querySelector(playerSelector) !== null);
-    return records.some(
-      (record) =>
-        Array.from(record.addedNodes).some(containsPlayer) ||
-        Array.from(record.removedNodes).some(
-          (node) =>
-            containsPlayer(node) ||
-            (observedPlayer !== null && node instanceof Element && node.contains(observedPlayer))
-        )
-    );
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (containsPlayer(node)) return true;
+      }
+    }
+    return false;
   };
 
   const stopObservers = () => {
