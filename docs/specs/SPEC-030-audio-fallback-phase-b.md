@@ -67,6 +67,12 @@ When the response contains `signatureCipher` instead of `url`:
 - Unit: base.js parsing (signatureTimestamp extraction, cipher function extraction).
 - Bench: age-restricted video fixture → TVHTML5 client returns audio URL → hijack.
 - Bench: age-restricted video → cipher fails → fallback to native.
+- Live canary: `tests/e2e/probe-live-client-audit.mjs` sends the tvhtml5 persona the exact
+  extras the extension sends (`signatureTimestamp` + `thirdParty.embedUrl`) and reports
+  `audio+cipher` counts separately, so the row measures client liveness rather than
+  decode yield (decoding stays in-extension). `tests/unit/probe-tvhtml5-sync.test.mjs`
+  pins the probe's body builder and extraction patterns against `buildPlayerRequest` and
+  `src/shared/cipher.ts`.
 
 ## 5. Implementation phases
 

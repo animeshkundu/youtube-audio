@@ -2685,7 +2685,7 @@ async function main() {
     record(
       'm5:download-enabled-initiates-selected-audio',
       downloadEnabled.downloadButtonVisible === true &&
-        downloadData?.filename === 'Fixture Watch Page.m4a' &&
+        downloadData?.filename === 'Fixture Artist - Fixture Watch Page.m4a' &&
         typeof downloadData?.url === 'string' &&
         downloadData.url.includes('/videoplayback?itag=140'),
       { visible: downloadEnabled.downloadButtonVisible, download: downloadData }

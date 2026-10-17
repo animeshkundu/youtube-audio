@@ -147,6 +147,20 @@ export default defineConfig({
             ...(BENCH ? [SPONSORBLOCK_ORIGIN, ...BENCH_MATCHES] : []),
           ]
         : undefined,
+    // MV3-only: the content script loads main-world.js through a page-context `<script src>`
+    // (see wxt `injectScript`: MV3 uses `src`, MV2 inline-injects fetched text), so the file must
+    // be web-accessible or the MAIN-world fetch/hijack never runs in the MV3 artifact. Bench
+    // builds widen the matches to the local fixture hosts, matching the content-script scope.
+    ...(manifestVersion === 3
+      ? {
+          web_accessible_resources: [
+            {
+              resources: ['main-world.js'],
+              matches: [...YOUTUBE_MATCHES, ...(BENCH ? BENCH_MATCHES : [])],
+            },
+          ],
+        }
+      : {}),
     browser_specific_settings: {
       gecko: {
         id: FIREFOX_EXTENSION_ID,

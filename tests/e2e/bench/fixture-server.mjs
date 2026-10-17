@@ -100,6 +100,14 @@ Qq=function(a){a=a.split("");Yd(a);XW(a,2);return a.join("")};
 signatureTimestamp:12345;
 `;
 
+/**
+ * Video details the fixture serves. The m5 bench case asserts the download filename the
+ * extension builds from these via `buildAudioFilename` (SPEC-025); the sync test
+ * `tests/unit/download-fixture-sync.test.mjs` pins that expectation to this source.
+ */
+export const FIXTURE_VIDEO_TITLE = 'Fixture Watch Page';
+export const FIXTURE_VIDEO_AUTHOR = 'Fixture Artist';
+
 /** The full fixture InnerTube /player response. */
 function fixturePlayerResponse(origin, videoId, opts = {}) {
   const live = !!opts.live;
@@ -120,8 +128,8 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
         : { status: 'OK', playableInEmbed: true },
     videoDetails: {
       videoId: videoId || 'FIXTURE0001',
-      title: 'Fixture Watch Page',
-      author: 'Fixture Artist',
+      title: FIXTURE_VIDEO_TITLE,
+      author: FIXTURE_VIDEO_AUTHOR,
       lengthSeconds: '215',
       thumbnail: {
         thumbnails: [

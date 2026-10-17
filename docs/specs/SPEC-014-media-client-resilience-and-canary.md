@@ -89,7 +89,9 @@ Acceptance logs exactly one `media.client` event: `{ client: 'visionos' | 'andro
   credentialless player request with the page's own `INNERTUBE_API_KEY` and `VISITOR_DATA`
   (extracted from watch-page HTML; env overrides available), then ranged-download the best audio
   URL up to 8 MiB or the declared `contentLength`, reporting HTTP status, bytes, and a clean/error
-  verdict. Signed URLs are never printed.
+  verdict. Signed URLs are never printed. The tvhtml5 persona additionally carries the
+  extension's `signatureTimestamp` + `thirdParty.embedUrl` extras (recovered from the page's own
+  base.js), and ciphered audio formats are reported as a separate `audio+cipher` count.
 - `.github/workflows/live-canary.yml` drops `continue-on-error`, so a red probe is a red run
   (still not a required check), and uploads the probe log as an artifact plus a step summary.
 
