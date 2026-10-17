@@ -30,6 +30,7 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Playback that stays awake.** YouTube's "are you still there?" pause no longer interrupts audio-only listening, including long background sessions.
 - **Nothing extra at install.** The SponsorBlock lookup and the file-download ability now ask for their access at the moment you switch each one on, and only then. Say no, and everything else keeps working.
 - **Honest while a choice is pending.** Until you accept the data notice, the popup points you straight to it instead of showing switches that could not do anything yet.
+- **Cleans up when switched off.** Disabling or updating the extension takes its tweaks back out of pages that are already open and hands playback back to YouTube.
 
 ## Good to know
 

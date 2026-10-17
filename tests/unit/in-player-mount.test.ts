@@ -10,6 +10,7 @@ import {
   installPlayerControls,
   nextStatusRunStart,
   reconcileInPlayerControls,
+  removeInPlayerControls,
   requestDataConsent,
 } from '../../entrypoints/content';
 
@@ -529,6 +530,48 @@ describe('reconcileInPlayerControls', () => {
     expect(offResult?.audioOnlyButton.getAttribute('aria-pressed')).toBe('false');
     expect(offResult?.audioOnlyButton.querySelector('.yta-audio-only-slash')).toBe(slash);
     expect(slash?.hasAttribute('hidden')).toBe(false);
+  });
+});
+
+describe('removeInPlayerControls', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  it('removes every extension-owned node and leaves the page alone', () => {
+    const { player } = createDesktopPlayer();
+    reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: true,
+      mobile: false,
+    });
+    const style = document.createElement('style');
+    style.id = 'yta-player-control-style';
+    const tooltip = document.createElement('div');
+    tooltip.id = 'yta-audio-only-tooltip';
+    const toast = document.createElement('div');
+    toast.id = 'yta-segment-toast';
+    const coach = document.createElement('div');
+    coach.id = 'yta-audio-only-coach';
+    document.body.append(style, tooltip, toast, coach);
+    const foreign = document.createElement('div');
+    foreign.id = 'not-ours';
+    document.body.append(foreign);
+
+    expect(document.querySelectorAll('[id^="yta-"]').length).toBeGreaterThan(0);
+    removeInPlayerControls();
+
+    expect(document.querySelectorAll('[id^="yta-"]')).toHaveLength(0);
+    expect(document.getElementById('not-ours')).toBe(foreign);
+    expect(document.querySelector('.ytp-settings-button')).not.toBeNull();
+  });
+
+  it('is a no-op when nothing was installed', () => {
+    expect(() => removeInPlayerControls()).not.toThrow();
+    expect(document.querySelectorAll('[id^="yta-"]')).toHaveLength(0);
   });
 });
 

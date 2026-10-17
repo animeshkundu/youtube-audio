@@ -339,7 +339,7 @@ function visibilityProbeScript() {
  * One fresh-profile browser session against the fixture watch page.
  * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
- *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
+ *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean, probeTeardown?: boolean,
  *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
  *           probeIdleNag?: 'confirmed' | 'untouched', probeFallbackQuality?: boolean,
  *           origin: string, resetLog: () => void }} opts
@@ -366,6 +366,7 @@ export async function runSession({
   probeElementSwap,
   probeToggleOffReclaim,
   probeRapidRetoggle,
+  probeTeardown,
   frameHost,
   probeEmbedFrame,
   probeTabScope,
@@ -982,6 +983,79 @@ export async function runSession({
       spaLeak = { before, after, navigations, snapshots };
     }
 
+    let teardown = null;
+    if (probeTeardown) {
+      // Best-effort teardown (SPEC-021). The harness cannot disable a real add-on mid-session, so
+      // this drives the exact control message the background broadcasts from `runtime.onSuspend`
+      // (disable/update) to every tab, from the extension's own options page, and asserts the
+      // observable teardown: the page world runs its disable path (native playback reclaimed), the
+      // content script removes every node it owns, and the stored preferences are never rewritten.
+      const teardownContext = {};
+      const withOptionsTab = async (script, ...args) => {
+        const returnHandle = await driver.getWindowHandle();
+        if (teardownContext.optionsHandle) {
+          await driver.switchTo().window(teardownContext.optionsHandle);
+        } else {
+          await driver.switchTo().newWindow('tab');
+          teardownContext.optionsHandle = await driver.getWindowHandle();
+          await driver.get(OPTIONS_URL);
+        }
+        try {
+          return await driver.executeAsyncScript(script, ...args);
+        } finally {
+          await driver.switchTo().window(returnHandle);
+        }
+      };
+      const frozen =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.status === 'active' && state.audioOnlyTogglePresent === true ? state : null;
+        }, 8000, 50)) || (await driver.executeScript(snapshotScript));
+      const reclaimCallBaseline = frozen.nativeReclaimCalls.length;
+      const broadcast = await withOptionsTab(function (messageType) {
+        const done = arguments[arguments.length - 1];
+        browser.tabs
+          .query({})
+          .then((tabs) =>
+            Promise.all(
+              tabs.map((tab) =>
+                typeof tab.id === 'number'
+                  ? browser.tabs.sendMessage(tab.id, { type: messageType }).catch(() => undefined)
+                  : undefined
+              )
+            )
+          )
+          .then(() => browser.storage.local.get('settings'))
+          .then((stored) => done({ ok: true, settings: stored?.settings ?? null }))
+          .catch((error) => done({ ok: false, error: String(error) }));
+      }, 'yta:teardown');
+      const settled =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          const calls = state.nativeReclaimCalls.slice(reclaimCallBaseline);
+          return state.status === 'disabled' &&
+            state.audioOnlyTogglePresent === false &&
+            state.ytaNodeCount === 0 &&
+            state.videoDeclaredSrc?.includes('/native-video?') &&
+            calls.some((call) => call.method === 'loadVideoById')
+            ? state
+            : null;
+        }, 8000, 50)) || (await driver.executeScript(snapshotScript));
+      teardown = {
+        frozen,
+        reclaimCallBaseline,
+        broadcast: {
+          ok: broadcast?.ok === true,
+          error: broadcast?.error ?? null,
+          storedEnabled:
+            broadcast?.settings && typeof broadcast.settings === 'object'
+              ? broadcast.settings.enabled
+              : null,
+        },
+        settled,
+      };
+    }
+
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
 
@@ -1275,6 +1349,7 @@ export async function runSession({
       statusMap,
       toggleOffReclaim,
       rapidRetoggle,
+      teardown,
       embedFrame,
       tabScope,
       idleNag,
@@ -1565,6 +1640,39 @@ async function main() {
         final: rapid?.final,
         calls: rapidCalls,
         stalePausesAfterRehijack: staleRapidPauses,
+      }
+    );
+
+    // --- best-effort teardown message (SPEC-021) ------------------------------
+    const teardownRun = await runSession({
+      withAddon: true,
+      seedSettings: { ...reclaimSeedSettings, hideShorts: true, hideThumbnails: true },
+      probeTeardown: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const teardown = teardownRun.teardown;
+    const teardownCalls =
+      teardown?.settled?.nativeReclaimCalls.slice(teardown.reclaimCallBaseline) || [];
+    record(
+      'm1:teardown-message-removes-everything',
+      teardown?.frozen?.status === 'active' &&
+        teardown.broadcast.ok === true &&
+        teardown.broadcast.storedEnabled === true &&
+        teardown.settled.status === 'disabled' &&
+        teardown.settled.audioOnlyTogglePresent === false &&
+        teardown.settled.ytaNodeCount === 0 &&
+        typeof teardown.settled.videoDeclaredSrc === 'string' &&
+        teardown.settled.videoDeclaredSrc.includes('/native-video?') &&
+        teardownCalls.some((call) => call.method === 'loadVideoById'),
+      {
+        frozenStatus: teardown?.frozen?.status ?? null,
+        broadcast: teardown?.broadcast ?? null,
+        settledStatus: teardown?.settled?.status ?? null,
+        audioOnlyTogglePresent: teardown?.settled?.audioOnlyTogglePresent ?? null,
+        ytaNodeCount: teardown?.settled?.ytaNodeCount ?? null,
+        videoDeclaredSrc: teardown?.settled?.videoDeclaredSrc ?? null,
+        reclaimCalls: teardownCalls,
       }
     );
 
@@ -2540,10 +2648,14 @@ async function main() {
       'm1:disabled-untouched',
       disabled.status === 'disabled' &&
         !(typeof disabled.videoSrc === 'string' && disabled.videoSrc.includes('/videoplayback')) &&
+        disabled.audioOnlyTogglePresent === false &&
+        disabled.ytaNodeCount === 0 &&
         !hasPlayerPost(disabledLog),
       {
         status: disabled.status,
         videoSrc: disabled.videoSrc,
+        audioOnlyTogglePresent: disabled.audioOnlyTogglePresent,
+        ytaNodeCount: disabled.ytaNodeCount,
         playerPost: hasPlayerPost(disabledLog),
         recordedPaths: disabledLog.map((r) => `${r.method} ${r.path}`),
       }

@@ -66,6 +66,7 @@ import {
   type TabAudioOnlyOverride,
 } from '../src/shared/tab-scope';
 import { withTimeout } from '../src/shared/timers';
+import { TEARDOWN_MESSAGE } from '../src/shared/teardown';
 
 declare const __BENCH__: boolean;
 
@@ -136,6 +137,39 @@ export function registerOnboardingInstallHandler(): void {
   try {
     browser.runtime.onInstalled.addListener((details) => {
       void handleOnboardingInstalled(details);
+    });
+  } catch {
+    // Keep initialization fail-closed if this runtime event is unavailable.
+  }
+}
+
+/**
+ * Best-effort teardown on unload (SPEC-021): a disabled or updated extension is unloaded before the
+ * pages holding it are, so this is the last moment it can ask every tab to take down what it
+ * installed (page-world patches, content-side DOM, and any active audio-only hijack). Only a
+ * persistent background gets a suspend that means "unloading": an MV3 event page suspends between
+ * events while the extension stays live, so MV3 is deliberately excluded and keeps the documented
+ * residual. Sends are fire-and-forget; a failed send is a tab that keeps its installed state until
+ * it reloads.
+ */
+export function registerSuspendTeardownHandler(): void {
+  try {
+    if (!getExtensionPlatform().persistentBackground) return;
+    browser.runtime.onSuspend.addListener(() => {
+      void browser.tabs
+        .query({})
+        .then((tabs) =>
+          Promise.all(
+            tabs.map((tab) =>
+              typeof tab.id === 'number'
+                ? browser.tabs
+                    .sendMessage(tab.id, { type: TEARDOWN_MESSAGE })
+                    .catch(() => undefined)
+                : undefined
+            )
+          )
+        )
+        .catch(() => undefined);
     });
   } catch {
     // Keep initialization fail-closed if this runtime event is unavailable.
@@ -612,6 +646,7 @@ export default defineBackground({
   persistent: { firefox: true },
   async main() {
     registerOnboardingInstallHandler();
+    registerSuspendTeardownHandler();
     try {
       getExtensionPlatform();
       void loadRescueConfig;

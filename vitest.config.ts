@@ -30,6 +30,7 @@ export default defineConfig({
         'src/shared/sponsorblock.ts',
         'src/shared/status.ts',
         'src/shared/tab-scope.ts',
+        'src/shared/teardown.ts',
         'src/shared/telemetry.ts',
         'src/shared/timers.ts',
         'src/shared/visibility-override.ts',

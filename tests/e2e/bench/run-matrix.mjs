@@ -326,6 +326,8 @@ async function main() {
       const failures = [];
       if (hijacked(r)) failures.push('master-gate: hijacked despite enabled=false');
       if (r.downloadButtonVisible === true) failures.push('master-gate: download button shown');
+      if (r.audioOnlyTogglePresent === true) failures.push('master-gate: in-player control present');
+      if (Number(r.ytaNodeCount ?? 0) > 0) failures.push('master-gate: extension nodes left in the page');
       if (r.ytaArtwork !== null) failures.push('master-gate: artwork rendered');
       if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true || r.qol?.thumbnailsHidden === true || r.qol?.avatarsHidden === true) failures.push('master-gate: distractions hidden');
       if (r.audioGraph !== null) failures.push('master-gate: audio graph armed');

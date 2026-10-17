@@ -174,6 +174,9 @@ Behavior:
   in-player paths work everywhere.
 - The override is in-memory only, pruned on `tabs.onRemoved`, and lost on background reload.
   It survives document reloads and SPA navigations in the same tab.
+- The in-player control exists only while the extension is enabled: a disabled (or torn-down)
+  extension keeps no extension-owned nodes in the page (SPEC-021), so the button is absent, not
+  merely switched off.
 - The override reaches every frame of the tab through the existing settings push, so embedded
   players follow their tab (SPEC-015).
 
