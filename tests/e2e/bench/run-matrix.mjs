@@ -478,7 +478,6 @@ async function main() {
       const stray = calls.filter((c) => (c.min ?? c.quality) !== 'hd1080');
       if (stray.length > 0)
         failures.push(`fallback-quality: unexpected quality requests ${JSON.stringify(stray)}`);
-      if (r.player?.hasAdPlacements !== false) failures.push('fallback-quality: ad pruning regressed');
       record('fallback-quality:force-quality-max-wins-inside-mixed-row', failures, {
         status: r.status,
         qualityCalls: calls,

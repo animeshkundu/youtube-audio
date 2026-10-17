@@ -81,6 +81,10 @@ remain open.
 
 - CP3 items 1.4 (fallback quality) and 1.5 (consent UX + optional permissions) are next, then CP4
   plus hygiene.
+- CI's first execution of the bench cases (run `38989569656`) caught a fixture ordering bug: the
+  nag fixture announced the dialog and then paused the media in the same task, so the one-shot
+  dismissal resume could never see the pause. The fixture now pauses first, as the real page does
+  (commit `769439a`), and the case is deterministic.
 - Two mechanisms are grounded but not directly verifiable against live YouTube internals:
   `youthereDataChanged_` (the patch skips cleanly when the method is absent) and how YouTube's own
   `pause` action handler behaves. The canary should watch for (a) the dialog still appearing despite
