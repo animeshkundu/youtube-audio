@@ -429,6 +429,13 @@ describe('walkMediaClients (SPEC-014, ADR-0012)', () => {
     expect(calls).toEqual([{ clientName: 'VISIONOS', visitorData: null }]);
   });
 
+  it('keeps the last server reason when later clients fail in transport', async () => {
+    // Only the primary responds; every later client throws (an unusable-client pre-flight error or a
+    // dead network). The reported reason must stay the informative server one, not 'request-failed'.
+    const { outcome } = runWalk([reply(loginRequired())]);
+    await expect(outcome).resolves.toMatchObject({ kind: 'failed', reason: 'LOGIN_REQUIRED' });
+  });
+
   it('retries one time with the fresh visitorData token and accepts that retry', async () => {
     const { outcome, calls } = runWalk([reply(loginRequired('v2')), reply(playable())]);
 

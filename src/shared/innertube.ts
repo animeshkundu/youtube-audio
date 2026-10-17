@@ -402,14 +402,15 @@ export type MediaClientWalkOutcome =
     };
 
 /**
- * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012): VISIONOS first,
- * then ANDROID_VR, IOS, ANDROID, MWEB (unciphered clients, Phase A of the audio-only fallback
- * chain), at most two HTTP attempts per client (the initial request plus one retry
- * carrying fresh `visitorData` harvested from the previous response). A live response is terminal:
- * liveness is a property of the broadcast, not of the client, so no other client can change it.
- * Acceptance requires a playable response whose best audio URL passes the injected allowlist;
- * anything else (unplayable, or playable without an attachable URL) continues the walk.
- * `lastPlayable` is retained so the caller can still arm loudness/EQ before falling back.
+ * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012, SPEC-030): VISIONOS
+ * first, then ANDROID_VR, IOS, ANDROID, MWEB (unciphered clients, Phase A), then the ciphered
+ * TVHTML5 embedded client (Phase B) as the last resort, at most two HTTP attempts per client (the
+ * initial request plus one retry carrying fresh `visitorData` harvested from the previous
+ * response). A live response is terminal: liveness is a property of the broadcast, not of the
+ * client, so no other client can change it. Acceptance requires a playable response whose best
+ * audio URL passes the injected allowlist (a `signatureCipher` may be resolved via the optional
+ * `resolveCipheredUrl`); anything else continues the walk. `lastPlayable` is retained so the caller
+ * can still arm loudness/EQ before falling back.
  */
 export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<MediaClientWalkOutcome> {
   const {
@@ -420,7 +421,10 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
     isAllowedUrl,
     resolveCipheredUrl,
   } = deps;
-  let lastReason = 'request-failed';
+  // The final `reason` is the last reason derived from a SERVER response (http-NNN, playability
+  // status, or no-direct-audio). A later transport failure or an unusable-client pre-flight error
+  // must not clobber a more informative server reason with a generic 'request-failed'.
+  let lastResponseReason: string | null = null;
   let lastPlayable: unknown | null = null;
   let lastParsed: unknown | null = null;
   let attempt = 0;
@@ -434,25 +438,23 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
       try {
         response = await fetchPlayer(mediaClient.client, visitorData);
       } catch {
-        lastReason = 'request-failed';
         break;
       }
       if (isStale()) return { kind: 'stale' };
       if (!response.ok) {
-        lastReason = `http-${response.status}`;
+        lastResponseReason = `http-${response.status}`;
         break;
       }
       let playerResponse: unknown;
       try {
         playerResponse = await response.json();
       } catch {
-        lastReason = 'request-failed';
         break;
       }
       const playability = getPlayability(playerResponse);
       lastParsed = playerResponse;
       if (!playability.isPlayable) {
-        lastReason = playability.status ?? 'unplayable';
+        lastResponseReason = playability.status ?? 'unplayable';
       } else {
         lastPlayable = playerResponse;
         if (isLiveStream(playerResponse)) {
@@ -492,7 +494,7 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
             ...(resolvedAudioUrl ? { resolvedAudioUrl } : {}),
           };
         }
-        lastReason = 'no-direct-audio';
+        lastResponseReason = 'no-direct-audio';
       }
       const fresh = retryVisitorData(playerResponse, visitorData);
       if (fresh) {
@@ -502,5 +504,10 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
       break;
     }
   }
-  return { kind: 'failed', reason: lastReason, lastParsed, lastPlayable };
+  return {
+    kind: 'failed',
+    reason: lastResponseReason ?? 'request-failed',
+    lastParsed,
+    lastPlayable,
+  };
 }

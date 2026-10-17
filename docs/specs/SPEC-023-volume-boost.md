@@ -1,6 +1,6 @@
 # SPEC-023: Volume boost
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-007 (YouTube Music extras), ADR-0015 (coexistence)
 **Relates to:** Research 07 (distribution), Research 10 (QoL UX) §5

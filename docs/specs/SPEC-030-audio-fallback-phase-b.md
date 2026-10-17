@@ -1,6 +1,6 @@
 # SPEC-030: Audio-only fallback chain Phase B (TVHTML5 age-restricted bypass)
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-014 (media client resilience), SPEC-022 (reliability cluster)
 **Relates to:** ADR-0012 (media client table)

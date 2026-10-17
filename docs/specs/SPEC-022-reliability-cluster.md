@@ -1,6 +1,6 @@
 # SPEC-022: Reliability cluster and native-speed fix
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-002, SPEC-015, SPEC-019, SPEC-020, SPEC-021, ADR-0014, ADR-0015
 **Relates to:** Issues #16, #19, #23, #25, #30, #39, #41, #42, #44, #45, #46, #50, #52, #56, #60, #62

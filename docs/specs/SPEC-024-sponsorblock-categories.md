@@ -1,6 +1,6 @@
 # SPEC-024: SponsorBlock category UX
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-005 (segment skipping), SPEC-013 (consent)
 **Relates to:** Issue #53 (filter by category)

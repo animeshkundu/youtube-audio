@@ -1,6 +1,6 @@
 # SPEC-027: Loop toggle
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-002 (core playback), SPEC-020 (settings diffing)
 **Relates to:** Issue #52 (playlist loop ignored)

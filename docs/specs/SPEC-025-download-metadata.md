@@ -1,6 +1,6 @@
 # SPEC-025: Download metadata tagging
 
-**Status:** Draft
+**Status:** Implemented (1.1.0) — see docs/history/2026-10-17-1.1.0-gap-work.md
 **Date:** 2026-10-17
 **Depends on:** SPEC-008 (audio download), SPEC-004 (ad block)
 **Relates to:** Issue #18 (thumbnail), #36 (first frame)

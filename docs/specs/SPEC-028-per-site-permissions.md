@@ -1,13 +1,20 @@
 # SPEC-028: Per-site minimal permissions
 
-**Status:** Draft
+**Status:** Decided (see ADR-0017) — the runtime per-site model is designed but not shipped; core YouTube hosts stay required
 **Date:** 2026-10-17
-**Depends on:** SPEC-013 (consent), ADR-0010 (consent), ADR-0011 (egress)
+**Depends on:** SPEC-013 (consent), ADR-0010 (consent), ADR-0011 (egress), ADR-0017 (decision)
 **Relates to:** Issues #21, #28, #33, #37, #40, #47
 
 ## 1. Goal
 
 Reduce install-time permissions to `storage` only. YouTube host access (youtube.com family, googlevideo.com) becomes optional, requested per site family on first use. Grants persist ("asked once"). Consent (data transmission) stays a separate mandatory flow. Minimal surface: no new UI beyond the permission prompt itself.
+
+> **Decision (ADR-0017).** This model is designed but **not shipped** in 1.1.0: the four YouTube
+> content-script matches and `*://*.googlevideo.com/*` remain required host permissions. The
+> feature-specific grants (`downloads`, the SponsorBlock origin) are already optional and requested
+> exactly once from the enabling gesture, which is what "minimal permissions by default" means in
+> practice for this extension. The sections below are retained as the concrete design should the
+> decision be revisited.
 
 ## 2. Non-goals
 
