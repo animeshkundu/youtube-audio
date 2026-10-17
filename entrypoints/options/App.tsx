@@ -21,6 +21,8 @@ import {
   setIdleNagDefeatEnabled,
   setMusicSetting,
   setQualityOfLifeSetting,
+  setVolumeBoostAmount,
+  setVolumeBoostEnabled,
   setSegmentSkipCategory,
   setSegmentSkipEnabled,
 } from '../../src/shared/config';
@@ -45,6 +47,8 @@ import {
   idleNagDefeatEnabledSignal,
   loudnessNormalizationSignal,
   segmentSkipCategoriesSignal,
+  volumeBoostAmountSignal,
+  volumeBoostEnabledSignal,
   segmentSkipEnabledSignal,
 } from '../../src/shared/settings-signals';
 import type { QualityCap } from '../../src/shared/quality-of-life';
@@ -98,6 +102,8 @@ export type OptionsActions = {
   setQualityOfLifeSetting: typeof setQualityOfLifeSetting;
   setMusicSetting: typeof setMusicSetting;
   setEqualizerBand: typeof setEqualizerBand;
+  setVolumeBoostEnabled: typeof setVolumeBoostEnabled;
+  setVolumeBoostAmount: typeof setVolumeBoostAmount;
   setForceQualityMax: typeof setForceQualityMax;
   setDownloadEnabled: typeof setDownloadEnabled;
   setAggressiveTelemetry: typeof setAggressiveTelemetry;
@@ -130,6 +136,8 @@ export const defaultOptionsActions: OptionsActions = {
   setQualityOfLifeSetting,
   setMusicSetting,
   setEqualizerBand,
+  setVolumeBoostEnabled,
+  setVolumeBoostAmount,
   setForceQualityMax,
   setDownloadEnabled,
   setAggressiveTelemetry,
@@ -184,6 +192,29 @@ const sponsorRows: readonly [SponsorCategory, string, string, string][] = [
     'Talking, credits, and other non-music parts are skipped.',
     'Non-music parts play normally.',
   ],
+];
+
+// Additional SponsorBlock categories, shown in a collapsed disclosure (minimal surface).
+const sponsorExtraRows: readonly [SponsorCategory, string, string, string][] = [
+  ['selfpromo', 'Self-promotion', 'Creator self-promo is skipped.', 'Self-promo plays normally.'],
+  [
+    'interaction',
+    'Interaction reminders',
+    'Like/subscribe reminders are skipped.',
+    'Reminders play normally.',
+  ],
+  ['intro', 'Intros', 'Intro animations are skipped.', 'Intros play normally.'],
+  ['outro', 'Outros', 'Outro/end cards are skipped.', 'Outros play normally.'],
+  ['preview', 'Previews', 'Preview/recap segments are skipped.', 'Previews play normally.'],
+  ['filler', 'Filler', 'Tangents and filler are skipped.', 'Filler plays normally.'],
+  [
+    'exclusive_access',
+    'Exclusive access',
+    'Members-only promos are skipped.',
+    'Members-only promos play normally.',
+  ],
+  ['poi_highlight', 'Highlights', 'Highlight recaps are skipped.', 'Highlights play normally.'],
+  ['hook', 'Hooks', 'Hook/intro hooks are skipped.', 'Hooks play normally.'],
 ];
 
 function matchesSearch(query: string, label: string, description: string): boolean {
@@ -804,6 +835,31 @@ export function Options({
                           />
                         );
                       })}
+                      <details class="advanced-disclosure">
+                        <summary>All categories</summary>
+                        <div class="dependent-reveal-inner">
+                          {sponsorExtraRows.map(([category, label, on, off]) => {
+                            const checked = segmentSkipCategoriesSignal.value.includes(category);
+                            const key = `category-${category}`;
+                            return (
+                              <SettingRow
+                                key={category}
+                                id={`option-${category}`}
+                                label={label}
+                                description={stateDescription(checked, on, off)}
+                                error={errors[key]}
+                                checked={checked}
+                                onChange={(nextChecked) =>
+                                  apply(key, () =>
+                                    actions.setSegmentSkipCategory(category, nextChecked)
+                                  )
+                                }
+                                className="nested-row"
+                              />
+                            );
+                          })}
+                        </div>
+                      </details>
                     </div>
                   </div>
                 )}
@@ -916,6 +972,39 @@ export function Options({
                       apply('equalizer', () => actions.setMusicSetting('equalizerEnabled', checked))
                     }
                   />
+                )}
+                {loudnessVisible && (
+                  <SettingRow
+                    id="option-volume-boost"
+                    label="Volume boost"
+                    description="Amplify audio beyond normal levels. May distort at high values."
+                    error={errors['volume-boost']}
+                    checked={volumeBoostEnabledSignal.value}
+                    onChange={(checked) =>
+                      apply('volume-boost', () => actions.setVolumeBoostEnabled(checked))
+                    }
+                  />
+                )}
+                {volumeBoostEnabledSignal.value && loudnessVisible && (
+                  <div class="dependent-reveal">
+                    <div class="dependent-reveal-inner">
+                      <label class="range-control">
+                        <span>Boost amount</span>
+                        <input
+                          type="range"
+                          min="1"
+                          max="2"
+                          step="0.1"
+                          value={volumeBoostAmountSignal.value}
+                          onChange={(e) => {
+                            const value = Number((e.target as HTMLInputElement).value);
+                            apply('volume-boost-amount', () => actions.setVolumeBoostAmount(value));
+                          }}
+                        />
+                        <span>{Math.round((volumeBoostAmountSignal.value - 1) * 100)}%</span>
+                      </label>
+                    </div>
+                  </div>
                 )}
               </div>
               {equalizerEnabledSignal.value && equalizerVisible && (
