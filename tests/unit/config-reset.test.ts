@@ -12,6 +12,8 @@ import {
   setIdleNagDefeatEnabled,
   setQualityOfLifeSetting,
   setSegmentSkipCategory,
+  setVolumeBoostAmount,
+  setVolumeBoostEnabled,
 } from '../../src/shared/config';
 
 function stubBrowser(set: ReturnType<typeof vi.fn>): void {
@@ -219,5 +221,67 @@ describe('SponsorBlock opt-in migration', () => {
     await initializeSettings();
 
     expect(getSettings().segmentSkipEnabled).toBe(true);
+  });
+});
+
+describe('volume boost setting (SPEC-023)', () => {
+  it('defaults off at unity and normalizes malformed stored values', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().volumeBoostEnabled).toBe(false);
+    expect(getSettings().volumeBoostAmount).toBe(1);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({
+            settings: { volumeBoostEnabled: 'yes', volumeBoostAmount: 'loud' },
+          })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().volumeBoostEnabled).toBe(false);
+    expect(getSettings().volumeBoostAmount).toBe(1);
+  });
+
+  it('clamps a stored out-of-range boost amount into [1, 3]', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({
+            settings: { volumeBoostEnabled: true, volumeBoostAmount: 99 },
+          })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().volumeBoostEnabled).toBe(true);
+    expect(getSettings().volumeBoostAmount).toBe(3);
+  });
+
+  it('persists the toggle and clamps the amount on write', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setVolumeBoostEnabled(true);
+    expect(getSettings().volumeBoostEnabled).toBe(true);
+
+    await setVolumeBoostAmount(5);
+    expect(getSettings().volumeBoostAmount).toBe(3);
+
+    await setVolumeBoostAmount(0.2);
+    expect(getSettings().volumeBoostAmount).toBe(1);
+
+    await setVolumeBoostAmount(Number.NaN);
+    expect(getSettings().volumeBoostAmount).toBe(1);
+
+    expect(set).toHaveBeenLastCalledWith({
+      settings: expect.objectContaining({ volumeBoostAmount: 1 }),
+    });
   });
 });

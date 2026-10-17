@@ -85,6 +85,7 @@ const OPTION_LABELS = {
   avatars: 'Hide avatars',
   loudness: 'Normalize loudness',
   equalizer: 'Equalizer',
+  volumeBoost: 'Volume boost',
   download: 'Download audio',
   reset: 'Reset to defaults',
 } as const;
@@ -428,8 +429,13 @@ export function Options({
   );
   const downloadDescription = stateDescription(
     downloadEnabledSignal.value,
-    'Shows a save-audio button in the player.',
+    'Shows a save-audio button in the player. Saved files include artist metadata in the filename (Artist - Title).',
     'Keeps the save-audio button hidden.'
+  );
+  const volumeBoostDescription = stateDescription(
+    volumeBoostEnabledSignal.value,
+    'Amplifies audio beyond normal levels (louder). May distort at the highest setting.',
+    'Plays audio at normal level.'
   );
   const resetDescription = 'Restore every option to the shipped defaults.';
   const helpDescription = 'Review, copy, export, or clear private on-device diagnostics.';
@@ -500,6 +506,11 @@ export function Options({
     OPTION_LABELS.equalizer,
     equalizerDescription
   );
+  const volumeBoostVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.volumeBoost,
+    volumeBoostDescription
+  );
   // SPEC-013: the row is hidden entirely where the downloads API is absent (Firefox for Android).
   const downloadsSupported = actions.downloadsAvailable();
   const downloadVisible =
@@ -515,7 +526,7 @@ export function Options({
   const skippingVisible =
     skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
   const cleanerVisible = shortsVisible || recommendationsVisible || commentsVisible;
-  const musicVisible = loudnessVisible || equalizerVisible;
+  const musicVisible = loudnessVisible || equalizerVisible || volumeBoostVisible;
   const sections = [
     { id: 'quick-controls', label: 'Quick Controls', visible: quickVisible },
     { id: 'playback', label: 'Playback', visible: playbackVisible },
@@ -973,11 +984,11 @@ export function Options({
                     }
                   />
                 )}
-                {loudnessVisible && (
+                {volumeBoostVisible && (
                   <SettingRow
                     id="option-volume-boost"
-                    label="Volume boost"
-                    description="Amplify audio beyond normal levels. May distort at high values."
+                    label={OPTION_LABELS.volumeBoost}
+                    description={volumeBoostDescription}
                     error={errors['volume-boost']}
                     checked={volumeBoostEnabledSignal.value}
                     onChange={(checked) =>
@@ -985,7 +996,7 @@ export function Options({
                     }
                   />
                 )}
-                {volumeBoostEnabledSignal.value && loudnessVisible && (
+                {volumeBoostEnabledSignal.value && volumeBoostVisible && (
                   <div class="dependent-reveal">
                     <div class="dependent-reveal-inner">
                       <label class="range-control">
