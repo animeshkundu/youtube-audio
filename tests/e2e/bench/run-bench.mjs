@@ -290,6 +290,8 @@ function snapshotScript() {
     videoCurrentTime: v ? v.currentTime : null,
     videoPaused: v ? v.paused : null,
     videoReadyState: v ? v.readyState : null,
+    videoPlaybackRate: v ? v.playbackRate : null,
+    videoLoop: v ? v.loop : null,
     nativeReclaimCalls: Array.isArray(window.__ytaNativeReclaimCalls)
       ? window.__ytaNativeReclaimCalls.slice()
       : [],
@@ -304,6 +306,9 @@ function snapshotScript() {
     audioOnlyToggleDisabled:
       audioOnlyToggle instanceof HTMLButtonElement ? audioOnlyToggle.disabled : null,
     toggleInRightControlsBeforeGear,
+    loopButtonPresent: !!document.getElementById('yta-loop-toggle'),
+    loopButtonAriaPressed:
+      document.getElementById('yta-loop-toggle')?.getAttribute('aria-pressed') || null,
     segmentStatusExists: !!document.getElementById('yta-segment-status'),
     ytaArtwork: document.documentElement.dataset.ytaArtwork || null,
     ytaCoach: document.documentElement.dataset.ytaCoach || null,
@@ -798,13 +803,17 @@ async function runSessionUnwatched({
         if (!video) return;
         video.pause();
         video.currentTime = currentTime;
+        // Exercise the native-speed path: a user speed change while hijacked must be captured so a
+        // re-attach (or reclaim) inherits it rather than restarting at the attach-time rate.
+        video.playbackRate = 1.5;
       }, target);
       const frozen =
         (await waitFor(async () => {
           const state = await driver.executeScript(snapshotScript);
           return state.status === 'active' &&
             state.videoPaused === true &&
-            Math.abs(state.videoCurrentTime - target) < 0.1
+            Math.abs(state.videoCurrentTime - target) < 0.1 &&
+            Math.abs(state.videoPlaybackRate - 1.5) < 0.01
             ? state
             : null;
         }, 4000, 50)) || (await driver.executeScript(snapshotScript));
@@ -2345,13 +2354,57 @@ async function main() {
       }
     );
 
+    // Signature-cipher decode (SPEC-030, Phase B): the CIPHER* fixture serves ONLY signatureCipher
+    // audio formats and a matching base.js, so this case is deterministically red unless the
+    // extension fetches base.js, decodes the signature (abcdef -> dcba), and hijacks the signed URL.
+    const cipherRun = await runSession({
+      withAddon: true,
+      videoId: 'CIPHER0001',
+      expectedTerminalStatus: 'active',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const baseJsRequests = fixture
+      .getRequests()
+      .filter(
+        (request) => request.path.startsWith('/s/player/') && request.path.endsWith('base.js')
+      );
+    record(
+      'm8:signature-cipher-is-decoded-and-hijacked',
+      cipherRun.status === 'active' &&
+        typeof cipherRun.videoSrc === 'string' &&
+        cipherRun.videoSrc.includes('/videoplayback') &&
+        cipherRun.videoSrc.includes('sig=dcba') &&
+        baseJsRequests.length >= 1,
+      {
+        status: cipherRun.status,
+        videoSrc: cipherRun.videoSrc,
+        baseJsRequests: baseJsRequests.length,
+      }
+    );
+
+    // Members-only (SPEC-030 fail-open): the logged-out player returns UNPLAYABLE, so the extension
+    // must leave native playback untouched rather than half-hijack.
+    const membersRun = await runSession({
+      withAddon: true,
+      videoId: 'MEMBERS0001',
+      expectedTerminalStatus: 'fallback',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm8:members-only-fails-open-to-native',
+      membersRun.status !== 'active' &&
+        !(typeof membersRun.videoSrc === 'string' && membersRun.videoSrc.includes('/videoplayback')),
+      { status: membersRun.status, videoSrc: membersRun.videoSrc }
+    );
+
     const spaRun = await runSession({
       withAddon: true,
       probeSpaRearm: true,
       origin,
       resetLog: () => fixture.reset(),
-    });
-    record(
+    });    record(
       'm1:spa-navigation-rearms-second-hijack',
       spaRun.spaRearm?.first?.status === 'active' &&
         spaRun.spaRearm.first.videoSrc?.includes('videoId=FIXTURE0001') &&

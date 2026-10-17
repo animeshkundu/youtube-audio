@@ -44,10 +44,17 @@ import http from 'node:http';
  * `contentLength`; a live/DVR edge stream omits it (that omission is how the extension detects live
  * and declines to hijack). See isLiveStream() in src/shared/innertube.ts.
  */
-function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' } = {}) {
+function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001', ciphered = false } = {}) {
   const media = (itag, mime) =>
     `${origin}/videoplayback?itag=${itag}&mime=${encodeURIComponent(mime)}&source=fixture&videoId=${encodeURIComponent(videoId)}`;
   const finite = (bytes) => (live ? {} : { contentLength: String(bytes) });
+  // When `ciphered`, audio formats carry a `signatureCipher` instead of a ready `url`, exactly like
+  // the TVHTML5 embedded client (SPEC-030). The signature `abcdef` decodes to `dcba` under
+  // FIXTURE_BASE_JS, so the extension must fetch base.js and append `sig=dcba` to hijack.
+  const locate = (url) =>
+    ciphered
+      ? { signatureCipher: `url=${encodeURIComponent(url)}&sp=sig&s=abcdef` }
+      : { url };
   return [
     {
       itag: 140,
@@ -56,7 +63,7 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
       audioQuality: 'AUDIO_QUALITY_MEDIUM',
       audioSampleRate: '44100',
       approxDurationMs: '215000',
-      url: media(140, 'audio/mp4'),
+      ...locate(media(140, 'audio/mp4')),
       ...finite(3_500_000),
     },
     {
@@ -66,7 +73,7 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
       audioQuality: 'AUDIO_QUALITY_MEDIUM',
       audioSampleRate: '48000',
       approxDurationMs: '215000',
-      url: media(251, 'audio/webm'),
+      ...locate(media(251, 'audio/webm')),
       ...finite(4_300_000),
     },
     {
@@ -76,17 +83,29 @@ function fixtureAdaptiveFormats(origin, { live = false, videoId = 'FIXTURE0001' 
       width: 1920,
       height: 1080,
       approxDurationMs: '215000',
-      url: media(137, 'video/mp4'),
+      ...locate(media(137, 'video/mp4')),
       ...finite(60_000_000),
     },
   ];
 }
+
+/**
+ * The player script the ciphered fixture serves at PLAYER_JS_URL. Shape-faithful to a modern
+ * minified base.js: brace-free helper function expressions plus the transform that calls them, and
+ * a signatureTimestamp. `abcdef` -> reverse -> splice(0,2) -> `dcba`.
+ */
+export const FIXTURE_BASE_JS = `var Yd=function(a){a.reverse()};
+var XW=function(a,b){a.splice(0,b)};
+Qq=function(a){a=a.split("");Yd(a);XW(a,2);return a.join("")};
+signatureTimestamp:12345;
+`;
 
 /** The full fixture InnerTube /player response. */
 function fixturePlayerResponse(origin, videoId, opts = {}) {
   const live = !!opts.live;
   const loginRequired = !!opts.loginRequired;
   const unplayable = !!opts.unplayable;
+  const ciphered = !!opts.ciphered;
   return {
     responseContext: {
       serviceTrackingParams: [],
@@ -124,7 +143,7 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
     },
     streamingData: {
       expiresInSeconds: '21540',
-      adaptiveFormats: fixtureAdaptiveFormats(origin, { live, videoId }),
+      adaptiveFormats: fixtureAdaptiveFormats(origin, { live, videoId, ciphered }),
       serverAbrStreamingUrl: `${origin}/videoplayback?abr=1&source=fixture`,
     },
     // Present so ad-related tests have a real shape to observe.
@@ -731,11 +750,15 @@ export function createFixtureServer() {
         (visitorRetry && !acceptedAfterRetry);
       const unplayable =
         typeof videoId === 'string' &&
-        (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE'));
+        (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE') || videoId.startsWith('MEMBERS'));
+      // Ciphered video (SPEC-030): every audio format carries a signatureCipher instead of a url,
+      // so the extension must fetch base.js and decode the signature before it can hijack.
+      const ciphered = typeof videoId === 'string' && videoId.startsWith('CIPHER');
       const response = fixturePlayerResponse(origin, videoId, {
         live,
         loginRequired,
         unplayable,
+        ciphered,
         visitorData: visitorRetry && !acceptedAfterRetry ? 'v2' : undefined,
       });
       if (typeof videoId === 'string' && videoId.startsWith('BIG')) {
@@ -751,6 +774,11 @@ export function createFixtureServer() {
     }
     if (/^\/vi\/[^/]+\/(?:hqdefault|maxresdefault)\.jpg$/.test(path)) {
       return sendText(res, 200, fixtureThumbnailSvg(), 'image/svg+xml; charset=utf-8');
+    }
+    // Player script for the ciphered fixture (SPEC-030). Served from the same origin as ytcfg's
+    // PLAYER_JS_URL so the extension's base.js fetch resolves without a network egress.
+    if (path.startsWith('/s/player/') && path.endsWith('base.js')) {
+      return sendText(res, 200, FIXTURE_BASE_JS, 'application/javascript; charset=utf-8');
     }
     if (path === '/videoplayback' || path === '/native-video') {
       // A tiny valid silent WAV gives the <video> a real, seekable timeline so the
