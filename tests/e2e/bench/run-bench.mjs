@@ -78,7 +78,9 @@ const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
 
 const TERMINAL_STATUSES = ['active', 'disabled', 'fallback'];
 
+let lastBenchLog = '';
 function log(...a) {
+  lastBenchLog = a.map((part) => String(part)).join(' ');
   console.error('[bench]', ...a);
 }
 
@@ -335,8 +337,34 @@ function visibilityProbeScript() {
   };
 }
 
+// A session that stops answering WebDriver commands would otherwise stall until the CI job's
+// 20-minute timeout, which reports the lane as "cancelled" and hides the cause (seen once on the
+// Firefox 133 lane during the download probe). The longest legitimate wait inside a session is
+// roughly 10 s, so three minutes separates a wedged browser or geckodriver from a merely slow
+// runner. Override with BENCH_SESSION_TIMEOUT_MS when replaying a deliberately slow case.
+const SESSION_WATCHDOG_MS = Number(process.env.BENCH_SESSION_TIMEOUT_MS || 180000);
+
+function withSessionWatchdog(session, timeoutMs = SESSION_WATCHDOG_MS) {
+  let timer;
+  const watchdog = new Promise((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `bench session made no progress within ${timeoutMs} ms (wedged browser or ` +
+              `geckodriver); last step: ${lastBenchLog || '(none)'}`
+          )
+        ),
+      timeoutMs
+    );
+  });
+  return Promise.race([session, watchdog]).finally(() => clearTimeout(timer));
+}
+
 /**
- * One fresh-profile browser session against the fixture watch page.
+ * One fresh-profile browser session against the fixture watch page, bounded by a watchdog so a
+ * wedged driver fails the run fast with the step it was stuck on instead of stalling into the CI
+ * job timeout.
  * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean, probeTeardown?: boolean,
@@ -344,7 +372,11 @@ function visibilityProbeScript() {
  *           probeIdleNag?: 'confirmed' | 'untouched', probeFallbackQuality?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-export async function runSession({
+export function runSession(opts) {
+  return withSessionWatchdog(runSessionUnwatched(opts));
+}
+
+async function runSessionUnwatched({
   withAddon,
   seedSettings,
   seedConsent = true,
@@ -383,6 +415,10 @@ export async function runSession({
     .setFirefoxOptions(makeOptions({ disableBuiltInDataConsent: withAddon && !seedConsent }))
     .setFirefoxService(new ServiceBuilder(GECKODRIVER_BIN).addArguments('--allow-system-access'))
     .build();
+  // W3C default pageLoad timeout is 300 s; tighten it so a navigation that stops making progress
+  // surfaces as an error instead of silence. The W3C script timeout (30 s) already bounds script
+  // execution, and the watchdog above bounds anything the driver never answers at all.
+  await driver.manage().setTimeouts({ pageLoad: 120000 });
   try {
     let addonId = null;
     if (withAddon) {
