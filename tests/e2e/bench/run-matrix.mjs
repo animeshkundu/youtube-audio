@@ -66,6 +66,7 @@ const BASE = Object.freeze({
   audioOnlyEnabled: false,
   audioArtworkEnabled: false,
   backgroundPlayEnabled: false,
+  idleNagDefeatEnabled: false,
   ghostEnabled: false,
   aggressiveTelemetry: false,
   adBlockEnabled: false,
@@ -328,7 +329,17 @@ async function main() {
     }
 
     // All features on together.
-    await runCombo('global:all-on', settings(Object.fromEntries([...TOGGLES.map((t) => [t, true]), ['forceQualityMax', '1080p']])), ctx);
+    await runCombo(
+      'global:all-on',
+      settings(
+        Object.fromEntries([
+          ...TOGGLES.map((t) => [t, true]),
+          ['forceQualityMax', '1080p'],
+          ['idleNagDefeatEnabled', true],
+        ])
+      ),
+      ctx
+    );
     // Enabled, every feature off.
     await runCombo('global:all-off', settings({}), ctx);
 
@@ -396,6 +407,43 @@ async function main() {
         persistedAcrossSpa: scope?.persistedAcrossSpa,
         stillActiveWithGlobalOn: scope?.stillActiveWithGlobalOn,
         disabledAfterOverrideOff: scope?.disabledAfterOverrideOff,
+      });
+    }
+
+    // --- Idle-nag defeat (SPEC-016) ----------------------------------------
+    // The run-bench cases prove the layered outcome in isolation; the matrix re-runs the fixture
+    // nag inside a MIXED row (defeat off while audio-only, ad-block, and loudness are on) so the
+    // off state is exercised alongside other active features instead of only in a bare session.
+    {
+      const s = settings({
+        idleNagDefeatEnabled: false,
+        audioOnlyEnabled: true,
+        adBlockEnabled: true,
+        loudnessNormalization: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        videoId: 'NAG0001',
+        watchQuery: 'nag=1',
+        probeIdleNag: 'untouched',
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const nag = r.idleNag;
+      const failures = [];
+      if (nag?.opened !== true) failures.push('idle-nag: fixture dialog never opened');
+      if (nag?.confirmed === true) failures.push('idle-nag off: dialog was confirmed');
+      if (nag?.dialogStillOpen !== true) failures.push('idle-nag off: dialog was dismissed');
+      if (nag?.lact !== 1) failures.push(`idle-nag off: activity clock was touched (lact=${nag?.lact})`);
+      if (nag?.paused !== true) failures.push('idle-nag off: paused media was resumed');
+      if (r.audioGraph === null) failures.push('idle-nag off: loudness graph unexpectedly idle');
+      if (r.marker !== '1') failures.push(`idle-nag: content script marker missing (marker=${r.marker})`);
+      record('idle-nag:off-inside-mixed-row-leaves-untouched', failures, {
+        status: r.status,
+        opened: nag?.opened,
+        confirmed: nag?.confirmed,
+        lact: nag?.lact,
       });
     }
 

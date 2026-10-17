@@ -16,6 +16,7 @@ import {
   setEqualizerBand,
   setForceQualityMax,
   setGhostEnabled,
+  setIdleNagDefeatEnabled,
   setMusicSetting,
   setQualityOfLifeSetting,
   setSegmentSkipCategory,
@@ -36,6 +37,7 @@ import {
   hideCommentsSignal,
   hideRecommendationsSignal,
   hideShortsSignal,
+  idleNagDefeatEnabledSignal,
   loudnessNormalizationSignal,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
@@ -58,6 +60,7 @@ const APPLY_ERROR = "Couldn't apply that change. Try again.";
 const OPTION_LABELS = {
   autoplay: 'Disable autoplay next',
   quality: 'Maximum video quality',
+  idleNag: 'Keep long videos playing',
   ads: 'Block ads',
   ghost: 'Ghost mode',
   aggressive: 'Aggressive telemetry blocking',
@@ -75,6 +78,7 @@ export type OptionsActions = {
   setEnabled: typeof setEnabled;
   setAudioOnlyEnabled: typeof setAudioOnlyEnabled;
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
+  setIdleNagDefeatEnabled: typeof setIdleNagDefeatEnabled;
   setAdBlockEnabled: typeof setAdBlockEnabled;
   setGhostEnabled: typeof setGhostEnabled;
   setSegmentSkipEnabled: typeof setSegmentSkipEnabled;
@@ -98,6 +102,7 @@ export const defaultOptionsActions: OptionsActions = {
   setEnabled,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setIdleNagDefeatEnabled,
   setAdBlockEnabled,
   setGhostEnabled,
   setSegmentSkipEnabled,
@@ -240,6 +245,15 @@ export function Options({
     forceQualityMaxSignal.value === 'off'
       ? 'Automatic. YouTube chooses quality when video is enabled.'
       : `${forceQualityMaxSignal.value} maximum when video is enabled.`;
+  const idleNagDescription = backgroundPlayEnabledSignal.value
+    ? stateDescription(
+        idleNagDefeatEnabledSignal.value,
+        "Skips YouTube's idle 'still watching' check while audio plays unattended.",
+        "YouTube's idle check behaves normally."
+      )
+    : `${
+        idleNagDefeatEnabledSignal.value ? 'On' : 'Off'
+      }, unavailable. Turn on background play to use this.`;
   const adBlockDescription = stateDescription(
     adBlockEnabledSignal.value,
     'Blocks ads before they play.',
@@ -316,6 +330,7 @@ export function Options({
     autoplayDescription
   );
   const qualityVisible = matchesSearch(normalizedQuery, OPTION_LABELS.quality, qualityDescription);
+  const idleNagVisible = matchesSearch(normalizedQuery, OPTION_LABELS.idleNag, idleNagDescription);
   const adBlockVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ads, adBlockDescription);
   const ghostVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ghost, ghostDescription);
   const aggressiveVisible = matchesSearch(
@@ -358,7 +373,7 @@ export function Options({
   const helpVisible = matchesSearch(normalizedQuery, 'Help and feedback', helpDescription);
 
   const quickVisible = enabledVisible || audioOnlyVisible || backgroundVisible;
-  const playbackVisible = autoplayVisible || qualityVisible;
+  const playbackVisible = autoplayVisible || qualityVisible || idleNagVisible;
   const privacyVisible = adBlockVisible || ghostVisible || aggressiveVisible;
   const skippingVisible =
     skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
@@ -527,6 +542,20 @@ export function Options({
                       ))}
                     </select>
                   </label>
+                )}
+                {idleNagVisible && (
+                  <SettingRow
+                    id="option-idle-nag"
+                    label={OPTION_LABELS.idleNag}
+                    description={idleNagDescription}
+                    error={errors.idleNag}
+                    consequence="May resume playback after a long idle stop."
+                    checked={idleNagDefeatEnabledSignal.value}
+                    onChange={(checked) =>
+                      apply('idleNag', () => actions.setIdleNagDefeatEnabled(checked))
+                    }
+                    disabled={!backgroundPlayEnabledSignal.value}
+                  />
                 )}
               </div>
             </section>

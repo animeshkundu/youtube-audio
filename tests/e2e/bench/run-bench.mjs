@@ -339,6 +339,7 @@ function visibilityProbeScript() {
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
  *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
+ *           probeIdleNag?: 'confirmed' | 'untouched',
  *           origin: string, resetLog: () => void }} opts
  */
 export async function runSession({
@@ -365,6 +366,7 @@ export async function runSession({
   frameHost,
   probeEmbedFrame,
   probeTabScope,
+  probeIdleNag,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -693,6 +695,53 @@ export async function runSession({
           globalFinal,
         };
       }
+    }
+
+    let idleNag = null;
+    if (probeIdleNag) {
+      // Idle-nag defeat (SPEC-016): the nag fixture seeds a stale activity clock, then raises a
+      // scripted "are you still there?" dialog and pauses the media after the extension has armed.
+      // `probeIdleNag` names the expected outcome ('confirmed' in the armed sessions, 'untouched'
+      // in the gated ones) so the off sessions fail fast instead of waiting out the confirm window.
+      const opened = await waitFor(
+        () =>
+          driver.executeScript(function () {
+            return window.__fixtureNagOpened === true ? true : null;
+          }),
+        20000,
+        250
+      );
+      let confirmed = false;
+      if (opened) {
+        if (probeIdleNag === 'confirmed') {
+          confirmed =
+            (await waitFor(
+              () =>
+                driver.executeScript(function () {
+                  return window.__fixtureNagConfirmed === true ? true : null;
+                }),
+              15000,
+              250
+            )) === true;
+        } else {
+          await new Promise((r) => setTimeout(r, 3000));
+          confirmed =
+            (await driver.executeScript(function () {
+              return window.__fixtureNagConfirmed === true;
+            })) === true;
+        }
+      }
+      const lact = await driver.executeScript(function () {
+        return typeof window._lact === 'number' ? window._lact : null;
+      });
+      const dialogStillOpen = await driver.executeScript(function () {
+        return !!document.querySelector('yt-confirm-dialog-renderer, ytmusic-you-there-renderer');
+      });
+      const paused = await driver.executeScript(function () {
+        const video = document.querySelector('video[data-fixture-video]');
+        return video ? video.paused : null;
+      });
+      idleNag = { opened: !!opened, confirmed, lact, dialogStillOpen, paused };
     }
 
     let toggleOffReclaim = null;
@@ -1169,6 +1218,7 @@ export async function runSession({
       rapidRetoggle,
       embedFrame,
       tabScope,
+      idleNag,
     };
   } finally {
     try {
@@ -1695,6 +1745,77 @@ async function main() {
         reason: embedRun.reason,
         audioOnlyTogglePresent: embedRun.audioOnlyTogglePresent,
       }
+    );
+
+    // Idle-nag defeat (SPEC-016): the fixture seeds a stale activity clock, then raises a scripted
+    // "are you still there?" dialog that pauses the media. With the defaults the extension confirms
+    // the dialog, resumes the media, and refreshes the clock; both gated sessions leave dialog,
+    // clock, and playback untouched.
+    const nagRun = await runSession({
+      withAddon: true,
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'confirmed',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:confirmed-and-clock-refreshed',
+      nagRun.status === 'active' &&
+        nagRun.idleNag?.opened === true &&
+        nagRun.idleNag.confirmed === true &&
+        nagRun.idleNag.dialogStillOpen === false &&
+        nagRun.idleNag.paused === false &&
+        typeof nagRun.idleNag.lact === 'number' &&
+        nagRun.idleNag.lact > 1 &&
+        Math.abs(Date.now() - nagRun.idleNag.lact) < 120_000,
+      { idleNag: nagRun.idleNag, status: nagRun.status }
+    );
+    const nagDisabledRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: true,
+        idleNagDefeatEnabled: false,
+      },
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'untouched',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:disabled-keeps-dialog-and-clock',
+      nagDisabledRun.idleNag?.opened === true &&
+        nagDisabledRun.idleNag.confirmed === false &&
+        nagDisabledRun.idleNag.dialogStillOpen === true &&
+        nagDisabledRun.idleNag.paused === true &&
+        nagDisabledRun.idleNag.lact === 1,
+      { idleNag: nagDisabledRun.idleNag, status: nagDisabledRun.status }
+    );
+    const nagGatedRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        idleNagDefeatEnabled: true,
+      },
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'untouched',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:background-play-off-gates',
+      nagGatedRun.idleNag?.opened === true &&
+        nagGatedRun.idleNag.confirmed === false &&
+        nagGatedRun.idleNag.dialogStillOpen === true &&
+        nagGatedRun.idleNag.paused === true &&
+        nagGatedRun.idleNag.lact === 1,
+      { idleNag: nagGatedRun.idleNag, status: nagGatedRun.status }
     );
 
     // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): the override flips one tab's hijack while

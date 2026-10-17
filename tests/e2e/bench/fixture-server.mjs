@@ -194,7 +194,7 @@ function frameHostHtml(embedVideoId) {
 </html>`;
 }
 
-function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
+function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -423,6 +423,39 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
       document.documentElement.setAttribute('data-fixture-ready', '1');
     });
   </script>
+  ${
+    nag
+      ? `<script>
+    // Idle-nag simulation (SPEC-016): a stale activity clock the defeat must refresh, and a
+    // scripted "are you still there?" dialog (with a real click marker) the defeat must confirm.
+    // The 6s delay leaves room for the extension to arm and complete its hijack first.
+    window._lact = 1;
+    window.__fixtureNagOpened = false;
+    window.__fixtureNagConfirmed = false;
+    setTimeout(function () {
+      var video = document.querySelector('video[data-fixture-video]');
+      if (!video) return;
+      var container = document.createElement('ytd-popup-container');
+      var dialog = document.createElement('yt-confirm-dialog-renderer');
+      var button = document.createElement('tp-yt-paper-button');
+      button.id = 'confirm-button';
+      button.textContent = 'Yes';
+      button.addEventListener('click', function () {
+        window.__fixtureNagConfirmed = true;
+        container.remove();
+      });
+      dialog.appendChild(button);
+      container.appendChild(dialog);
+      document.body.appendChild(container);
+      window.__fixtureNagOpened = true;
+      document.dispatchEvent(
+        new CustomEvent('yt-popup-opened', { detail: { nodeName: 'YT-CONFIRM-DIALOG-RENDERER' } })
+      );
+      video.pause();
+    }, 6000);
+  </script>`
+      : ''
+  }
 </body>
 </html>`;
 }
@@ -590,10 +623,11 @@ export function createFixtureServer() {
     if (path === '/' || path === '/watch' || path === '/index.html') {
       const coldConfig = url.searchParams.get('coldConfig') === '1';
       const elementSwap = url.searchParams.get('elementSwap') === '1';
+      const nag = url.searchParams.get('nag') === '1';
       return sendText(
         res,
         200,
-        watchPageHtml({ coldConfig, elementSwap }),
+        watchPageHtml({ coldConfig, elementSwap, nag }),
         'text/html; charset=utf-8'
       );
     }

@@ -7,6 +7,7 @@ export interface ExtensionSettings {
   audioOnlyEnabled: boolean;
   audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
+  idleNagDefeatEnabled: boolean;
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
   adBlockEnabled: boolean;
@@ -39,6 +40,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   audioOnlyEnabled: true,
   audioArtworkEnabled: true,
   backgroundPlayEnabled: true,
+  idleNagDefeatEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
   adBlockEnabled: true,
@@ -90,6 +92,10 @@ export async function setAudioArtworkEnabled(enabled: boolean): Promise<void> {
 
 export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> {
   await setPlaybackSetting('backgroundPlayEnabled', enabled);
+}
+
+export async function setIdleNagDefeatEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, idleNagDefeatEnabled: enabled });
 }
 
 export async function setTelemetrySetting(
@@ -216,6 +222,10 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.backgroundPlayEnabled === 'boolean'
         ? candidate.backgroundPlayEnabled
         : DEFAULT_SETTINGS.backgroundPlayEnabled,
+    idleNagDefeatEnabled:
+      typeof candidate.idleNagDefeatEnabled === 'boolean'
+        ? candidate.idleNagDefeatEnabled
+        : DEFAULT_SETTINGS.idleNagDefeatEnabled,
     ghostEnabled:
       typeof candidate.ghostEnabled === 'boolean'
         ? candidate.ghostEnabled

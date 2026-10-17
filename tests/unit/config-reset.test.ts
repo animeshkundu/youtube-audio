@@ -8,6 +8,7 @@ import {
   setEnabled,
   setEqualizerBand,
   setForceQualityMax,
+  setIdleNagDefeatEnabled,
   setSegmentSkipCategory,
 } from '../../src/shared/config';
 
@@ -64,6 +65,50 @@ describe('resetSettings', () => {
 
     await resetSettings();
     expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+describe('idle-nag defeat setting', () => {
+  it('defaults on for installs that predate the field and preserves an explicit choice', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(true);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { idleNagDefeatEnabled: false } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(false);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { idleNagDefeatEnabled: 'yes' } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(true);
+  });
+
+  it('persists the toggle and applies it optimistically', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setIdleNagDefeatEnabled(false);
+
+    expect(getSettings().idleNagDefeatEnabled).toBe(false);
+    expect(set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ idleNagDefeatEnabled: false }),
+    });
   });
 });
 

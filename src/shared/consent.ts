@@ -118,6 +118,7 @@ export function applyConsentToSettings(
       audioOnlyEnabled: false,
       audioArtworkEnabled: false,
       backgroundPlayEnabled: false,
+      idleNagDefeatEnabled: false,
       segmentSkipEnabled: false,
       loudnessNormalization: false,
       equalizerEnabled: false,

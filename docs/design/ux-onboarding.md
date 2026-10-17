@@ -37,7 +37,7 @@ Both are fixable with a small, high-leverage change. The correct minimal onboard
 
 ### 2.3 Defaults (the reason onboarding can be tiny)
 
-`src/shared/config.ts` `DEFAULT_SETTINGS`: `enabled`, `audioOnlyEnabled`, `backgroundPlayEnabled`, `ghostEnabled`, `adBlockEnabled`, `segmentSkipEnabled`, `loudnessNormalization` are all **on** out of the box. The product delivers full value with zero configuration. Onboarding therefore has no setup job at all; its only jobs are reassurance, one lesson, and one nudge.
+`src/shared/config.ts` `DEFAULT_SETTINGS`: `enabled`, `audioOnlyEnabled`, `backgroundPlayEnabled`, `idleNagDefeatEnabled`, `ghostEnabled`, `adBlockEnabled`, `segmentSkipEnabled`, `loudnessNormalization` are all **on** out of the box. The product delivers full value with zero configuration. Onboarding therefore has no setup job at all; its only jobs are reassurance, one lesson, and one nudge.
 
 ---
 

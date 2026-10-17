@@ -16,6 +16,7 @@ function actions(): OptionsActions {
     setEnabled: vi.fn(async () => undefined),
     setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
+    setIdleNagDefeatEnabled: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),

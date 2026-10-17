@@ -5,6 +5,13 @@ import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
+  IDLE_NAG_PRIME_MS,
+  dismissIdleNag,
+  findIdleNagRenderer,
+  isIdleNagNodeName,
+  nextIdleNagDelayMs,
+} from '../src/shared/idle-nag';
+import {
   buildPlayerRequest,
   getPlayability,
   isLiveStream,
@@ -41,6 +48,7 @@ interface PageSettings {
   audioOnlyEnabled: boolean;
   audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
+  idleNagDefeatEnabled: boolean;
   adBlockEnabled: boolean;
   segmentSkipEnabled: boolean;
   segmentSkipCategories: readonly SponsorCategory[];
@@ -136,6 +144,7 @@ export default defineUnlistedScript(() => {
     audioOnlyEnabled: false,
     audioArtworkEnabled: true,
     backgroundPlayEnabled: false,
+    idleNagDefeatEnabled: false,
     adBlockEnabled: false,
     segmentSkipEnabled: false,
     segmentSkipCategories: [],
@@ -148,6 +157,7 @@ export default defineUnlistedScript(() => {
   };
   player.navigate();
   let visibilityCleanup: () => void = () => undefined;
+  let idleNagCleanup: () => void = () => undefined;
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
   let qualityOfLifeCleanup: () => void = () => undefined;
@@ -276,6 +286,11 @@ export default defineUnlistedScript(() => {
     visibilityCleanup();
     visibilityCleanup =
       settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
+    idleNagCleanup();
+    idleNagCleanup =
+      settings.enabled && settings.backgroundPlayEnabled && settings.idleNagDefeatEnabled
+        ? enableIdleNagDefeat()
+        : () => undefined;
     const nextScriptletGeneration = ++scriptletGeneration;
     scriptletCleanup();
     scriptletCleanup = () => undefined;
@@ -977,6 +992,7 @@ function parseSettings(value: unknown): PageSettings | null {
     typeof candidate.audioOnlyEnabled !== 'boolean' ||
     typeof candidate.audioArtworkEnabled !== 'boolean' ||
     typeof candidate.backgroundPlayEnabled !== 'boolean' ||
+    typeof candidate.idleNagDefeatEnabled !== 'boolean' ||
     typeof candidate.adBlockEnabled !== 'boolean' ||
     typeof candidate.segmentSkipEnabled !== 'boolean' ||
     !Array.isArray(candidate.segmentSkipCategories) ||
@@ -999,6 +1015,7 @@ function parseSettings(value: unknown): PageSettings | null {
     audioOnlyEnabled: candidate.audioOnlyEnabled,
     audioArtworkEnabled: candidate.audioArtworkEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
+    idleNagDefeatEnabled: candidate.idleNagDefeatEnabled,
     adBlockEnabled: candidate.adBlockEnabled,
     segmentSkipEnabled: candidate.segmentSkipEnabled,
     segmentSkipCategories: candidate.segmentSkipCategories,
@@ -1053,4 +1070,205 @@ function enableBackgroundPlay(): () => void {
   }
 
   return cleanup;
+}
+
+interface IdleNagPlayerElement extends HTMLElement {
+  updateLastActiveTime?(): void;
+  youthereDataChanged_?(...args: unknown[]): void;
+}
+
+type SetActionHandler = (
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler | null
+) => void;
+
+/**
+ * Idle-nag defeat (SPEC-016). Layered and individually reversible: a low-frequency keepalive
+ * refreshes the page's own activity signals, the player's you-there state transition is no-op'ed
+ * while armed, confirm/you-there dialogs are auto-confirmed, and YouTube's mediaSession pause
+ * handler is neutralised in favour of a direct pause so a user pause still pauses. Every layer is
+ * existence-checked and fail-open; the returned cleanup restores all of them.
+ */
+function enableIdleNagDefeat(): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let trailingCheck: ReturnType<typeof setTimeout> | null = null;
+  let lastDialogCheck = 0;
+  let observer: MutationObserver | null = null;
+  let lastHandledRenderer: Element | null = null;
+  let patchedPlayer: IdleNagPlayerElement | null = null;
+  let originalYouThere: IdleNagPlayerElement['youthereDataChanged_'] | undefined;
+
+  // The event path is the primary dismissal; the observer is a bounded fallback, so a busy DOM
+  // never turns into a query-per-mutation-batch hot loop (at most one check per window, plus one
+  // trailing check so a dialog inserted inside a burst is still seen).
+  const DIALOG_CHECK_INTERVAL_MS = 500;
+
+  const mediaElement = (): HTMLMediaElement | null => document.querySelector('video, audio');
+
+  const pauseDirectly = () => {
+    const media = mediaElement();
+    if (!(media instanceof HTMLMediaElement) || media.paused) return;
+    try {
+      HTMLMediaElement.prototype.pause.call(media);
+    } catch {
+      // Fail open: the page keeps whatever state it already had.
+    }
+  };
+
+  const resumeIfPaused = () => {
+    const media = mediaElement();
+    if (!(media instanceof HTMLMediaElement) || media.ended || !media.paused) return;
+    try {
+      void media.play().catch(() => undefined);
+    } catch {
+      // Fail open: a refused resume leaves the page exactly as YouTube left it.
+    }
+  };
+
+  // One dismissal per dialog instance: the same renderer is never clicked twice, and a new dialog
+  // (a new element) is handled afresh. A failed click does not latch, so it can retry.
+  const attemptDismiss = () => {
+    const renderer = findIdleNagRenderer(document);
+    if (renderer && renderer === lastHandledRenderer) return;
+    if (!dismissIdleNag(document)) return;
+    lastHandledRenderer = renderer;
+    resumeIfPaused();
+  };
+
+  const runKeepalive = () => {
+    try {
+      const scope = window as unknown as { _lact?: unknown };
+      if (typeof scope._lact === 'number') scope._lact = Date.now();
+    } catch {
+      // A throwing or frozen scope is skipped; the other layers stay armed.
+    }
+    try {
+      const playerElement = document.querySelector<IdleNagPlayerElement>(
+        '#movie_player, .html5-video-player'
+      );
+      if (playerElement && typeof playerElement.updateLastActiveTime === 'function') {
+        playerElement.updateLastActiveTime();
+      }
+    } catch {
+      // Same fail-open rule for the player call.
+    }
+  };
+
+  let primed = false;
+  const scheduleKeepalive = () => {
+    const delay = primed ? nextIdleNagDelayMs() : IDLE_NAG_PRIME_MS;
+    primed = true;
+    timer = setTimeout(() => {
+      if (stopped) return;
+      runKeepalive();
+      scheduleKeepalive();
+    }, delay);
+  };
+
+  const patchYouThere = () => {
+    if (patchedPlayer) return;
+    const candidate = document.querySelector<IdleNagPlayerElement>(
+      '#movie_player, .html5-video-player'
+    );
+    if (!candidate || typeof candidate.youthereDataChanged_ !== 'function') return;
+    originalYouThere = candidate.youthereDataChanged_;
+    try {
+      candidate.youthereDataChanged_ = () => undefined;
+      patchedPlayer = candidate;
+    } catch {
+      // A frozen or accessor-only property: skip the layer, keep the rest armed.
+    }
+  };
+
+  const checkDialogs = () => {
+    lastDialogCheck = Date.now();
+    patchYouThere();
+    if (findIdleNagRenderer(document)) attemptDismiss();
+  };
+
+  const onMutations = () => {
+    if (stopped) return;
+    const elapsed = Date.now() - lastDialogCheck;
+    if (elapsed >= DIALOG_CHECK_INTERVAL_MS) {
+      checkDialogs();
+      return;
+    }
+    if (trailingCheck !== null) return;
+    trailingCheck = setTimeout(() => {
+      trailingCheck = null;
+      if (stopped) return;
+      checkDialogs();
+    }, DIALOG_CHECK_INTERVAL_MS - elapsed);
+  };
+
+  const pauseHandler = () => pauseDirectly();
+
+  const mediaSession = typeof navigator === 'undefined' ? undefined : navigator.mediaSession;
+  let mediaSessionPatched = false;
+  let hadOwnSetActionHandler = false;
+  let originalSetActionHandler: MediaSession['setActionHandler'] | null = null;
+  let boundSetActionHandler: SetActionHandler | null = null;
+  let blockedPauseHandler: MediaSessionActionHandler | null = null;
+
+  if (mediaSession && typeof mediaSession.setActionHandler === 'function') {
+    originalSetActionHandler = mediaSession.setActionHandler;
+    boundSetActionHandler = originalSetActionHandler.bind(mediaSession) as SetActionHandler;
+    hadOwnSetActionHandler = Object.prototype.hasOwnProperty.call(mediaSession, 'setActionHandler');
+    try {
+      mediaSession.setActionHandler = (action, handler) => {
+        if (action !== 'pause') {
+          boundSetActionHandler?.(action, handler);
+          return;
+        }
+        // Neutralise YouTube's own pause handler, then register a direct pause so a user pause
+        // (media key, headset, notification) still pauses immediately. A null clears as usual.
+        blockedPauseHandler = handler;
+        boundSetActionHandler?.(action, handler === null ? null : pauseHandler);
+      };
+      mediaSessionPatched = true;
+    } catch {
+      mediaSessionPatched = false;
+    }
+  }
+
+  runKeepalive();
+  scheduleKeepalive();
+  patchYouThere();
+
+  const handlePopupOpened = (event: Event) => {
+    const detail = (event as CustomEvent<{ nodeName?: unknown } | null>).detail;
+    if (!isIdleNagNodeName(detail?.nodeName)) return;
+    attemptDismiss();
+  };
+  document.addEventListener('yt-popup-opened', handlePopupOpened, true);
+  observer = new MutationObserver(onMutations);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  return () => {
+    stopped = true;
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (trailingCheck !== null) clearTimeout(trailingCheck);
+    trailingCheck = null;
+    if (observer) observer.disconnect();
+    observer = null;
+    document.removeEventListener('yt-popup-opened', handlePopupOpened, true);
+    if (patchedPlayer && originalYouThere) {
+      try {
+        patchedPlayer.youthereDataChanged_ = originalYouThere;
+      } catch {
+        // A frozen player keeps the no-op; teardown stays best effort.
+      }
+    }
+    if (mediaSessionPatched && mediaSession && originalSetActionHandler) {
+      try {
+        if (hadOwnSetActionHandler) mediaSession.setActionHandler = originalSetActionHandler;
+        else delete (mediaSession as unknown as Record<string, unknown>).setActionHandler;
+        if (blockedPauseHandler) boundSetActionHandler?.('pause', blockedPauseHandler);
+      } catch {
+        // Restoring is best effort; the page keeps working either way.
+      }
+    }
+  };
 }

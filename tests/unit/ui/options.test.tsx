@@ -18,6 +18,7 @@ function actions(): OptionsActions {
     setEnabled: vi.fn(async () => undefined),
     setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
+    setIdleNagDefeatEnabled: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),
@@ -100,10 +101,10 @@ describe('Options', () => {
       'Advanced/About',
       'Help & feedback',
     ]);
-    expect(switches).toHaveLength(16);
+    expect(switches).toHaveLength(17);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
-    expect(container.querySelectorAll('.setting-description')).toHaveLength(15);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(16);
     expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
       'Quick Controls'
     );
