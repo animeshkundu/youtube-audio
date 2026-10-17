@@ -11,6 +11,8 @@ const visibleSettings = {
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  hideThumbnails: false,
+  hideAvatars: false,
 };
 
 describe('quality cap selection', () => {
@@ -41,6 +43,8 @@ describe('distraction stylesheet', () => {
         hideShorts: true,
         hideRecommendations: true,
         hideComments: true,
+        hideThumbnails: true,
+        hideAvatars: true,
       })
     ).toBe('');
   });
@@ -73,15 +77,42 @@ describe('distraction stylesheet', () => {
     expect(css).not.toContain('#secondary');
   });
 
+  it('emits desktop and mobile thumbnail selectors when requested', () => {
+    const css = buildDistractionStyles({ ...visibleSettings, hideThumbnails: true });
+    expect(css).toContain('ytd-thumbnail');
+    expect(css).toContain('ytd-playlist-thumbnail');
+    expect(css).toContain('large-media-item-thumbnail-container');
+    expect(css).toContain('video-thumbnail-container-compact');
+    expect(css).not.toContain('ytd-comments');
+    // Cosmetic-only contract: the stylesheet hides elements and never rewires images, so
+    // `i.ytimg.com` is never blocked or rewritten at any layer.
+    expect(css).not.toContain('url(');
+    expect(css).not.toMatch(/background(-image)?\s*:/);
+  });
+
+  it('emits avatar selectors for comments, the owner row, tiles, and the channel header', () => {
+    const css = buildDistractionStyles({ ...visibleSettings, hideAvatars: true });
+    expect(css).toContain('ytd-comments #author-thumbnail');
+    expect(css).toContain('ytd-video-owner-renderer #avatar');
+    expect(css).toContain('ytd-rich-grid-media #avatar');
+    expect(css).toContain('#channel-header-container yt-img-shadow#avatar');
+    expect(css).not.toContain('ytd-thumbnail');
+    expect(css).not.toContain('url(');
+  });
+
   it('combines all enabled rules into one stylesheet', () => {
     const css = buildDistractionStyles({
       enabled: true,
       hideShorts: true,
       hideRecommendations: true,
       hideComments: true,
+      hideThumbnails: true,
+      hideAvatars: true,
     });
     expect(css).toContain('ytd-reel-shelf-renderer');
     expect(css).toContain('ytd-watch-flexy #secondary');
     expect(css).toContain('ytd-comments');
+    expect(css).toContain('ytd-thumbnail');
+    expect(css).toContain('ytd-video-owner-renderer #avatar');
   });
 });

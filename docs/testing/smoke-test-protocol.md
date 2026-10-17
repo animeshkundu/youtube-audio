@@ -138,8 +138,8 @@ Quality of life:
 
 - [ ] `forceQualityMax` set to a cap (e.g. 480p): the player quality is pinned at or below it.
 - [ ] `disableAutoplayNext` on: the next video does not autoplay at the end.
-- [ ] `hideShorts`, `hideRecommendations`, `hideComments`: each hides exactly its target and
-      leaves the rest of the page intact.
+- [ ] `hideShorts`, `hideRecommendations`, `hideComments`, `hideThumbnails`, `hideAvatars`: each
+      hides exactly its target and leaves the rest of the page intact.
 
 YouTube Music extras:
 

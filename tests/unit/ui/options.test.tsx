@@ -116,13 +116,31 @@ describe('Options', () => {
       'Advanced/About',
       'Help & feedback',
     ]);
-    expect(switches).toHaveLength(18);
+    expect(switches).toHaveLength(20);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
-    expect(container.querySelectorAll('.setting-description')).toHaveLength(17);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(19);
     expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
       'Quick Controls'
     );
+  });
+
+  it('toggles the thumbnail and avatar hiding extras through the quality-of-life mutator', async () => {
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+    const thumbnails = container.querySelector('#option-thumbnails [role="switch"]');
+    const avatars = container.querySelector('#option-avatars [role="switch"]');
+
+    expect(thumbnails).not.toBeNull();
+    expect(avatars).not.toBeNull();
+    expect(thumbnails?.getAttribute('aria-checked')).toBe('false');
+
+    click(thumbnails);
+    click(avatars);
+    await flushPromises();
+
+    expect(optionsActions.setQualityOfLifeSetting).toHaveBeenCalledWith('hideThumbnails', true);
+    expect(optionsActions.setQualityOfLifeSetting).toHaveBeenCalledWith('hideAvatars', true);
   });
 
   it('toggles the fallback quality cap independently of other playback settings', async () => {

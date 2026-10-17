@@ -275,10 +275,17 @@ function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } 
        recommendations" must hide ONLY the recs renderer, never either comments node, so the
        #fixture-secondary-comments node below is the load-bearing regression lock: a broad
        secondary-container display:none would hide it, the narrowed selector must not. -->
+  <!-- Thumbnail/avatar targets for the cosmetic hide-extras. Deliberately outside every
+       conditionally hidden container (no tile, no comments block) so a combined combo, e.g.
+       hide-recommendations on with hide-thumbnails off, still measures the element itself rather
+       than an inherited display:none. -->
+  <ytd-thumbnail id="fixture-thumbnail">Thumbnail</ytd-thumbnail>
   <ytd-reel-shelf-renderer id="fixture-shorts">Shorts shelf</ytd-reel-shelf-renderer>
   <ytd-watch-flexy>
     <div id="columns">
-      <div id="primary"><div id="primary-inner"><div id="below">
+      <div id="primary"><div id="primary-inner">
+        <ytd-watch-metadata><ytd-video-owner-renderer id="fixture-avatar"><a id="avatar"><yt-img-shadow>Channel picture</yt-img-shadow></a></ytd-video-owner-renderer></ytd-watch-metadata>
+        <div id="below">
         <ytd-comments id="fixture-comments">Comments</ytd-comments>
       </div></div></div>
       <div id="secondary"><div id="secondary-inner">

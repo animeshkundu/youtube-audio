@@ -1098,6 +1098,8 @@ export async function runSession({
           shortsHidden: hidden('#fixture-shorts'),
           recsHidden: hidden('#fixture-recs'),
           commentsHidden: hidden('#fixture-comments'),
+          thumbnailsHidden: hidden('#fixture-thumbnail'),
+          avatarsHidden: hidden('#fixture-avatar #avatar'),
           secondaryPanelCommentsHidden: hidden('#fixture-secondary-comments'),
         };
       };
@@ -2570,6 +2572,8 @@ async function main() {
         hideShorts: true,
         hideRecommendations: true,
         hideComments: true,
+        hideThumbnails: true,
+        hideAvatars: true,
       },
       probeQol: true,
       origin,
@@ -2587,7 +2591,11 @@ async function main() {
       qolRun.qol?.shortsHidden === true &&
         qolRun.qol?.recsHidden === true &&
         qolRun.qol?.commentsHidden === true &&
-        control.qol?.shortsHidden === false,
+        qolRun.qol?.thumbnailsHidden === true &&
+        qolRun.qol?.avatarsHidden === true &&
+        control.qol?.shortsHidden === false &&
+        control.qol?.thumbnailsHidden === false &&
+        control.qol?.avatarsHidden === false,
       { treatment: qolRun.qol, control: control.qol }
     );
 

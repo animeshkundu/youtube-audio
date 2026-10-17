@@ -55,6 +55,8 @@ const TOGGLES = [
   'hideShorts',
   'hideRecommendations',
   'hideComments',
+  'hideThumbnails',
+  'hideAvatars',
   'loudnessNormalization',
   'equalizerEnabled',
   'downloadEnabled',
@@ -78,6 +80,8 @@ const BASE = Object.freeze({
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  hideThumbnails: false,
+  hideAvatars: false,
   loudnessNormalization: false,
   equalizerEnabled: false,
   equalizerBands: [0, 0, 0, 0, 0],
@@ -143,6 +147,10 @@ function checkFeature(feature, s, r, log) {
       return want ? (r.qol?.recsHidden === true ? null : 'hideRecs on: recs visible') : (r.qol?.recsHidden === false ? null : 'hideRecs off: recs not confirmed visible');
     case 'hideComments':
       return want ? (r.qol?.commentsHidden === true ? null : 'hideComments on: comments visible') : (r.qol?.commentsHidden === false ? null : 'hideComments off: comments not confirmed visible');
+    case 'hideThumbnails':
+      return want ? (r.qol?.thumbnailsHidden === true ? null : 'hideThumbnails on: thumbnails visible') : (r.qol?.thumbnailsHidden === false ? null : 'hideThumbnails off: thumbnails not confirmed visible');
+    case 'hideAvatars':
+      return want ? (r.qol?.avatarsHidden === true ? null : 'hideAvatars on: avatars visible') : (r.qol?.avatarsHidden === false ? null : 'hideAvatars off: avatars not confirmed visible');
     case 'downloadEnabled':
       return want ? (r.downloadButtonVisible === true ? null : 'download on: button hidden') : (r.downloadButtonVisible !== true ? null : 'download off: button visible');
     case 'disableAutoplayNext':
@@ -319,7 +327,7 @@ async function main() {
       if (hijacked(r)) failures.push('master-gate: hijacked despite enabled=false');
       if (r.downloadButtonVisible === true) failures.push('master-gate: download button shown');
       if (r.ytaArtwork !== null) failures.push('master-gate: artwork rendered');
-      if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true) failures.push('master-gate: distractions hidden');
+      if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true || r.qol?.thumbnailsHidden === true || r.qol?.avatarsHidden === true) failures.push('master-gate: distractions hidden');
       if (r.audioGraph !== null) failures.push('master-gate: audio graph armed');
       if (r.vis?.swallowed === true) failures.push('master-gate: visibility swallowed despite disabled');
       if (r.skipArmed === '1') failures.push('master-gate: segment skip armed despite disabled');
@@ -522,7 +530,7 @@ async function main() {
     }
     await runCombo('pair:audioOnly+background', settings({ audioOnlyEnabled: true, backgroundPlayEnabled: true }), ctx);
     await runCombo('pair:ghost+aggressiveTelemetry', settings({ ghostEnabled: true, aggressiveTelemetry: true }), ctx);
-    await runCombo('pair:all-three-distractions', settings({ hideShorts: true, hideRecommendations: true, hideComments: true }), ctx);
+    await runCombo('pair:all-distractions', settings({ hideShorts: true, hideRecommendations: true, hideComments: true, hideThumbnails: true, hideAvatars: true }), ctx);
     // Edge: audio-only has no video track; a quality cap must no-op gracefully (no error).
     await runCombo('edge:forceQuality+audioOnly-graceful', settings({ audioOnlyEnabled: true, forceQualityMax: '1080p' }), ctx);
     // Segment-skip seek needs audio-only off (matches run-bench); assert the actual seek here.

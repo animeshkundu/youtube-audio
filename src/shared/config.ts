@@ -19,6 +19,8 @@ export interface ExtensionSettings {
   hideShorts: boolean;
   hideRecommendations: boolean;
   hideComments: boolean;
+  hideThumbnails: boolean;
+  hideAvatars: boolean;
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
@@ -31,7 +33,9 @@ export type QualityOfLifeSetting =
   | 'disableAutoplayNext'
   | 'hideShorts'
   | 'hideRecommendations'
-  | 'hideComments';
+  | 'hideComments'
+  | 'hideThumbnails'
+  | 'hideAvatars';
 export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled';
 export type DownloadSetting = 'downloadEnabled';
 
@@ -53,6 +57,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  hideThumbnails: false,
+  hideAvatars: false,
   loudnessNormalization: true,
   equalizerEnabled: false,
   equalizerBands: FLAT_EQUALIZER,
@@ -272,6 +278,14 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.hideComments === 'boolean'
         ? candidate.hideComments
         : DEFAULT_SETTINGS.hideComments,
+    hideThumbnails:
+      typeof candidate.hideThumbnails === 'boolean'
+        ? candidate.hideThumbnails
+        : DEFAULT_SETTINGS.hideThumbnails,
+    hideAvatars:
+      typeof candidate.hideAvatars === 'boolean'
+        ? candidate.hideAvatars
+        : DEFAULT_SETTINGS.hideAvatars,
     loudnessNormalization:
       typeof candidate.loudnessNormalization === 'boolean'
         ? candidate.loudnessNormalization

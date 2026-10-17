@@ -14,7 +14,7 @@ Works on Firefox, desktop and Android. No account, no sign-in, nothing to config
 - **Skip the boring bits.** Turn on SponsorBlock-style auto-skip for sponsor reads and off-topic music intros. Only a tiny 4-character hash ever leaves your machine to look them up.
 - **YouTube Music, leveled up.** Even out loud-and-quiet tracks with loudness normalization, and shape the sound with a 5-band equalizer.
 - **Save a track.** Download the current audio as a single, tidy `.m4a` file that plays just about anywhere.
-- **Tidy up the page.** Optionally hide Shorts, recommendations, or comments, cap the quality to save more data, or switch off autoplay-next.
+- **Tidy up the page.** Optionally hide Shorts, recommendations, comments, video thumbnails, or channel pictures, cap the quality to save more data, or switch off autoplay-next.
 
 Everything above is one click away in the popup or options. The essentials are on out of the box, the rest waits until you ask.
 

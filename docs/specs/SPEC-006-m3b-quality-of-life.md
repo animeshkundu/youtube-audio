@@ -2,14 +2,14 @@
 
 ## Overview
 
-M3b adds a curated set of instant, independently toggleable YouTube controls: a video-quality cap, autoplay-next suppression, and cosmetic hiding for Shorts, recommendations, and comments. Every unsupported or failed path preserves native YouTube behavior.
+M3b adds a curated set of instant, independently toggleable YouTube controls: a video-quality cap, autoplay-next suppression, and cosmetic hiding for Shorts, recommendations, comments, thumbnails, and avatars. Every unsupported or failed path preserves native YouTube behavior.
 
 ## Goals
 
 - Offer a selectable maximum quality from 144p through 1080p, with off as the default.
 - Apply the quality ceiling through the MAIN-world player API and reassert it for a bounded period when YouTube's adaptive bitrate logic changes quality.
 - Disable the native autoplay-next control when requested.
-- Hide Shorts shelves, recommendations, and comments with one extension-managed stylesheet and resilient desktop/mobile selectors.
+- Hide Shorts shelves, recommendations, comments, video thumbnails, and channel avatars with one extension-managed stylesheet and resilient desktop/mobile selectors.
 - Apply all settings immediately without reload.
 - Avoid persistent page-visible setting attributes or globals.
 
@@ -18,12 +18,13 @@ M3b adds a curated set of instant, independently toggleable YouTube controls: a 
 - No unlimited retry loop, player prototype override, DOM deletion, remote configuration, or claim that undocumented player APIs always exist.
 - No interception of manual playback, playlists, channel trailers, or feed thumbnail previews.
 - No structural rewriting of YouTube data responses for cosmetic features.
+- No network-level blocking or rewriting of thumbnail/avatar images (`i.ytimg.com` and friends); the thumbnail and avatar controls are CSS hiding only.
 
 ## Technical Design
 
 ### Settings
 
-The shared settings object adds `forceQualityMax`, `disableAutoplayNext`, `hideShorts`, `hideRecommendations`, and `hideComments`. Quality defaults to `off`; all boolean controls default to `false`. Storage normalization accepts only the enumerated quality values and booleans, preserving safe defaults for old or malformed state.
+The shared settings object adds `forceQualityMax`, `disableAutoplayNext`, `hideShorts`, `hideRecommendations`, `hideComments`, `hideThumbnails`, and `hideAvatars`. Quality defaults to `off`; all boolean controls default to `false`. Storage normalization accepts only the enumerated quality values and booleans, preserving safe defaults for old or malformed state.
 
 ### MAIN-world controls
 
@@ -37,6 +38,8 @@ The isolated content script owns one `<style>` element. A pure stylesheet builde
 
 Recommendation hiding is scoped to the related-results renderer (`ytd-watch-flexy #secondary ytd-watch-next-secondary-results-renderer`, plus `#related` and the mobile anchors), never the whole `#secondary` container. On the wide two-column layout YouTube reparents a comments-bearing engagement panel into `#secondary`, so hiding the container could collapse comments even when `hideComments` was off. The visible comments block always lives in `#primary`; scoping to the renderer keeps both comments nodes safe.
 
+Thumbnail hiding targets the semantic tile containers `ytd-thumbnail` and `ytd-playlist-thumbnail` on desktop and, on mobile, the media-item thumbnail containers m.youtube.com actually ships (`ytm-large-media-item .large-media-item-thumbnail-container`, plus the `video-thumbnail-container-large` / `video-thumbnail-container-compact` classes). Avatar hiding targets comment rows (`ytd-comments #author-thumbnail`, the ImprovedTube-vetted selector recorded in `docs/research/10-quality-of-life-ux.md`), the watch-page owner row (`ytd-video-owner-renderer #avatar`), home-feed tiles (`ytd-rich-grid-media #avatar`), and the channel header (`#channel-header-container yt-img-shadow#avatar`). Both rules are `display: none` only: no image request is ever blocked, rewritten, or downgraded, so player posters, channel art, and the download flow are untouched, and no mobile avatar selector is claimed beyond the verified desktop set.
+
 ## Error Handling
 
 All DOM queries, player calls, event registration, timer work, and style installation are guarded. Failures stop only the relevant enhancement and never throw into page code or interrupt playback.
@@ -44,7 +47,7 @@ All DOM queries, player calls, event registration, timer work, and style install
 ## Testing Strategy
 
 - Unit tests import the real stylesheet builder and quality-label selector, covering every setting independently, combined settings, disabled settings, valid quality mappings, and malformed/off values.
-- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, and comments fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off. The `m3b:hide-recs-preserves-comments` scenario asserts that hiding recommendations leaves both the primary and the reparented-panel comments nodes visible. The `m3b:disable-autoplay-late-button` scenario inserts the autonav button at 3.5s (past the last fixed retry) and asserts the `MutationObserver` fallback still switches it off.
+- The packaged-extension bench exposes a player API stub plus Shorts, recommendation, comments, thumbnail, and avatar fixtures. It verifies quality API arguments, autoplay state, computed cosmetic visibility, and untouched behavior when controls are off. The `m3b:hide-recs-preserves-comments` scenario asserts that hiding recommendations leaves both the primary and the reparented-panel comments nodes visible. The `m3b:disable-autoplay-late-button` scenario inserts the autonav button at 3.5s (past the last fixed retry) and asserts the `MutationObserver` fallback still switches it off. The settings-permutation matrix carries `hideThumbnails` and `hideAvatars` through its per-toggle and pairwise coverage, and the fixture places both probe nodes outside every conditionally hidden container so a combined combo cannot pass on an inherited `display: none`.
 - Release gates: strict typecheck, zero-warning lint, gate-weakener scan, real-source coverage, packaged Firefox bench, production build, and manifest inspection.
 
 ## Security and Privacy Considerations

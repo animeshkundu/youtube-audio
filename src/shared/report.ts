@@ -60,6 +60,8 @@ const BOOLEAN_SETTING_KEYS = [
   'hideShorts',
   'hideRecommendations',
   'hideComments',
+  'hideThumbnails',
+  'hideAvatars',
   'loudnessNormalization',
   'equalizerEnabled',
   'downloadEnabled',

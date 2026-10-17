@@ -24,7 +24,7 @@ The page is grouped and searchable:
 - **Playback** disables autoplay next and caps normal video quality.
 - **Privacy and Blocking** controls ads, Ghost mode, and the more disruptive aggressive telemetry option.
 - **Skipping** enables SponsorBlock timings and chooses sponsor or non-music categories.
-- **Cleaner YouTube** hides Shorts, recommendations, or comments independently.
+- **Cleaner YouTube** hides Shorts, recommendations, comments, thumbnails, or channel pictures independently.
 - **Music** controls YouTube Music loudness normalization and five EQ bands.
 - **Downloads** shows or hides the in-player save-audio button.
 

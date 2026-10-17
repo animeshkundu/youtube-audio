@@ -10,6 +10,7 @@ import {
   setFallbackQualityCapEnabled,
   setForceQualityMax,
   setIdleNagDefeatEnabled,
+  setQualityOfLifeSetting,
   setSegmentSkipCategory,
 } from '../../src/shared/config';
 
@@ -158,6 +159,44 @@ describe('fallback quality setting', () => {
 });
 
 describe('SponsorBlock opt-in migration', () => {
+  it('defaults new cosmetic toggles off for installs that predate them', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().hideThumbnails).toBe(false);
+    expect(getSettings().hideAvatars).toBe(false);
+  });
+
+  it('normalizes malformed stored values back to off', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { hideThumbnails: 'yes', hideAvatars: 1 } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+
+    await initializeSettings();
+
+    expect(getSettings().hideThumbnails).toBe(false);
+    expect(getSettings().hideAvatars).toBe(false);
+  });
+
+  it('persists the toggles through the quality-of-life mutator', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setQualityOfLifeSetting('hideThumbnails', true);
+    await setQualityOfLifeSetting('hideAvatars', true);
+
+    expect(getSettings().hideThumbnails).toBe(true);
+    expect(getSettings().hideAvatars).toBe(true);
+    expect(set).toHaveBeenLastCalledWith({
+      settings: expect.objectContaining({ hideThumbnails: true, hideAvatars: true }),
+    });
+  });
+
   it('defaults segment skipping off for new installs', async () => {
     stubBrowser(vi.fn(async () => undefined));
 

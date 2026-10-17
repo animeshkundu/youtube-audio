@@ -37,9 +37,11 @@ import {
   fallbackQualityCapEnabledSignal,
   forceQualityMaxSignal,
   ghostEnabledSignal,
+  hideAvatarsSignal,
   hideCommentsSignal,
   hideRecommendationsSignal,
   hideShortsSignal,
+  hideThumbnailsSignal,
   idleNagDefeatEnabledSignal,
   loudnessNormalizationSignal,
   segmentSkipCategoriesSignal,
@@ -75,6 +77,8 @@ const OPTION_LABELS = {
   shorts: 'Hide Shorts',
   recommendations: 'Hide recommendations',
   comments: 'Hide comments',
+  thumbnails: 'Hide thumbnails',
+  avatars: 'Hide avatars',
   loudness: 'Normalize loudness',
   equalizer: 'Equalizer',
   download: 'Download audio',
@@ -371,6 +375,16 @@ export function Options({
     'Removes comments and their mobile entry point.',
     'Comments remain visible.'
   );
+  const thumbnailsDescription = stateDescription(
+    hideThumbnailsSignal.value,
+    'Hides video preview images in feeds and beside the player.',
+    'Video thumbnails remain visible.'
+  );
+  const avatarsDescription = stateDescription(
+    hideAvatarsSignal.value,
+    'Hides channel pictures in comments and on video pages.',
+    'Channel pictures remain visible.'
+  );
   const loudnessDescription = stateDescription(
     loudnessNormalizationSignal.value,
     'Keeps volume more consistent between tracks.',
@@ -439,6 +453,12 @@ export function Options({
     OPTION_LABELS.comments,
     commentsDescription
   );
+  const thumbnailsVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.thumbnails,
+    thumbnailsDescription
+  );
+  const avatarsVisible = matchesSearch(normalizedQuery, OPTION_LABELS.avatars, avatarsDescription);
   const loudnessVisible = matchesSearch(
     normalizedQuery,
     OPTION_LABELS.loudness,
@@ -831,6 +851,34 @@ export function Options({
                     onChange={(checked) =>
                       apply('comments', () =>
                         actions.setQualityOfLifeSetting('hideComments', checked)
+                      )
+                    }
+                  />
+                )}
+                {thumbnailsVisible && (
+                  <SettingRow
+                    id="option-thumbnails"
+                    label={OPTION_LABELS.thumbnails}
+                    description={thumbnailsDescription}
+                    error={errors.thumbnails}
+                    checked={hideThumbnailsSignal.value}
+                    onChange={(checked) =>
+                      apply('thumbnails', () =>
+                        actions.setQualityOfLifeSetting('hideThumbnails', checked)
+                      )
+                    }
+                  />
+                )}
+                {avatarsVisible && (
+                  <SettingRow
+                    id="option-avatars"
+                    label={OPTION_LABELS.avatars}
+                    description={avatarsDescription}
+                    error={errors.avatars}
+                    checked={hideAvatarsSignal.value}
+                    onChange={(checked) =>
+                      apply('avatars', () =>
+                        actions.setQualityOfLifeSetting('hideAvatars', checked)
                       )
                     }
                   />
