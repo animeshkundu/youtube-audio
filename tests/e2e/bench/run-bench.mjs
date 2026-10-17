@@ -964,19 +964,36 @@ export async function runSession({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ videoId: videoId }),
         })
-          .then((r) => r.json())
-          .then((j) => {
-            const fmts = (j.streamingData && j.streamingData.adaptiveFormats) || [];
+          .then((r) => r.text())
+          .then((text) => {
+            // Read the network-level body directly: when ad-block is on, the page-world scriptlets
+            // wrap Response.json() and JSON.parse (never Response.text()), so `rawAdKeys` observes
+            // exactly what the background response filter delivered.
+            const rawAdKeys = [
+              'adPlacements',
+              'playerAds',
+              'adSlots',
+              'adPlacementRenderer',
+            ].some((key) => text.indexOf('"' + key + '"') !== -1);
+            let j = null;
+            try {
+              j = JSON.parse(text);
+            } catch {
+              j = null;
+            }
+            const fmts = (j && j.streamingData && j.streamingData.adaptiveFormats) || [];
             done({
-              ok: true,
+              ok: !!j,
+              textLength: text.length,
+              rawAdKeys,
               audioFormats: fmts.filter((f) => (f.mimeType || '').indexOf('audio/') === 0).length,
               totalFormats: fmts.length,
               loudnessDb:
-                j.playerConfig && j.playerConfig.audioConfig
+                j && j.playerConfig && j.playerConfig.audioConfig
                   ? j.playerConfig.audioConfig.loudnessDb
                   : null,
-              hasAdPlacements: Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
-              playabilityStatus: j.playabilityStatus && j.playabilityStatus.status,
+              hasAdPlacements: !!j && Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
+              playabilityStatus: j && j.playabilityStatus && j.playabilityStatus.status,
             });
           })
           .catch((e) => done({ ok: false, error: String(e) }));
@@ -1650,7 +1667,8 @@ async function main() {
 
     // Embedded player frames (SPEC-015): a third-party host page frames a player. The frame hijacks
     // audio-only on its own document, the frame receives no extension UI (top-frame-only mounts),
-    // and the top document neither hijacks nor reports a status of its own.
+    // and the top document neither hijacks nor inherits the frame's status: it reports its own
+    // not-a-watch-page fallback.
     const embedRun = await runSession({
       withAddon: true,
       videoId: 'EMBED0001',
@@ -1668,11 +1686,13 @@ async function main() {
         embedRun.embedFrame.tooltip === false &&
         embedRun.embedFrame.segmentToast === false &&
         embedRun.embedFrame.distractionStyle === false &&
-        embedRun.status === null &&
+        embedRun.status === 'fallback' &&
+        embedRun.reason === 'not-a-watch-page' &&
         embedRun.audioOnlyTogglePresent === false,
       {
         embedFrame: embedRun.embedFrame,
         status: embedRun.status,
+        reason: embedRun.reason,
         audioOnlyTogglePresent: embedRun.audioOnlyTogglePresent,
       }
     );
@@ -1902,19 +1922,24 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
-    record('m2b:enabled-prunes-player-ads', enabled.player?.ok && !enabled.player.hasAdPlacements, {
-      player: enabled.player,
-    });
+    record(
+      'm2b:enabled-prunes-player-ads',
+      enabled.player?.ok && !enabled.player.hasAdPlacements && !enabled.player.rawAdKeys,
+      { player: enabled.player }
+    );
     record(
       'm2b:enabled-prunes-inline-player-response',
       !enabled.inlinePlayerResponse.hasAdPlacements && !enabled.inlinePlayerResponse.hasPlayerAds,
       enabled.inlinePlayerResponse
     );
     // Over-budget responses stream through unparsed (SPEC-004 bounded parse): the fixture serves a
-    // 9 MiB padded body far above MAX_PRUNABLE_RESPONSE_BYTES, so the page-visible body keeps its
-    // ad descriptors (proving it was never buffered for pruning) while the session still reaches
-    // active promptly. The bounded-memory contract itself is pinned by the unit tests; this case is
-    // the end-to-end fail-open plus latency-sanity proof.
+    // 9 MiB padded body far above MAX_PRUNABLE_RESPONSE_BYTES, so the network-level body the page
+    // receives keeps its ad descriptors and its full byte count (proving it was never buffered for
+    // pruning) while the session still reaches active promptly. The probe reads the raw text because
+    // the page-world scriptlets wrap Response.json()/JSON.parse (never Response.text()); the sibling
+    // m2b:enabled-prunes-player-ads case proves the same filter buffers and prunes an in-budget body.
+    // The bounded-memory contract itself is pinned by the unit tests; this case is the end-to-end
+    // fail-open plus latency-sanity proof.
     const overBudgetStarted = Date.now();
     const overBudget = await runSession({
       withAddon: true,
@@ -1932,7 +1957,8 @@ async function main() {
         typeof overBudget.videoSrc === 'string' &&
         overBudget.videoSrc.includes('/videoplayback') &&
         overBudget.player?.ok === true &&
-        overBudget.player.hasAdPlacements === true &&
+        overBudget.player.textLength > 8 * 1024 * 1024 &&
+        overBudget.player.rawAdKeys === true &&
         overBudgetElapsedMs < 20_000,
       {
         status: overBudget.status,
@@ -2111,7 +2137,9 @@ async function main() {
     });
     record(
       'm2b:disabled-preserves-player-ads',
-      adBlockDisabled.player?.ok && adBlockDisabled.player.hasAdPlacements,
+      adBlockDisabled.player?.ok &&
+        adBlockDisabled.player.hasAdPlacements &&
+        adBlockDisabled.player.rawAdKeys === true,
       { player: adBlockDisabled.player }
     );
     record(

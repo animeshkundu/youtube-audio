@@ -60,10 +60,19 @@ consent UX items of CP3 remain open.
   `/embed/<id>` player page and a `/frame-host` page that frames it; the case asserts the frame
   hijacks with a `/videoplayback` source and reaches `active`, carries no toggle, download button,
   tooltip, segment toast, or distraction stylesheet, and that the top document neither hijacks nor
-  reports a status of its own.
+  inherits the frame's status.
 - The local hermetic bench cannot launch Firefox inside the agent sandbox (Selenium startup
   timeout), so the CI run on push is the first execution of the new case; the existing watch-page,
   rotation, element-swap, and settings-matrix cases run on the same push.
+
+## Follow-up fix: top-document status (first CI execution, 2026-10-16)
+
+The first CI run of `m9:embedded-frame-hijacks-audio-only-without-ui` failed on every Firefox
+version because the case expected the framing top document to report no status at all. The honest
+behavior is that the top document runs the extension like any non-watch page and reports its own
+`fallback` / `not-a-watch-page` outcome; the case now asserts exactly that, alongside the unchanged
+frame-hijack and no-subframe-UI assertions. The frame's `active` status and the top document's
+fallback stay distinct, which is the ownership property the case exists to pin.
 
 ## Follow-ups
 

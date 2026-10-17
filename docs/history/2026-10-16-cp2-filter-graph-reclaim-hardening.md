@@ -83,6 +83,21 @@ generation)`; `emitStatus('active')` clears; the reclaim coordinator matches wit
 - CI ran the full bench matrix on the previous head; the CP2 head is validated by CI on push, and
   the residential canary stays the release gate.
 
+## Follow-up fix: raw-text probe (first CI execution, 2026-10-16)
+
+The first CI run that executed `m2b:over-budget-response-streams-through-unparsed` failed on every
+Firefox version. The cause was the case, not the filter: with ad-block on, the page-world scriptlets
+wrap `Response.json()` and `JSON.parse` (never `Response.text()`), so a page-side `.json()` read is
+pruned in-page no matter what the network filter delivered. The probe now reads the body as text and
+derives `textLength` and `rawAdKeys` from it, so the cases observe the network-level body:
+
+- `m2b:over-budget-response-streams-through-unparsed` asserts the raw body keeps its ad descriptors
+  and its full byte count (> 8 MiB) while the session still reaches `active` promptly.
+- `m2b:enabled-prunes-player-ads` additionally asserts the raw body carries no ad descriptors,
+  proving the background filter's buffer-and-prune path directly rather than via the in-page
+  wrapper.
+- `m2b:disabled-preserves-player-ads` asserts the raw body keeps them.
+
 ## Follow-ups
 
 - CP3 (embedded players, per-tab scope, idle-nag defeat, fallback quality, consent UX) is next in
