@@ -5,6 +5,7 @@ import {
   revokeDataConsent,
   setSponsorBlockConsent,
 } from '../../src/shared/consent';
+import { DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN } from '../../src/shared/permissions';
 import {
   resetSettings,
   setAdBlockEnabled,
@@ -14,8 +15,10 @@ import {
   setDownloadEnabled,
   setEnabled,
   setEqualizerBand,
+  setFallbackQualityCapEnabled,
   setForceQualityMax,
   setGhostEnabled,
+  setIdleNagDefeatEnabled,
   setMusicSetting,
   setQualityOfLifeSetting,
   setSegmentSkipCategory,
@@ -31,11 +34,15 @@ import {
   enabledSignal,
   equalizerBandsSignal,
   equalizerEnabledSignal,
+  fallbackQualityCapEnabledSignal,
   forceQualityMaxSignal,
   ghostEnabledSignal,
+  hideAvatarsSignal,
   hideCommentsSignal,
   hideRecommendationsSignal,
   hideShortsSignal,
+  hideThumbnailsSignal,
+  idleNagDefeatEnabledSignal,
   loudnessNormalizationSignal,
   segmentSkipCategoriesSignal,
   segmentSkipEnabledSignal,
@@ -54,10 +61,15 @@ import { IssueReporter } from '../ui/IssueReporter';
 
 const SEEN_ONBOARDING_KEY = 'seenOnboarding';
 const APPLY_ERROR = "Couldn't apply that change. Try again.";
+// SPEC-013: a denied or failed optional-permission gesture keeps the feature off and says why.
+const SPONSOR_PERMISSION_ERROR = "SponsorBlock access wasn't granted.";
+const DOWNLOAD_PERMISSION_ERROR = "Download access wasn't granted.";
 
 const OPTION_LABELS = {
   autoplay: 'Disable autoplay next',
   quality: 'Maximum video quality',
+  idleNag: 'Keep long videos playing',
+  fallbackQuality: 'Low-quality fallback',
   ads: 'Block ads',
   ghost: 'Ghost mode',
   aggressive: 'Aggressive telemetry blocking',
@@ -65,6 +77,8 @@ const OPTION_LABELS = {
   shorts: 'Hide Shorts',
   recommendations: 'Hide recommendations',
   comments: 'Hide comments',
+  thumbnails: 'Hide thumbnails',
+  avatars: 'Hide avatars',
   loudness: 'Normalize loudness',
   equalizer: 'Equalizer',
   download: 'Download audio',
@@ -75,6 +89,8 @@ export type OptionsActions = {
   setEnabled: typeof setEnabled;
   setAudioOnlyEnabled: typeof setAudioOnlyEnabled;
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
+  setIdleNagDefeatEnabled: typeof setIdleNagDefeatEnabled;
+  setFallbackQualityCapEnabled: typeof setFallbackQualityCapEnabled;
   setAdBlockEnabled: typeof setAdBlockEnabled;
   setGhostEnabled: typeof setGhostEnabled;
   setSegmentSkipEnabled: typeof setSegmentSkipEnabled;
@@ -92,12 +108,21 @@ export type OptionsActions = {
   openConsent: () => void;
   markOnboardingSeen: () => Promise<void>;
   openYouTube: () => void;
+  /** SPEC-013 optional-permission gestures; each resolves false on denial or failure. */
+  requestSponsorPermission: () => Promise<boolean>;
+  sponsorPermissionGranted: () => Promise<boolean>;
+  requestDownloadsPermission: () => Promise<boolean>;
+  downloadsPermissionGranted: () => Promise<boolean>;
+  /** The downloads API is absent on Firefox for Android; the row hides entirely there. */
+  downloadsAvailable: () => boolean;
 };
 
 export const defaultOptionsActions: OptionsActions = {
   setEnabled,
   setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
+  setIdleNagDefeatEnabled,
+  setFallbackQualityCapEnabled,
   setAdBlockEnabled,
   setGhostEnabled,
   setSegmentSkipEnabled,
@@ -115,6 +140,35 @@ export const defaultOptionsActions: OptionsActions = {
   openConsent: () => void browser.tabs.create({ url: browser.runtime.getURL('/consent.html') }),
   markOnboardingSeen: async () => browser.storage.local.set({ [SEEN_ONBOARDING_KEY]: true }),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
+  requestSponsorPermission: async () => {
+    try {
+      return await browser.permissions.request({ origins: [SPONSORBLOCK_ORIGIN] });
+    } catch {
+      return false;
+    }
+  },
+  sponsorPermissionGranted: async () => {
+    try {
+      return await browser.permissions.contains({ origins: [SPONSORBLOCK_ORIGIN] });
+    } catch {
+      return false;
+    }
+  },
+  requestDownloadsPermission: async () => {
+    try {
+      return await browser.permissions.request({ permissions: [DOWNLOADS_PERMISSION] });
+    } catch {
+      return false;
+    }
+  },
+  downloadsPermissionGranted: async () => {
+    try {
+      return await browser.permissions.contains({ permissions: [DOWNLOADS_PERMISSION] });
+    } catch {
+      return false;
+    }
+  },
+  downloadsAvailable: () => typeof browser.downloads?.download === 'function',
 };
 
 const sponsorRows: readonly [SponsorCategory, string, string, string][] = [
@@ -156,6 +210,8 @@ export function Options({
   const [activeSection, setActiveSection] = useState('quick-controls');
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [consentGranted, setConsentGranted] = useState<boolean | null>(null);
+  const [sponsorPermission, setSponsorPermission] = useState<boolean | null>(null);
+  const [downloadsPermission, setDownloadsPermission] = useState<boolean | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const requestIds = useRef<Record<string, number>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,10 +219,20 @@ export function Options({
 
   useEffect(() => {
     void actions.resolveDataConsent().then((consent) => setConsentGranted(consent.granted));
+    void actions.sponsorPermissionGranted().then(setSponsorPermission);
+    void actions.downloadsPermissionGranted().then(setDownloadsPermission);
     return () => {
       if (toastTimer.current !== null) clearTimeout(toastTimer.current);
     };
   }, [actions]);
+
+  // Deep-link support (SPEC-013): the popup's consent card opens options.html#data-consent. The
+  // target renders client-side, so native anchor scrolling can miss it; scroll explicitly.
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    document.getElementById(hash)?.scrollIntoView?.({ block: 'start' });
+  }, []);
 
   const dismissOnboarding = () => {
     setShowOnboarding(false);
@@ -186,6 +252,24 @@ export function Options({
       if (requestIds.current[key] === requestId) {
         setErrors((current) => ({ ...current, [key]: APPLY_ERROR }));
       }
+    });
+  };
+
+  // SPEC-013: optional-permission gestures request access inside the user-action handler (Firefox
+  // only honors it there) and only touch settings on a grant. A denial reports under the row.
+  const applyPermissionRequest = (
+    key: string,
+    request: () => Promise<boolean>,
+    deniedMessage: string,
+    onGranted: () => void | Promise<void>
+  ) => {
+    apply(key, async () => {
+      const granted = await request();
+      if (!granted) {
+        setErrors((current) => ({ ...current, [key]: deniedMessage }));
+        return;
+      }
+      await onGranted();
     });
   };
 
@@ -223,8 +307,8 @@ export function Options({
     : 'Paused. YouTube works normally.';
   const audioOnlyDescription = stateDescription(
     audioOnlyEnabledSignal.value,
-    'Stops video from loading. Saves data and battery.',
-    'Video loads and plays normally.'
+    'Stops video from loading. Saves data and battery. This is the default for every tab; quick buttons change only the current tab.',
+    'Video loads and plays normally. This is the default for every tab; quick buttons change only the current tab.'
   );
   const backgroundDescription = stateDescription(
     backgroundPlayEnabledSignal.value,
@@ -240,6 +324,20 @@ export function Options({
     forceQualityMaxSignal.value === 'off'
       ? 'Automatic. YouTube chooses quality when video is enabled.'
       : `${forceQualityMaxSignal.value} maximum when video is enabled.`;
+  const idleNagDescription = backgroundPlayEnabledSignal.value
+    ? stateDescription(
+        idleNagDefeatEnabledSignal.value,
+        "Skips YouTube's idle 'still watching' check while audio plays unattended.",
+        "YouTube's idle check behaves normally."
+      )
+    : `${
+        idleNagDefeatEnabledSignal.value ? 'On' : 'Off'
+      }, unavailable. Turn on background play to use this.`;
+  const fallbackQualityDescription = stateDescription(
+    fallbackQualityCapEnabledSignal.value,
+    "Plays video at the lowest quality when audio-only isn't available, and YouTube Music plays the song version when one exists. Quality can stay low until you change it.",
+    "When audio-only isn't available, video plays at normal quality."
+  );
   const adBlockDescription = stateDescription(
     adBlockEnabledSignal.value,
     'Blocks ads before they play.',
@@ -276,6 +374,16 @@ export function Options({
     hideCommentsSignal.value,
     'Removes comments and their mobile entry point.',
     'Comments remain visible.'
+  );
+  const thumbnailsDescription = stateDescription(
+    hideThumbnailsSignal.value,
+    'Hides video preview images in feeds and beside the player.',
+    'Video thumbnails remain visible.'
+  );
+  const avatarsDescription = stateDescription(
+    hideAvatarsSignal.value,
+    'Hides channel pictures in comments and on video pages.',
+    'Channel pictures remain visible.'
   );
   const loudnessDescription = stateDescription(
     loudnessNormalizationSignal.value,
@@ -316,6 +424,12 @@ export function Options({
     autoplayDescription
   );
   const qualityVisible = matchesSearch(normalizedQuery, OPTION_LABELS.quality, qualityDescription);
+  const idleNagVisible = matchesSearch(normalizedQuery, OPTION_LABELS.idleNag, idleNagDescription);
+  const fallbackQualityVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.fallbackQuality,
+    fallbackQualityDescription
+  );
   const adBlockVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ads, adBlockDescription);
   const ghostVisible = matchesSearch(normalizedQuery, OPTION_LABELS.ghost, ghostDescription);
   const aggressiveVisible = matchesSearch(
@@ -339,6 +453,12 @@ export function Options({
     OPTION_LABELS.comments,
     commentsDescription
   );
+  const thumbnailsVisible = matchesSearch(
+    normalizedQuery,
+    OPTION_LABELS.thumbnails,
+    thumbnailsDescription
+  );
+  const avatarsVisible = matchesSearch(normalizedQuery, OPTION_LABELS.avatars, avatarsDescription);
   const loudnessVisible = matchesSearch(
     normalizedQuery,
     OPTION_LABELS.loudness,
@@ -349,16 +469,17 @@ export function Options({
     OPTION_LABELS.equalizer,
     equalizerDescription
   );
-  const downloadVisible = matchesSearch(
-    normalizedQuery,
-    OPTION_LABELS.download,
-    downloadDescription
-  );
+  // SPEC-013: the row is hidden entirely where the downloads API is absent (Firefox for Android).
+  const downloadsSupported = actions.downloadsAvailable();
+  const downloadVisible =
+    downloadsSupported &&
+    matchesSearch(normalizedQuery, OPTION_LABELS.download, downloadDescription);
   const resetVisible = matchesSearch(normalizedQuery, OPTION_LABELS.reset, resetDescription);
   const helpVisible = matchesSearch(normalizedQuery, 'Help and feedback', helpDescription);
 
   const quickVisible = enabledVisible || audioOnlyVisible || backgroundVisible;
-  const playbackVisible = autoplayVisible || qualityVisible;
+  const playbackVisible =
+    autoplayVisible || qualityVisible || idleNagVisible || fallbackQualityVisible;
   const privacyVisible = adBlockVisible || ghostVisible || aggressiveVisible;
   const skippingVisible =
     skipVisible || (segmentSkipEnabledSignal.value && sponsorVisibility.some((visible) => visible));
@@ -528,6 +649,31 @@ export function Options({
                     </select>
                   </label>
                 )}
+                {idleNagVisible && (
+                  <SettingRow
+                    id="option-idle-nag"
+                    label={OPTION_LABELS.idleNag}
+                    description={idleNagDescription}
+                    error={errors.idleNag}
+                    checked={idleNagDefeatEnabledSignal.value}
+                    onChange={(checked) =>
+                      apply('idleNag', () => actions.setIdleNagDefeatEnabled(checked))
+                    }
+                    disabled={!backgroundPlayEnabledSignal.value}
+                  />
+                )}
+                {fallbackQualityVisible && (
+                  <SettingRow
+                    id="option-fallback-quality"
+                    label={OPTION_LABELS.fallbackQuality}
+                    description={fallbackQualityDescription}
+                    error={errors.fallbackQuality}
+                    checked={fallbackQualityCapEnabledSignal.value}
+                    onChange={(checked) =>
+                      apply('fallbackQuality', () => actions.setFallbackQualityCapEnabled(checked))
+                    }
+                  />
+                )}
               </div>
             </section>
           )}
@@ -590,13 +736,49 @@ export function Options({
                     description={skipDescription}
                     error={errors.skip}
                     checked={segmentSkipEnabledSignal.value}
-                    onChange={(checked) =>
-                      apply('skip', async () => {
-                        if (checked) await actions.setSponsorBlockConsent(true);
-                        await actions.setSegmentSkipEnabled(checked);
-                      })
-                    }
+                    onChange={(checked) => {
+                      if (!checked) {
+                        apply('skip', () => actions.setSegmentSkipEnabled(false));
+                        return;
+                      }
+                      // SPEC-013 double gate: request the optional host permission in this same
+                      // gesture, then persist the SponsorBlock consent and the setting.
+                      applyPermissionRequest(
+                        'skip',
+                        actions.requestSponsorPermission,
+                        SPONSOR_PERMISSION_ERROR,
+                        async () => {
+                          setSponsorPermission(true);
+                          await actions.setSponsorBlockConsent(true);
+                          await actions.setSegmentSkipEnabled(true);
+                        }
+                      );
+                    }}
                   />
+                )}
+                {skipVisible && segmentSkipEnabledSignal.value && sponsorPermission === false && (
+                  <div class="action-row permission-notice-row">
+                    <span>
+                      <strong>SponsorBlock access isn't granted</strong>
+                      <small>Skipping is on but can't fetch segments until you grant access.</small>
+                    </span>
+                    <div class="action-buttons">
+                      <button
+                        type="button"
+                        class="secondary-action"
+                        onClick={() =>
+                          applyPermissionRequest(
+                            'skip',
+                            actions.requestSponsorPermission,
+                            SPONSOR_PERMISSION_ERROR,
+                            () => setSponsorPermission(true)
+                          )
+                        }
+                      >
+                        Grant access
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {segmentSkipEnabledSignal.value && sponsorVisibility.some(Boolean) && (
                   <div class="dependent-reveal">
@@ -669,6 +851,34 @@ export function Options({
                     onChange={(checked) =>
                       apply('comments', () =>
                         actions.setQualityOfLifeSetting('hideComments', checked)
+                      )
+                    }
+                  />
+                )}
+                {thumbnailsVisible && (
+                  <SettingRow
+                    id="option-thumbnails"
+                    label={OPTION_LABELS.thumbnails}
+                    description={thumbnailsDescription}
+                    error={errors.thumbnails}
+                    checked={hideThumbnailsSignal.value}
+                    onChange={(checked) =>
+                      apply('thumbnails', () =>
+                        actions.setQualityOfLifeSetting('hideThumbnails', checked)
+                      )
+                    }
+                  />
+                )}
+                {avatarsVisible && (
+                  <SettingRow
+                    id="option-avatars"
+                    label={OPTION_LABELS.avatars}
+                    description={avatarsDescription}
+                    error={errors.avatars}
+                    checked={hideAvatarsSignal.value}
+                    onChange={(checked) =>
+                      apply('avatars', () =>
+                        actions.setQualityOfLifeSetting('hideAvatars', checked)
                       )
                     }
                   />
@@ -767,10 +977,48 @@ export function Options({
                   description={downloadDescription}
                   error={errors.download}
                   checked={downloadEnabledSignal.value}
-                  onChange={(checked) =>
-                    apply('download', () => actions.setDownloadEnabled(checked))
-                  }
+                  onChange={(checked) => {
+                    if (!checked) {
+                      apply('download', () => actions.setDownloadEnabled(false));
+                      return;
+                    }
+                    // SPEC-013 double gate: request the optional downloads permission in this same
+                    // gesture, then persist the setting.
+                    applyPermissionRequest(
+                      'download',
+                      actions.requestDownloadsPermission,
+                      DOWNLOAD_PERMISSION_ERROR,
+                      async () => {
+                        setDownloadsPermission(true);
+                        await actions.setDownloadEnabled(true);
+                      }
+                    );
+                  }}
                 />
+                {downloadEnabledSignal.value && downloadsPermission === false && (
+                  <div class="action-row permission-notice-row">
+                    <span>
+                      <strong>Download access isn't granted</strong>
+                      <small>The save-audio button can't save files until you grant access.</small>
+                    </span>
+                    <div class="action-buttons">
+                      <button
+                        type="button"
+                        class="secondary-action"
+                        onClick={() =>
+                          applyPermissionRequest(
+                            'download',
+                            actions.requestDownloadsPermission,
+                            DOWNLOAD_PERMISSION_ERROR,
+                            () => setDownloadsPermission(true)
+                          )
+                        }
+                      >
+                        Grant access
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -779,7 +1027,7 @@ export function Options({
             <section id="advanced-about" class="settings-section">
               <SectionHeader>Advanced/About</SectionHeader>
               <div class="settings-card reset-card">
-                <div class="action-row consent-review-row">
+                <div class="action-row consent-review-row" id="data-consent">
                   <span>
                     <strong>Data &amp; consent</strong>
                     <small>

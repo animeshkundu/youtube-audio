@@ -70,10 +70,17 @@ const OPTIONS_URL = `moz-extension://${PINNED_UUID}/options.html`;
 const BROWSER_ACTION_WIDGET = `${ADDON_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}-browser-action`;
 // BENCH-ONLY background message that returns the real per-tab status map (see background.ts).
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
+// Background consent message (SPEC-013); same string the content script and popup send.
+const GET_DATA_CONSENT_MESSAGE = 'yta:get-data-consent';
+// BENCH-ONLY background message that sets a tab-scope override for an explicit tab id, driving the
+// real apply path without the popup DOM (see background.ts; SPEC-012 §5; ADR-0014).
+const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
 
 const TERMINAL_STATUSES = ['active', 'disabled', 'fallback'];
 
+let lastBenchLog = '';
 function log(...a) {
+  lastBenchLog = a.map((part) => String(part)).join(' ');
   console.error('[bench]', ...a);
 }
 
@@ -330,22 +337,56 @@ function visibilityProbeScript() {
   };
 }
 
+// A session that stops answering WebDriver commands would otherwise stall until the CI job's
+// 20-minute timeout, which reports the lane as "cancelled" and hides the cause (seen once on the
+// Firefox 133 lane during the download probe). The longest legitimate wait inside a session is
+// roughly 10 s, so three minutes separates a wedged browser or geckodriver from a merely slow
+// runner. Override with BENCH_SESSION_TIMEOUT_MS when replaying a deliberately slow case.
+const SESSION_WATCHDOG_MS = Number(process.env.BENCH_SESSION_TIMEOUT_MS || 180000);
+
+function withSessionWatchdog(session, timeoutMs = SESSION_WATCHDOG_MS) {
+  let timer;
+  const watchdog = new Promise((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `bench session made no progress within ${timeoutMs} ms (wedged browser or ` +
+              `geckodriver); last step: ${lastBenchLog || '(none)'}`
+          )
+        ),
+      timeoutMs
+    );
+  });
+  return Promise.race([session, watchdog]).finally(() => clearTimeout(timer));
+}
+
 /**
- * One fresh-profile browser session against the fixture watch page.
+ * One fresh-profile browser session against the fixture watch page, bounded by a watchdog so a
+ * wedged driver fails the run fast with the step it was stuck on instead of stalling into the CI
+ * job timeout.
  * @param {{ withAddon: boolean, seedSettings?: object, seedConsent?: boolean,
  *           sponsorBlockAllowed?: boolean, probePlayerFromPage?: boolean, probeCoach?: boolean,
- *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean,
+ *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean, probeTeardown?: boolean,
+ *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
+ *           probeIdleNag?: 'confirmed' | 'untouched', probeFallbackQuality?: boolean,
  *           origin: string, resetLog: () => void }} opts
  */
-export async function runSession({
+export function runSession(opts) {
+  return withSessionWatchdog(runSessionUnwatched(opts));
+}
+
+async function runSessionUnwatched({
   withAddon,
   seedSettings,
   seedConsent = true,
   sponsorBlockAllowed,
   probePlayerFromPage,
+  probePlayerVideoId,
   probeCoach,
   probeSegmentSkip,
   probeQol,
+  probeFallbackQuality,
   probeDownload,
   probeSpaRearm,
   probeCircuitBreaker,
@@ -357,6 +398,11 @@ export async function runSession({
   probeElementSwap,
   probeToggleOffReclaim,
   probeRapidRetoggle,
+  probeTeardown,
+  frameHost,
+  probeEmbedFrame,
+  probeTabScope,
+  probeIdleNag,
   origin,
   resetLog,
   videoId = 'FIXTURE0001',
@@ -369,6 +415,10 @@ export async function runSession({
     .setFirefoxOptions(makeOptions({ disableBuiltInDataConsent: withAddon && !seedConsent }))
     .setFirefoxService(new ServiceBuilder(GECKODRIVER_BIN).addArguments('--allow-system-access'))
     .build();
+  // W3C default pageLoad timeout is 300 s; tighten it so a navigation that stops making progress
+  // surfaces as an error instead of silence. The W3C script timeout (30 s) already bounds script
+  // execution, and the watchdog above bounds anything the driver never answers at all.
+  await driver.manage().setTimeouts({ pageLoad: 120000 });
   try {
     let addonId = null;
     if (withAddon) {
@@ -424,25 +474,35 @@ export async function runSession({
     // (The options-page navigation above never touches the fixture host.)
     resetLog();
 
-    await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
-    await driver.wait(until.elementLocated(By.css('video')), 10000);
-    await driver.wait(async () => (await driver.executeScript(snapshotScript)).ready === '1', 10000);
-    // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
-    // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
-    // rejected). Waiting for it here means the request log is quiescent before any telemetry
-    // count assertion reads it, so a "blocked 0 times" check can't pass merely because an
-    // un-blocked beacon had not yet reached the server.
-    await driver.wait(
-      async () => (await driver.executeScript(snapshotScript)).telemetryReady === '1',
-      8000,
-    );
+    if (frameHost) {
+      // Embedded-player session (SPEC-015): a third-party host page frames the player, so the top
+      // document owns no video and none of the watch-page readiness markers.
+      await driver.get(`${origin}/frame-host?embed=${encodeURIComponent(videoId)}`);
+      await driver.wait(until.elementLocated(By.css('#fixture-embed')), 10000);
+    } else {
+      await driver.get(`${origin}/watch?v=${videoId}${watchQuery ? `&${watchQuery}` : ''}`);
+      await driver.wait(until.elementLocated(By.css('video')), 10000);
+      await driver.wait(
+        async () => (await driver.executeScript(snapshotScript)).ready === '1',
+        10000
+      );
+      // The fixture fires its telemetry beacons on load and only sets data-fixture-telemetry-ready
+      // once every beacon has settled (allowed = received by the fixture server, blocked = fetch
+      // rejected). Waiting for it here means the request log is quiescent before any telemetry
+      // count assertion reads it, so a "blocked 0 times" check can't pass merely because an
+      // un-blocked beacon had not yet reached the server.
+      await driver.wait(
+        async () => (await driver.executeScript(snapshotScript)).telemetryReady === '1',
+        8000
+      );
+    }
 
     // With the add-on, wait for the in-player reconciler to mount and for playback to reach a
     // terminal status. The optional coach probe latches its transient first-run marker before the
     // tooltip's eight-second dismissal removes it.
     let coachObserved = false;
     let terminalSnap = null;
-    if (withAddon) {
+    if (withAddon && !frameHost) {
       await waitFor(async () => {
         const snap = await driver.executeScript(snapshotScript);
         return snap.audioOnlyTogglePresent ? snap : null;
@@ -453,7 +513,7 @@ export async function runSession({
           return snap.ytaCoach === '1' ? snap : null;
         }, 4000));
       }
-      if (seedConsent) {
+      if (seedConsent && !frameHost) {
         terminalSnap = await waitFor(async () => {
           const snap = await driver.executeScript(snapshotScript);
           if (expectedTerminalStatus) {
@@ -474,6 +534,254 @@ export async function runSession({
           return snap.ytaArtwork ? snap : null;
         }, 4000);
       }
+    }
+
+    let embedFrame = null;
+    if (probeEmbedFrame) {
+      // The framed player must hijack on its own document (SPEC-015) while the top document stays
+      // untouched. The fixture frame is same-origin, so its document can be read directly.
+      await driver.switchTo().frame(await driver.findElement(By.css('#fixture-embed')));
+      const readFrame = function () {
+        const root = document.documentElement;
+        const video = document.querySelector('video');
+        return {
+          status: root.dataset.ytaStatus || null,
+          reason: root.dataset.ytaReason || null,
+          videoSrc: video ? video.src : null,
+          videoDeclaredSrc: video ? video.getAttribute('src') : null,
+          toggleButton: document.getElementById('yta-audio-only-toggle') !== null,
+          downloadButton: document.getElementById('yta-download-audio') !== null,
+          tooltip: document.querySelector('.yta-player-tooltip') !== null,
+          segmentToast: document.querySelector('.yta-segment-toast') !== null,
+          distractionStyle: document.getElementById('yta-distraction-style') !== null,
+        };
+      };
+      const frameTerminal = await waitFor(async () => {
+        const state = await driver.executeScript(readFrame);
+        return state.status === 'active' ? state : null;
+      }, 12000);
+      embedFrame = frameTerminal || (await driver.executeScript(readFrame));
+      await driver.switchTo().defaultContent();
+    }
+
+    let tabScope = null;
+    if (probeTabScope) {
+      // Per-tab audio-only scope (SPEC-012 §5; ADR-0014). The headless harness cannot drive the
+      // popup DOM (see openBrowserActionPopup), so this probe drives the REAL background apply path
+      // through the `__BENCH__`-only set message and asserts the observable consequences: the
+      // override flips the tab's hijack while the global preference stays untouched in storage, a
+      // second tab without an override follows the global, the override survives a reload of its
+      // tab, an explicit override beats a later global change in both directions, and closing a tab
+      // prunes its entry from the in-memory store.
+      const scopeContext = { watchHandle: await driver.getWindowHandle() };
+      const scopeSecondVideoId = 'SCOPE0002';
+      const withOptionsTab = async (script, ...args) => {
+        const returnHandle = await driver.getWindowHandle();
+        if (scopeContext.optionsHandle) {
+          await driver.switchTo().window(scopeContext.optionsHandle);
+        } else {
+          await driver.switchTo().newWindow('tab');
+          scopeContext.optionsHandle = await driver.getWindowHandle();
+          await driver.get(OPTIONS_URL);
+        }
+        try {
+          return await driver.executeAsyncScript(script, ...args);
+        } finally {
+          await driver.switchTo().window(returnHandle);
+        }
+      };
+      const findTabId = (needle) =>
+        withOptionsTab(function (urlNeedle) {
+          const done = arguments[arguments.length - 1];
+          browser.tabs
+            .query({})
+            .then((tabs) => {
+              const match = tabs.find(
+                (tab) => typeof tab.url === 'string' && tab.url.includes(urlNeedle)
+              );
+              done(match && typeof match.id === 'number' ? match.id : null);
+            })
+            .catch(() => done(null));
+        }, needle);
+      const setScope = (tabId, audioOnly) =>
+        withOptionsTab(function (messageType, id, value) {
+          const done = arguments[arguments.length - 1];
+          browser.runtime
+            .sendMessage({ type: messageType, tabId: id, audioOnly: value })
+            .then((reply) => done(reply || null))
+            .catch((error) => done({ error: String(error) }));
+        }, BENCH_SET_TAB_SCOPE_MESSAGE, tabId, audioOnly);
+      const readScopes = () =>
+        withOptionsTab(function (messageType) {
+          const done = arguments[arguments.length - 1];
+          browser.runtime
+            .sendMessage({ type: messageType })
+            .then((snapshot) =>
+              done(snapshot && Array.isArray(snapshot.scopes) ? snapshot.scopes : null)
+            )
+            .catch(() => done(null));
+        }, BENCH_STATUS_MAP_MESSAGE);
+      const readGlobalAudioOnly = () =>
+        withOptionsTab(function () {
+          const done = arguments[arguments.length - 1];
+          browser.storage.local
+            .get('settings')
+            .then((stored) => {
+              const storedSettings =
+                stored && typeof stored.settings === 'object' && stored.settings
+                  ? stored.settings
+                  : {};
+              done(
+                typeof storedSettings.audioOnlyEnabled === 'boolean'
+                  ? storedSettings.audioOnlyEnabled
+                  : null
+              );
+            })
+            .catch(() => done(null));
+        });
+      const waitForStatus = (wanted, timeoutMs = 8000) =>
+        waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === wanted ? snap : null;
+        }, timeoutMs, 50);
+
+      const watchTabId = await findTabId(videoId);
+      if (typeof watchTabId !== 'number') {
+        tabScope = { error: 'watch-tab-id-not-found' };
+      } else {
+        const disabledBefore = await driver.executeScript(snapshotScript);
+        await setScope(watchTabId, true);
+        const activeAfterOverride = await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === 'active' &&
+            typeof snap.videoSrc === 'string' &&
+            snap.videoSrc.includes('/videoplayback')
+            ? snap
+            : null;
+        }, 8000, 50);
+        const globalAfterOverride = await readGlobalAudioOnly();
+
+        // A second YouTube tab with no override follows the global preference, then flips to active
+        // when it gets its own override: the override is per tab, not per window.
+        await driver.switchTo().newWindow('tab');
+        await driver.get(`${origin}/watch?v=${scopeSecondVideoId}`);
+        await driver.wait(until.elementLocated(By.css('video')), 10000);
+        const secondDisabled = await waitForStatus('disabled');
+        const secondTabId = await findTabId(scopeSecondVideoId);
+        await setScope(secondTabId, true);
+        const secondActive = await waitForStatus('active');
+        const scopesBeforeClose = await readScopes();
+
+        await driver.close();
+        await driver.switchTo().window(scopeContext.watchHandle);
+        const scopesAfterClose = await waitFor(async () => {
+          const scopes = await readScopes();
+          return Array.isArray(scopes) && !scopes.some((entry) => entry.tabId === secondTabId)
+            ? scopes
+            : null;
+        }, 4000, 100);
+
+        // The override is tab-keyed, so a document reload of the same tab keeps it.
+        await driver.get(`${origin}/watch?v=${videoId}`);
+        await driver.wait(until.elementLocated(By.css('video')), 10000);
+        const persistedAcrossReload = await waitForStatus('active', 10000);
+
+        // The override is tab-keyed, so an in-page SPA navigation in the same tab keeps it and
+        // re-hijacks the next video as well.
+        await driver.executeScript(function () {
+          history.pushState({}, '', '/watch?v=SCOPE0003');
+          document.dispatchEvent(new Event('yt-navigate-finish'));
+        });
+        const persistedAcrossSpa = await waitFor(async () => {
+          const snap = await driver.executeScript(snapshotScript);
+          return snap.status === 'active' &&
+            typeof snap.videoSrc === 'string' &&
+            snap.videoSrc.includes('videoId=SCOPE0003')
+            ? snap
+            : null;
+        }, 8000, 50);
+
+        // An explicit override wins over a later global change both ways: global on keeps the
+        // overridden-on tab active, and flipping the override off disables it under global on.
+        await mutateSettingMidSession(driver, scopeContext, 'audioOnlyEnabled', true);
+        const stillActiveWithGlobalOn = await waitForStatus('active', 6000);
+        await setScope(watchTabId, false);
+        const disabledAfterOverrideOff = await waitForStatus('disabled');
+        const scopesFinal = await readScopes();
+        const globalFinal = await readGlobalAudioOnly();
+
+        tabScope = {
+          watchTabId,
+          secondTabId,
+          disabledBefore: disabledBefore.status,
+          activeAfterOverride: !!activeAfterOverride,
+          overrideVideoSrc: activeAfterOverride?.videoSrc || null,
+          globalAfterOverride,
+          secondDisabled: !!secondDisabled,
+          secondActiveAfterOverride: !!secondActive,
+          scopesBeforeClose,
+          scopesAfterClose,
+          prunedSecondTab:
+            Array.isArray(scopesAfterClose) &&
+            !scopesAfterClose.some((entry) => entry.tabId === secondTabId),
+          primaryStillPresent:
+            Array.isArray(scopesAfterClose) &&
+            scopesAfterClose.some((entry) => entry.tabId === watchTabId),
+          persistedAcrossReload: !!persistedAcrossReload,
+          persistedAcrossSpa: !!persistedAcrossSpa,
+          stillActiveWithGlobalOn: !!stillActiveWithGlobalOn,
+          disabledAfterOverrideOff: !!disabledAfterOverrideOff,
+          scopesFinal,
+          globalFinal,
+        };
+      }
+    }
+
+    let idleNag = null;
+    if (probeIdleNag) {
+      // Idle-nag defeat (SPEC-016): the nag fixture seeds a stale activity clock, then (after the
+      // extension has armed) pauses the media and raises a scripted "are you still there?" dialog.
+      // `probeIdleNag` names the expected outcome ('confirmed' in the armed sessions, 'untouched'
+      // in the gated ones) so the off sessions fail fast instead of waiting out the confirm window.
+      const opened = await waitFor(
+        () =>
+          driver.executeScript(function () {
+            return window.__fixtureNagOpened === true ? true : null;
+          }),
+        20000,
+        250
+      );
+      let confirmed = false;
+      if (opened) {
+        if (probeIdleNag === 'confirmed') {
+          confirmed =
+            (await waitFor(
+              () =>
+                driver.executeScript(function () {
+                  return window.__fixtureNagConfirmed === true ? true : null;
+                }),
+              15000,
+              250
+            )) === true;
+        } else {
+          await new Promise((r) => setTimeout(r, 3000));
+          confirmed =
+            (await driver.executeScript(function () {
+              return window.__fixtureNagConfirmed === true;
+            })) === true;
+        }
+      }
+      const lact = await driver.executeScript(function () {
+        return typeof window._lact === 'number' ? window._lact : null;
+      });
+      const dialogStillOpen = await driver.executeScript(function () {
+        return !!document.querySelector('yt-confirm-dialog-renderer, ytmusic-you-there-renderer');
+      });
+      const paused = await driver.executeScript(function () {
+        const video = document.querySelector('video[data-fixture-video]');
+        return video ? video.paused : null;
+      });
+      idleNag = { opened: !!opened, confirmed, lact, dialogStillOpen, paused };
     }
 
     let toggleOffReclaim = null;
@@ -711,6 +1019,79 @@ export async function runSession({
       spaLeak = { before, after, navigations, snapshots };
     }
 
+    let teardown = null;
+    if (probeTeardown) {
+      // Best-effort teardown (SPEC-021). The harness cannot disable a real add-on mid-session, so
+      // this drives the exact control message the background broadcasts from `runtime.onSuspend`
+      // (disable/update) to every tab, from the extension's own options page, and asserts the
+      // observable teardown: the page world runs its disable path (native playback reclaimed), the
+      // content script removes every node it owns, and the stored preferences are never rewritten.
+      const teardownContext = {};
+      const withOptionsTab = async (script, ...args) => {
+        const returnHandle = await driver.getWindowHandle();
+        if (teardownContext.optionsHandle) {
+          await driver.switchTo().window(teardownContext.optionsHandle);
+        } else {
+          await driver.switchTo().newWindow('tab');
+          teardownContext.optionsHandle = await driver.getWindowHandle();
+          await driver.get(OPTIONS_URL);
+        }
+        try {
+          return await driver.executeAsyncScript(script, ...args);
+        } finally {
+          await driver.switchTo().window(returnHandle);
+        }
+      };
+      const frozen =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          return state.status === 'active' && state.audioOnlyTogglePresent === true ? state : null;
+        }, 8000, 50)) || (await driver.executeScript(snapshotScript));
+      const reclaimCallBaseline = frozen.nativeReclaimCalls.length;
+      const broadcast = await withOptionsTab(function (messageType) {
+        const done = arguments[arguments.length - 1];
+        browser.tabs
+          .query({})
+          .then((tabs) =>
+            Promise.all(
+              tabs.map((tab) =>
+                typeof tab.id === 'number'
+                  ? browser.tabs.sendMessage(tab.id, { type: messageType }).catch(() => undefined)
+                  : undefined
+              )
+            )
+          )
+          .then(() => browser.storage.local.get('settings'))
+          .then((stored) => done({ ok: true, settings: stored?.settings ?? null }))
+          .catch((error) => done({ ok: false, error: String(error) }));
+      }, 'yta:teardown');
+      const settled =
+        (await waitFor(async () => {
+          const state = await driver.executeScript(snapshotScript);
+          const calls = state.nativeReclaimCalls.slice(reclaimCallBaseline);
+          return state.status === 'disabled' &&
+            state.audioOnlyTogglePresent === false &&
+            state.ytaNodeCount === 0 &&
+            state.videoDeclaredSrc?.includes('/native-video?') &&
+            calls.some((call) => call.method === 'loadVideoById')
+            ? state
+            : null;
+        }, 8000, 50)) || (await driver.executeScript(snapshotScript));
+      teardown = {
+        frozen,
+        reclaimCallBaseline,
+        broadcast: {
+          ok: broadcast?.ok === true,
+          error: broadcast?.error ?? null,
+          storedEnabled:
+            broadcast?.settings && typeof broadcast.settings === 'object'
+              ? broadcast.settings.enabled
+              : null,
+        },
+        settled,
+      };
+    }
+
     const snap = await driver.executeScript(snapshotScript);
     const vis = await driver.executeScript(visibilityProbeScript);
 
@@ -737,30 +1118,48 @@ export async function runSession({
 
     let player = null;
     if (probePlayerFromPage) {
-      player = await driver.executeAsyncScript(function () {
+      const probeVideoId = probePlayerVideoId || 'FIXTURE0001';
+      player = await driver.executeAsyncScript(function (videoId) {
         const done = arguments[arguments.length - 1];
-        fetch('/youtubei/v1/player?v=FIXTURE0001', {
+        fetch('/youtubei/v1/player?v=' + encodeURIComponent(videoId), {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ videoId: 'FIXTURE0001' }),
+          body: JSON.stringify({ videoId: videoId }),
         })
-          .then((r) => r.json())
-          .then((j) => {
-            const fmts = (j.streamingData && j.streamingData.adaptiveFormats) || [];
+          .then((r) => r.text())
+          .then((text) => {
+            // Read the network-level body directly: when ad-block is on, the page-world scriptlets
+            // wrap Response.json() and JSON.parse (never Response.text()), so `rawAdKeys` observes
+            // exactly what the background response filter delivered.
+            const rawAdKeys = [
+              'adPlacements',
+              'playerAds',
+              'adSlots',
+              'adPlacementRenderer',
+            ].some((key) => text.indexOf('"' + key + '"') !== -1);
+            let j = null;
+            try {
+              j = JSON.parse(text);
+            } catch {
+              j = null;
+            }
+            const fmts = (j && j.streamingData && j.streamingData.adaptiveFormats) || [];
             done({
-              ok: true,
+              ok: !!j,
+              textLength: text.length,
+              rawAdKeys,
               audioFormats: fmts.filter((f) => (f.mimeType || '').indexOf('audio/') === 0).length,
               totalFormats: fmts.length,
               loudnessDb:
-                j.playerConfig && j.playerConfig.audioConfig
+                j && j.playerConfig && j.playerConfig.audioConfig
                   ? j.playerConfig.audioConfig.loudnessDb
                   : null,
-              hasAdPlacements: Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
-              playabilityStatus: j.playabilityStatus && j.playabilityStatus.status,
+              hasAdPlacements: !!j && Array.isArray(j.adPlacements) && j.adPlacements.length > 0,
+              playabilityStatus: j && j.playabilityStatus && j.playabilityStatus.status,
             });
           })
           .catch((e) => done({ ok: false, error: String(e) }));
-      });
+      }, [probeVideoId]);
     }
 
     let segmentSkip = null;
@@ -809,6 +1208,8 @@ export async function runSession({
           shortsHidden: hidden('#fixture-shorts'),
           recsHidden: hidden('#fixture-recs'),
           commentsHidden: hidden('#fixture-comments'),
+          thumbnailsHidden: hidden('#fixture-thumbnail'),
+          avatarsHidden: hidden('#fixture-avatar #avatar'),
           secondaryPanelCommentsHidden: hidden('#fixture-secondary-comments'),
         };
       };
@@ -826,6 +1227,19 @@ export async function runSession({
             state.commentsHidden === true;
           return state.qualityCalls.length > 0 && distractionApplied ? state : null;
         }, 8000)) || (await driver.executeScript(readQol));
+    }
+
+    let fallbackQuality = null;
+    if (probeFallbackQuality) {
+      // SPEC-017: read the recorded quality calls and the fixture's song-mode marker. The
+      // extension applies the fallback request synchronously inside the status emission, and the
+      // terminal-status wait above already observed that emission, so a single read is enough.
+      fallbackQuality = await driver.executeScript(function () {
+        return {
+          qualityCalls: window.__ytaQualityCalls || [],
+          songMode: window.__fixtureSongMode || null,
+        };
+      });
     }
 
     let diagnostics = null;
@@ -869,8 +1283,15 @@ export async function runSession({
     // Faithfully verifies the honest per-video status reached the background map. The task's
     // sanctioned "read the map" path: we exercise the real popup lane (best-effort, headless-
     // limited) while the fixture tab is active, then read the REAL map from the extension's own
-    // page. Asserting the raw entry (status + reason) is robust to the navigation to options.html
-    // marking that tab's entry stale (markEntryStale preserves the payload).
+    // page. Asserting the raw entry (status + reason) is robust to tab-focus effects: the map
+    // stores what the content script reported, before any URL cross-check.
+    //
+    // The read happens from a SECOND tab (the pinned options page) so the fixture tab keeps its
+    // watch URL. That matters for SPEC-013: `browser.tabs.get(tabId).url` inside the background
+    // resolves the fixture URL through host permissions alone (the bench manifest deliberately
+    // has no `tabs` permission), so a visible fixture URL in the snapshot is the no-`tabs`
+    // classification proof. The same read returns the resolved consent state, the toolbar badge
+    // text, and the real manifest permission lists for the permission-model cases.
     let browserActionPopup = null;
     let statusMap = null;
     if ((probeStatusMap || probeBrowserActionPopup) && withAddon) {
@@ -881,14 +1302,47 @@ export async function runSession({
           browserActionPopup = await openBrowserActionPopup(driver);
         }
         if (probeStatusMap) {
-          await driver.get(OPTIONS_URL);
-          statusMap = await driver.executeAsyncScript(function (messageType) {
-            const done = arguments[arguments.length - 1];
-            browser.runtime
-              .sendMessage({ type: messageType })
-              .then((r) => done({ ok: true, entries: (r && r.entries) || [] }))
-              .catch((e) => done({ ok: false, error: String(e) }));
-          }, BENCH_STATUS_MAP_MESSAGE);
+          const fixtureHandle = await driver.getWindowHandle();
+          await driver.switchTo().newWindow('tab');
+          try {
+            await driver.get(OPTIONS_URL);
+            statusMap = await driver.executeAsyncScript(function (
+              messageType,
+              getConsentType
+            ) {
+              const done = arguments[arguments.length - 1];
+              const action = browser.browserAction || browser.action;
+              const badge = action
+                ? Promise.resolve(action.getBadgeText({})).catch(() => null)
+                : Promise.resolve(null);
+              Promise.all([
+                browser.runtime.sendMessage({ type: messageType }),
+                browser.runtime.sendMessage({ type: getConsentType }),
+                badge,
+              ])
+                .then(([map, consent, text]) => {
+                  const manifest = browser.runtime.getManifest();
+                  done({
+                    ok: true,
+                    entries: (map && map.entries) || [],
+                    consent: consent || null,
+                    badge: typeof text === 'string' ? text : null,
+                    manifest: {
+                      permissions: manifest.permissions || [],
+                      optional_permissions: manifest.optional_permissions || [],
+                      optional_host_permissions: manifest.optional_host_permissions || [],
+                      host_permissions: manifest.host_permissions || [],
+                    },
+                  });
+                })
+                .catch((e) => done({ ok: false, error: String(e) }));
+            },
+            BENCH_STATUS_MAP_MESSAGE,
+            GET_DATA_CONSENT_MESSAGE);
+          } finally {
+            await driver.close();
+            await driver.switchTo().window(fixtureHandle);
+          }
         }
       } catch (e) {
         statusMap = statusMap || { ok: false, error: String(e).slice(0, 200) };
@@ -906,6 +1360,7 @@ export async function runSession({
       inlinePlayerResponse,
       segmentSkip,
       qol,
+      fallbackQuality,
       audioGraph: snap.audioGraph,
       download: snap.download,
       downloadButtonVisible: snap.downloadButtonVisible,
@@ -914,6 +1369,9 @@ export async function runSession({
       audioOnlyToggleDisabled: snap.audioOnlyToggleDisabled,
       toggleInRightControlsBeforeGear: snap.toggleInRightControlsBeforeGear,
       segmentStatusExists: snap.segmentStatusExists,
+      // Total extension-owned nodes left in the page (every `[id^="yta-"]`); the master-gate and
+      // disabled-untouched cases assert it is 0.
+      ytaNodeCount: snap.ytaNodeCount,
       ytaArtwork: snap.ytaArtwork,
       ytaCoach: snap.ytaCoach,
       coachObserved,
@@ -930,6 +1388,10 @@ export async function runSession({
       statusMap,
       toggleOffReclaim,
       rapidRetoggle,
+      teardown,
+      embedFrame,
+      tabScope,
+      idleNag,
     };
   } finally {
     try {
@@ -1010,6 +1472,7 @@ async function main() {
     const unconsented = await runSession({
       withAddon: true,
       seedConsent: false,
+      probeStatusMap: true,
       origin,
       resetLog: () => fixture.reset(),
     });
@@ -1030,6 +1493,53 @@ async function main() {
         artwork: unconsented.ytaArtwork,
         artworkRequests: unconsentedLog.filter((request) => request.path.startsWith('/vi/')),
       }
+    );
+    // SPEC-013: the toolbar badge marks exactly the undecided custom-consent state and stays
+    // clear otherwise. On Firefox < 140 an unseeded profile is pending (custom path, no record)
+    // and must badge `!`; on 140+ the built-in category is denied-but-decided (pending false)
+    // because the bench suppresses the automatic grant, so no badge may appear.
+    record(
+      'consent:badge-marks-undecided-installs',
+      unconsented.statusMap?.consent?.granted === false &&
+        unconsented.statusMap?.badge ===
+          (unconsented.statusMap?.consent?.pending === true ? '!' : ''),
+      { consent: unconsented.statusMap?.consent, badge: unconsented.statusMap?.badge }
+    );
+
+    // SPEC-013 (1.1.0 permission model). One real seeded session asserts the shipped manifest
+    // shape and that classification still works without the `tabs` permission:
+    // - the bench build keeps `downloads` and the SponsorBlock origin REQUIRED (build-only
+    //   divergence so no browser-chrome prompt is ever needed) and declares no optional keys;
+    // - `tabs` is absent, yet `browser.tabs.get(tabId).url` inside the background resolves the
+    //   fixture tab's URL through its host permission, which is the input classification needs;
+    // - a granted install clears the toolbar badge.
+    const permissionRun = await runSession({
+      withAddon: true,
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const permissionEntry = statusMapEntry(permissionRun.statusMap);
+    const manifestPermissions = permissionRun.statusMap?.manifest?.permissions || [];
+    record(
+      'manifest:no-tabs-with-bench-optional-grants-required',
+      permissionRun.statusMap?.ok === true &&
+        !manifestPermissions.includes('tabs') &&
+        manifestPermissions.includes('downloads') &&
+        manifestPermissions.includes('https://sponsor.ajay.app/*') &&
+        (permissionRun.statusMap?.manifest?.optional_permissions || []).length === 0 &&
+        (permissionRun.statusMap?.manifest?.optional_host_permissions || []).length === 0,
+      { manifest: permissionRun.statusMap?.manifest }
+    );
+    record(
+      'status-channel:fixture-url-visible-without-tabs-permission',
+      typeof permissionEntry?.url === 'string' && permissionEntry.url.startsWith(`${origin}/watch`),
+      { url: permissionEntry?.url, entries: permissionRun.statusMap?.entries?.length }
+    );
+    record(
+      'consent:badge-stays-clear-once-granted',
+      permissionRun.statusMap?.consent?.granted === true && permissionRun.statusMap?.badge === '',
+      { consent: permissionRun.statusMap?.consent, badge: permissionRun.statusMap?.badge }
     );
 
     record('treatment:content-script-marker', enabled.marker === '1', {
@@ -1169,6 +1679,39 @@ async function main() {
         final: rapid?.final,
         calls: rapidCalls,
         stalePausesAfterRehijack: staleRapidPauses,
+      }
+    );
+
+    // --- best-effort teardown message (SPEC-021) ------------------------------
+    const teardownRun = await runSession({
+      withAddon: true,
+      seedSettings: { ...reclaimSeedSettings, hideShorts: true, hideThumbnails: true },
+      probeTeardown: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const teardown = teardownRun.teardown;
+    const teardownCalls =
+      teardown?.settled?.nativeReclaimCalls.slice(teardown.reclaimCallBaseline) || [];
+    record(
+      'm1:teardown-message-removes-everything',
+      teardown?.frozen?.status === 'active' &&
+        teardown.broadcast.ok === true &&
+        teardown.broadcast.storedEnabled === true &&
+        teardown.settled.status === 'disabled' &&
+        teardown.settled.audioOnlyTogglePresent === false &&
+        teardown.settled.ytaNodeCount === 0 &&
+        typeof teardown.settled.videoDeclaredSrc === 'string' &&
+        teardown.settled.videoDeclaredSrc.includes('/native-video?') &&
+        teardownCalls.some((call) => call.method === 'loadVideoById'),
+      {
+        frozenStatus: teardown?.frozen?.status ?? null,
+        broadcast: teardown?.broadcast ?? null,
+        settledStatus: teardown?.settled?.status ?? null,
+        audioOnlyTogglePresent: teardown?.settled?.audioOnlyTogglePresent ?? null,
+        ytaNodeCount: teardown?.settled?.ytaNodeCount ?? null,
+        videoDeclaredSrc: teardown?.settled?.videoDeclaredSrc ?? null,
+        reclaimCalls: teardownCalls,
       }
     );
 
@@ -1331,6 +1874,149 @@ async function main() {
       { entry: liveEntry?.entry, statusMap: liveRun.statusMap }
     );
 
+    // SPEC-017: fallback quality. A fallback leaves native video playing, so the extension should
+    // request the lowest available tier once; the toggle can forbid it, an explicit user maximum
+    // quality wins untouched, and a Music page prefers its own song playback instead.
+    const fallbackQualityRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:lowest-available-on-fallback',
+      fallbackQualityRun.status === 'fallback' &&
+        (fallbackQualityRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => c.min === 'tiny' && c.max === 'tiny'
+        ),
+      {
+        status: fallbackQualityRun.status,
+        qualityCalls: fallbackQualityRun.fallbackQuality?.qualityCalls,
+      }
+    );
+
+    const fallbackQualityOffRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        fallbackQualityCapEnabled: false,
+      },
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:disabled-does-not-cap',
+      fallbackQualityOffRun.status === 'fallback' &&
+        (fallbackQualityOffRun.fallbackQuality?.qualityCalls || []).length === 0,
+      {
+        status: fallbackQualityOffRun.status,
+        qualityCalls: fallbackQualityOffRun.fallbackQuality?.qualityCalls,
+      }
+    );
+
+    const fallbackQualityMaxRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '720p',
+      },
+      videoId: 'LIVESTREAM01',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const fallbackQualityMaxCalls = fallbackQualityMaxRun.fallbackQuality?.qualityCalls || [];
+    record(
+      'fallback-quality:force-quality-max-wins',
+      fallbackQualityMaxRun.status === 'fallback' &&
+        fallbackQualityMaxCalls.length > 0 &&
+        fallbackQualityMaxCalls.every((c) => (c.min ?? c.quality) === 'hd720'),
+      { status: fallbackQualityMaxRun.status, qualityCalls: fallbackQualityMaxCalls }
+    );
+
+    const musicSongRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-prefers-song',
+      musicSongRun.status === 'fallback' &&
+        musicSongRun.fallbackQuality?.songMode === '1' &&
+        (musicSongRun.fallbackQuality?.qualityCalls || []).length === 0,
+      { status: musicSongRun.status, fallbackQuality: musicSongRun.fallbackQuality }
+    );
+
+    const musicNoSongRun = await runSession({
+      withAddon: true,
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1&nosong=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-caps-without-song',
+      musicNoSongRun.status === 'fallback' &&
+        musicNoSongRun.fallbackQuality?.songMode === null &&
+        (musicNoSongRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => c.min === 'tiny' && c.max === 'tiny'
+        ),
+      { status: musicNoSongRun.status, fallbackQuality: musicNoSongRun.fallbackQuality }
+    );
+
+    // A user maximum quality suppresses the cap but NOT the Music song preference: the two are
+    // orthogonal, and song mode is what the extension is for. The user's cap may still be applied
+    // to the video element (its hd1080 request is expected); the fallback tier must not appear.
+    const musicSongMaxRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        ghostEnabled: true,
+        aggressiveTelemetry: false,
+        adBlockEnabled: true,
+        segmentSkipEnabled: false,
+        segmentSkipCategories: [],
+        forceQualityMax: '1080p',
+      },
+      videoId: 'LIVESTREAM01',
+      watchQuery: 'ytm=1',
+      probeFallbackQuality: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'fallback-quality:music-song-despite-user-cap',
+      musicSongMaxRun.status === 'fallback' &&
+        musicSongMaxRun.fallbackQuality?.songMode === '1' &&
+        !(musicSongMaxRun.fallbackQuality?.qualityCalls || []).some(
+          (c) => (c.min ?? c.quality) === 'tiny'
+        ),
+      { status: musicSongMaxRun.status, fallbackQuality: musicSongMaxRun.fallbackQuality }
+    );
+
     const authRequiredRun = await runSession({
       withAddon: true,
       videoId: 'AUTHVIDEO01',
@@ -1423,6 +2109,239 @@ async function main() {
         videoSrc: elementSwapRun.elementSwap?.videoSrc,
         entry: elementSwapEntry?.entry,
         statusMap: elementSwapRun.statusMap,
+      }
+    );
+
+    // Embedded player frames (SPEC-015): a third-party host page frames a player. The frame hijacks
+    // audio-only on its own document, the frame receives no extension UI (top-frame-only mounts),
+    // and the top document neither hijacks nor inherits the frame's status: it reports its own
+    // not-a-watch-page fallback.
+    const embedRun = await runSession({
+      withAddon: true,
+      videoId: 'EMBED0001',
+      frameHost: true,
+      probeEmbedFrame: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm9:embedded-frame-hijacks-audio-only-without-ui',
+      embedRun.embedFrame?.status === 'active' &&
+        (embedRun.embedFrame.videoSrc || '').includes('/videoplayback') &&
+        embedRun.embedFrame.toggleButton === false &&
+        embedRun.embedFrame.downloadButton === false &&
+        embedRun.embedFrame.tooltip === false &&
+        embedRun.embedFrame.segmentToast === false &&
+        embedRun.embedFrame.distractionStyle === false &&
+        embedRun.status === 'fallback' &&
+        embedRun.reason === 'not-a-watch-page' &&
+        embedRun.audioOnlyTogglePresent === false,
+      {
+        embedFrame: embedRun.embedFrame,
+        status: embedRun.status,
+        reason: embedRun.reason,
+        audioOnlyTogglePresent: embedRun.audioOnlyTogglePresent,
+      }
+    );
+
+    // Idle-nag defeat (SPEC-016): the fixture seeds a stale activity clock, then pauses the media
+    // and raises a scripted "are you still there?" dialog (as on the real page, the pause comes
+    // first). With the defaults the extension confirms the dialog, resumes the media, and
+    // refreshes the clock; both gated sessions leave dialog, clock, and playback untouched.
+    const nagRun = await runSession({
+      withAddon: true,
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'confirmed',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:confirmed-and-clock-refreshed',
+      nagRun.status === 'active' &&
+        nagRun.idleNag?.opened === true &&
+        nagRun.idleNag.confirmed === true &&
+        nagRun.idleNag.dialogStillOpen === false &&
+        nagRun.idleNag.paused === false &&
+        typeof nagRun.idleNag.lact === 'number' &&
+        nagRun.idleNag.lact > 1 &&
+        Math.abs(Date.now() - nagRun.idleNag.lact) < 120_000,
+      { idleNag: nagRun.idleNag, status: nagRun.status }
+    );
+    const nagDisabledRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: true,
+        idleNagDefeatEnabled: false,
+      },
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'untouched',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:disabled-keeps-dialog-and-clock',
+      nagDisabledRun.idleNag?.opened === true &&
+        nagDisabledRun.idleNag.confirmed === false &&
+        nagDisabledRun.idleNag.dialogStillOpen === true &&
+        nagDisabledRun.idleNag.paused === true &&
+        nagDisabledRun.idleNag.lact === 1,
+      { idleNag: nagDisabledRun.idleNag, status: nagDisabledRun.status }
+    );
+    const nagGatedRun = await runSession({
+      withAddon: true,
+      seedSettings: {
+        enabled: true,
+        audioOnlyEnabled: true,
+        backgroundPlayEnabled: false,
+        idleNagDefeatEnabled: true,
+      },
+      videoId: 'NAG0001',
+      watchQuery: 'nag=1',
+      probeIdleNag: 'untouched',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'idle-nag:background-play-off-gates',
+      nagGatedRun.idleNag?.opened === true &&
+        nagGatedRun.idleNag.confirmed === false &&
+        nagGatedRun.idleNag.dialogStillOpen === true &&
+        nagGatedRun.idleNag.paused === true &&
+        nagGatedRun.idleNag.lact === 1,
+      { idleNag: nagGatedRun.idleNag, status: nagGatedRun.status }
+    );
+
+    // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): the override flips one tab's hijack while
+    // the global preference stays untouched in storage, a second tab follows the global, the
+    // override survives a reload, it beats a later global change both ways, and closing its tab
+    // prunes it from the in-memory store.
+    const scopeRun = await runSession({
+      withAddon: true,
+      seedSettings: { audioOnlyEnabled: false },
+      videoId: 'SCOPE0001',
+      expectedTerminalStatus: 'disabled',
+      probeTabScope: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const scope = scopeRun.tabScope;
+    record(
+      'per-tab-scope:override-beats-global-and-prunes',
+      scope?.disabledBefore === 'disabled' &&
+        scope?.activeAfterOverride === true &&
+        scope?.globalAfterOverride === false &&
+        scope?.secondDisabled === true &&
+        scope?.secondActiveAfterOverride === true &&
+        scope?.prunedSecondTab === true &&
+        scope?.primaryStillPresent === true &&
+        scope?.persistedAcrossReload === true &&
+        scope?.persistedAcrossSpa === true &&
+        scope?.stillActiveWithGlobalOn === true &&
+        scope?.disabledAfterOverrideOff === true &&
+        scope?.globalFinal === true,
+      {
+        watchTabId: scope?.watchTabId,
+        secondTabId: scope?.secondTabId,
+        disabledBefore: scope?.disabledBefore,
+        activeAfterOverride: scope?.activeAfterOverride,
+        overrideVideoSrc: scope?.overrideVideoSrc,
+        globalAfterOverride: scope?.globalAfterOverride,
+        secondDisabled: scope?.secondDisabled,
+        secondActiveAfterOverride: scope?.secondActiveAfterOverride,
+        scopesBeforeClose: scope?.scopesBeforeClose,
+        scopesAfterClose: scope?.scopesAfterClose,
+        persistedAcrossReload: scope?.persistedAcrossReload,
+        persistedAcrossSpa: scope?.persistedAcrossSpa,
+        stillActiveWithGlobalOn: scope?.stillActiveWithGlobalOn,
+        disabledAfterOverrideOff: scope?.disabledAfterOverrideOff,
+        scopesFinal: scope?.scopesFinal,
+        globalFinal: scope?.globalFinal,
+        error: scope?.error,
+      }
+    );
+
+    // Rotation (SPEC-014, ADR-0012): the fixture rejects VISIONOS with LOGIN_REQUIRED for ROTATE*
+    // ids and accepts ANDROID_VR, so this case is deterministically red if the walk is collapsed
+    // to the primary client only.
+    const rotationRun = await runSession({
+      withAddon: true,
+      videoId: 'ROTATE0001',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const rotationPosts = fixture
+      .getRequests()
+      .filter((request) => request.path === '/youtubei/v1/player');
+    const rotationClients = rotationPosts.map((request) => request.clientName);
+    // The critical fallback attempt is the FIRST ANDROID_VR post; the primary must immediately
+    // precede it. The exact global count is not asserted: a duplicate activation generation (a
+    // settings/visibility-driven re-arm) can interleave an extra aborted attempt, which the
+    // extension is designed to allow. Collapsing the walk to the primary only leaves no
+    // ANDROID_VR post; reversing the order breaks the predecessor check.
+    const fallbackIndex = rotationClients.indexOf('ANDROID_VR');
+    const rotationEntry = statusMapEntry(rotationRun.statusMap);
+    record(
+      'm8:client-rotation-falls-back-to-second-client',
+      rotationRun.status === 'active' &&
+        typeof rotationRun.videoSrc === 'string' &&
+        rotationRun.videoSrc.includes('/videoplayback') &&
+        rotationEntry?.entry?.status === 'active' &&
+        rotationClients.length >= 2 &&
+        rotationClients.length <= 4 &&
+        rotationClients[0] === 'VISIONOS' &&
+        fallbackIndex >= 1 &&
+        rotationClients[fallbackIndex - 1] === 'VISIONOS',
+      {
+        status: rotationRun.status,
+        videoSrc: rotationRun.videoSrc,
+        entry: rotationEntry?.entry,
+        posts: rotationClients,
+      }
+    );
+
+    // The bounded visitorData retry (SPEC-014): the fixture rejects any attempt without the fresh
+    // token it handed back and accepts the retried request that carries it. The per-walk attempt
+    // cap itself is pinned by unit tests over the extracted walk; here the integration facts are
+    // that the page-world request starts without a token, a token appears in a later request, and
+    // the retry is what unlocks the active state (the fixture accepts nothing else).
+    const visitorRetryRun = await runSession({
+      withAddon: true,
+      videoId: 'VISITOR0001',
+      expectedTerminalStatus: 'active',
+      probeStatusMap: true,
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const visitorPosts = fixture
+      .getRequests()
+      .filter((request) => request.path === '/youtubei/v1/player');
+    const visitorRetryEntry = statusMapEntry(visitorRetryRun.statusMap);
+    record(
+      'm8:visitorData-retry-is-bounded-and-effective',
+      visitorRetryRun.status === 'active' &&
+        visitorRetryRun.videoSrc?.includes('/videoplayback') &&
+        visitorRetryEntry?.entry?.status === 'active' &&
+        visitorPosts.length >= 2 &&
+        visitorPosts.length <= 4 &&
+        visitorPosts.every((request) => request.clientName === 'VISIONOS') &&
+        visitorPosts[0].visitorData === null &&
+        visitorPosts.some((request) => request.visitorData === 'v2') &&
+        visitorPosts.every(
+          (request) => request.visitorData === null || request.visitorData === 'v2'
+        ),
+      {
+        status: visitorRetryRun.status,
+        entry: visitorRetryEntry?.entry,
+        posts: visitorPosts.map((request) => ({
+          client: request.clientName,
+          visitorData: request.visitorData,
+        })),
       }
     );
 
@@ -1521,13 +2440,50 @@ async function main() {
         recordedPaths: enabledLog.map((r) => `${r.method} ${r.path}`),
       }
     );
-    record('m2b:enabled-prunes-player-ads', enabled.player?.ok && !enabled.player.hasAdPlacements, {
-      player: enabled.player,
-    });
+    record(
+      'm2b:enabled-prunes-player-ads',
+      enabled.player?.ok && !enabled.player.hasAdPlacements && !enabled.player.rawAdKeys,
+      { player: enabled.player }
+    );
     record(
       'm2b:enabled-prunes-inline-player-response',
       !enabled.inlinePlayerResponse.hasAdPlacements && !enabled.inlinePlayerResponse.hasPlayerAds,
       enabled.inlinePlayerResponse
+    );
+    // Over-budget responses stream through unparsed (SPEC-004 bounded parse): the fixture serves a
+    // 9 MiB padded body far above MAX_PRUNABLE_RESPONSE_BYTES, so the network-level body the page
+    // receives keeps its ad descriptors and its full byte count (proving it was never buffered for
+    // pruning) while the session still reaches active promptly. The probe reads the raw text because
+    // the page-world scriptlets wrap Response.json()/JSON.parse (never Response.text()); the sibling
+    // m2b:enabled-prunes-player-ads case proves the same filter buffers and prunes an in-budget body.
+    // The bounded-memory contract itself is pinned by the unit tests; this case is the end-to-end
+    // fail-open plus latency-sanity proof.
+    const overBudgetStarted = Date.now();
+    const overBudget = await runSession({
+      withAddon: true,
+      videoId: 'BIGRESP0001',
+      expectedTerminalStatus: 'active',
+      probePlayerFromPage: true,
+      probePlayerVideoId: 'BIGRESP0001',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const overBudgetElapsedMs = Date.now() - overBudgetStarted;
+    record(
+      'm2b:over-budget-response-streams-through-unparsed',
+      overBudget.status === 'active' &&
+        typeof overBudget.videoSrc === 'string' &&
+        overBudget.videoSrc.includes('/videoplayback') &&
+        overBudget.player?.ok === true &&
+        overBudget.player.textLength > 8 * 1024 * 1024 &&
+        overBudget.player.rawAdKeys === true &&
+        overBudgetElapsedMs < 20_000,
+      {
+        status: overBudget.status,
+        videoSrc: overBudget.videoSrc,
+        player: overBudget.player,
+        elapsedMs: overBudgetElapsedMs,
+      }
     );
     // Dedicated segment-skip session: audio-only OFF so no hijack reset races the skip's
     // one-shot seek on the (preload=auto, seekable) fixture WAV timeline.
@@ -1699,7 +2655,9 @@ async function main() {
     });
     record(
       'm2b:disabled-preserves-player-ads',
-      adBlockDisabled.player?.ok && adBlockDisabled.player.hasAdPlacements,
+      adBlockDisabled.player?.ok &&
+        adBlockDisabled.player.hasAdPlacements &&
+        adBlockDisabled.player.rawAdKeys === true,
       { player: adBlockDisabled.player }
     );
     record(
@@ -1729,10 +2687,14 @@ async function main() {
       'm1:disabled-untouched',
       disabled.status === 'disabled' &&
         !(typeof disabled.videoSrc === 'string' && disabled.videoSrc.includes('/videoplayback')) &&
+        disabled.audioOnlyTogglePresent === false &&
+        disabled.ytaNodeCount === 0 &&
         !hasPlayerPost(disabledLog),
       {
         status: disabled.status,
         videoSrc: disabled.videoSrc,
+        audioOnlyTogglePresent: disabled.audioOnlyTogglePresent,
+        ytaNodeCount: disabled.ytaNodeCount,
         playerPost: hasPlayerPost(disabledLog),
         recordedPaths: disabledLog.map((r) => `${r.method} ${r.path}`),
       }
@@ -1761,6 +2723,8 @@ async function main() {
         hideShorts: true,
         hideRecommendations: true,
         hideComments: true,
+        hideThumbnails: true,
+        hideAvatars: true,
       },
       probeQol: true,
       origin,
@@ -1778,7 +2742,11 @@ async function main() {
       qolRun.qol?.shortsHidden === true &&
         qolRun.qol?.recsHidden === true &&
         qolRun.qol?.commentsHidden === true &&
-        control.qol?.shortsHidden === false,
+        qolRun.qol?.thumbnailsHidden === true &&
+        qolRun.qol?.avatarsHidden === true &&
+        control.qol?.shortsHidden === false &&
+        control.qol?.thumbnailsHidden === false &&
+        control.qol?.avatarsHidden === false,
       { treatment: qolRun.qol, control: control.qol }
     );
 

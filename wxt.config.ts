@@ -2,6 +2,8 @@ import preact from '@preact/preset-vite';
 import { readFileSync } from 'node:fs';
 import { defineConfig } from 'wxt';
 
+import { DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN } from './src/shared/permissions';
+
 // Single source of truth for the base version: read it from package.json so the packaged
 // manifest and the signed XPI filename can never drift apart.
 const { version: baseVersion } = JSON.parse(
@@ -40,7 +42,6 @@ const BENCH_MATCHES = [
   // four YouTube content-script matches and does not gain a local-network origin.
   'http://10.0.2.2/*',
 ];
-const SPONSORBLOCK_ORIGIN = 'https://sponsor.ajay.app/*';
 // Permanent Gecko add-on ID: a single identity for AMO-listed production and the unlisted beta
 // channel (ADR-0006, which supersedes ADR-0002's two-identity model). AMO is the sole update
 // authority, so production builds omit `update_url`. The bench pins its moz-extension UUID by this
@@ -91,6 +92,14 @@ export default defineConfig({
   manifest: ({ manifestVersion }) => ({
     name: 'YouTube Audio',
     description: 'Listen to YouTube and YouTube Music without downloading video.',
+    // Firefox-supported support surfaces (there is no `support_url`/`support_email` manifest key;
+    // those are AMO listing fields, see docs/ci-cd.md). `homepage_url` and `developer.url` are what
+    // about:addons shows next to the extension.
+    homepage_url: 'https://animesh.kundus.in/youtube-audio',
+    developer: {
+      name: 'Animesh Kundu',
+      url: 'https://github.com/animeshkundu/youtube-audio',
+    },
     version,
     icons: ICONS,
     // The popup entrypoint contributes default_title (from its <title>) and
@@ -100,27 +109,42 @@ export default defineConfig({
       ? { browser_action: { default_icon: ACTION_ICON } }
       : { action: { default_icon: ACTION_ICON } }),
     permissions: [
-      'tabs',
       'webRequest',
       'webRequestBlocking',
       'storage',
-      'downloads',
+      // Bench builds require the optional grants so hermetic cases run without browser-chrome
+      // prompts; production requests them from the gesture that turns the dependent feature on
+      // (SPEC-013, ADR-0010 revision). `tabs` is deliberately absent: classification reads URLs
+      // only for origins already covered by host permissions.
+      ...(BENCH ? [DOWNLOADS_PERMISSION] : []),
+      // MV3-only: without it the MV3 artifact cannot prune player responses at all. MV2 gets the
+      // filter through webRequestBlocking; the MV3 artifact remains a capability build (the
+      // blocking adapter is still a TODO) and this permission does not change that.
+      ...(manifestVersion === 3 ? ['webRequestFilterResponse'] : []),
       ...(manifestVersion === 2
         ? [
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
-            SPONSORBLOCK_ORIGIN,
-            ...(BENCH ? BENCH_MATCHES : []),
+            ...(BENCH ? [SPONSORBLOCK_ORIGIN, ...BENCH_MATCHES] : []),
           ]
         : []),
     ],
+    // Optional in production: MV2 declares both grants through optional_permissions; MV3 splits
+    // origins into optional_host_permissions.
+    ...(BENCH
+      ? {}
+      : manifestVersion === 2
+        ? { optional_permissions: [DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN] }
+        : {
+            optional_permissions: [DOWNLOADS_PERMISSION],
+            optional_host_permissions: [SPONSORBLOCK_ORIGIN],
+          }),
     host_permissions:
       manifestVersion === 3
         ? [
             ...YOUTUBE_MATCHES,
             '*://*.googlevideo.com/*',
-            SPONSORBLOCK_ORIGIN,
-            ...(BENCH ? BENCH_MATCHES : []),
+            ...(BENCH ? [SPONSORBLOCK_ORIGIN, ...BENCH_MATCHES] : []),
           ]
         : undefined,
     browser_specific_settings: {
@@ -134,6 +158,16 @@ export default defineConfig({
       },
       gecko_android: {},
     },
+    // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): Alt+Shift+A toggles the active tab's
+    // override. Firefox for Android does not support `commands`, so the shortcut is desktop-only
+    // there; the popup hero path is the Android surface. Keep the name in lockstep with
+    // `TOGGLE_AUDIO_ONLY_COMMAND` in entrypoints/background.ts.
+    commands: {
+      'toggle-audio-only': {
+        suggested_key: { default: 'Alt+Shift+A' },
+        description: 'Toggle audio-only playback for this tab',
+      },
+    },
   }),
   hooks: {
     'build:manifestGenerated': (_wxt, manifest) => {
@@ -142,6 +176,9 @@ export default defineConfig({
       );
       if (contentScript) {
         contentScript.matches = BENCH ? [...YOUTUBE_MATCHES, ...BENCH_MATCHES] : YOUTUBE_MATCHES;
+        // SPEC-015: embedded players run in subframes, so every matching frame gets the content
+        // script. The top frame stays the only status reporter and UI host (enforced in content.ts).
+        contentScript.all_frames = true;
       }
     },
   },

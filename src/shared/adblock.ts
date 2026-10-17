@@ -44,3 +44,58 @@ function pruneValue(value: unknown): boolean {
   }
   return changed;
 }
+
+/**
+ * Upper bound on the response size the background filter will buffer for pruning. A body above it
+ * is streamed through unparsed instead: bounding the background's memory matters more than pruning
+ * a pathological response, and playback must never depend on pruning succeeding.
+ */
+export const MAX_PRUNABLE_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+export interface ResponseBudget {
+  /**
+   * Buffers one response chunk. Returns null while the response is still within budget; once the
+   * budget is crossed it returns every held chunk (in order) exactly once so the caller can flush
+   * them and stop buffering, and every later call returns just its own chunk to stream through.
+   */
+  push(chunk: Uint8Array): Uint8Array[] | null;
+  /** The chunks still held for a full-body parse, in order (empty once streaming). */
+  bufferedChunks(): Uint8Array[];
+  /** True once the response crossed the budget and is being streamed through unparsed. */
+  readonly streaming: boolean;
+  /** Total bytes received, regardless of buffering mode. */
+  readonly receivedBytes: number;
+}
+
+/**
+ * Bounded buffering state shared by the MV2 webRequest filter and its unit tests. A non-positive
+ * budget streams from the first chunk.
+ */
+export function createResponseBudget(
+  maxBytes: number = MAX_PRUNABLE_RESPONSE_BYTES
+): ResponseBudget {
+  let buffered: Uint8Array[] = [];
+  let streaming = maxBytes <= 0;
+  let receivedBytes = 0;
+  return {
+    push(chunk) {
+      receivedBytes += chunk.byteLength;
+      if (streaming) return [chunk];
+      buffered.push(chunk);
+      if (receivedBytes <= maxBytes) return null;
+      streaming = true;
+      const held = buffered;
+      buffered = [];
+      return held;
+    },
+    bufferedChunks() {
+      return streaming ? [] : buffered.slice();
+    },
+    get streaming() {
+      return streaming;
+    },
+    get receivedBytes() {
+      return receivedBytes;
+    },
+  };
+}

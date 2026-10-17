@@ -9,7 +9,9 @@ import {
   adBlockEnabledSignal,
   aggressiveTelemetrySignal,
   audioOnlyEnabledSignal,
+  backgroundPlayEnabledSignal,
   equalizerEnabledSignal,
+  fallbackQualityCapEnabledSignal,
   segmentSkipEnabledSignal,
 } from '../../../src/shared/settings-signals';
 
@@ -18,6 +20,8 @@ function actions(): OptionsActions {
     setEnabled: vi.fn(async () => undefined),
     setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
+    setIdleNagDefeatEnabled: vi.fn(async () => undefined),
+    setFallbackQualityCapEnabled: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),
@@ -33,19 +37,29 @@ function actions(): OptionsActions {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: false,
     })),
     revokeDataConsent: vi.fn(async () => undefined),
     setSponsorBlockConsent: vi.fn(async () => undefined),
     openConsent: vi.fn(),
     markOnboardingSeen: vi.fn(async () => undefined),
     openYouTube: vi.fn(),
+    requestSponsorPermission: vi.fn(async () => true),
+    sponsorPermissionGranted: vi.fn(async () => true),
+    requestDownloadsPermission: vi.fn(async () => true),
+    downloadsPermissionGranted: vi.fn(async () => true),
+    downloadsAvailable: vi.fn(() => true),
   };
 }
 
 function mount(component: ComponentChild): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
-  render(component, container);
+  // act() flushes mount effects synchronously so permission lookups and the deep-link scroll are
+  // observable right after mount (their promise continuations still need flushPromises()).
+  act(() => {
+    render(component, container);
+  });
   return container;
 }
 
@@ -75,6 +89,8 @@ afterEach(() => {
   adBlockEnabledSignal.value = true;
   aggressiveTelemetrySignal.value = false;
   audioOnlyEnabledSignal.value = true;
+  backgroundPlayEnabledSignal.value = true;
+  fallbackQualityCapEnabledSignal.value = true;
   segmentSkipEnabledSignal.value = true;
   equalizerEnabledSignal.value = false;
 });
@@ -100,13 +116,50 @@ describe('Options', () => {
       'Advanced/About',
       'Help & feedback',
     ]);
-    expect(switches).toHaveLength(16);
+    expect(switches).toHaveLength(20);
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
-    expect(container.querySelectorAll('.setting-description')).toHaveLength(15);
+    expect(container.querySelectorAll('.setting-description')).toHaveLength(19);
     expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
       'Quick Controls'
     );
+  });
+
+  it('toggles the thumbnail and avatar hiding extras through the quality-of-life mutator', async () => {
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+    const thumbnails = container.querySelector('#option-thumbnails [role="switch"]');
+    const avatars = container.querySelector('#option-avatars [role="switch"]');
+
+    expect(thumbnails).not.toBeNull();
+    expect(avatars).not.toBeNull();
+    expect(thumbnails?.getAttribute('aria-checked')).toBe('false');
+
+    click(thumbnails);
+    click(avatars);
+    await flushPromises();
+
+    expect(optionsActions.setQualityOfLifeSetting).toHaveBeenCalledWith('hideThumbnails', true);
+    expect(optionsActions.setQualityOfLifeSetting).toHaveBeenCalledWith('hideAvatars', true);
+  });
+
+  it('toggles the fallback quality cap independently of other playback settings', async () => {
+    backgroundPlayEnabledSignal.value = false;
+    const optionsActions = actions();
+    const container = mount(<Options actions={optionsActions} />);
+    const row = container.querySelector('#option-fallback-quality');
+
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain('lowest quality');
+    // Per-tab audio-only (ADR-0014) means a tab override can engage this even while the global
+    // defaults are off, so the row never mirrors another toggle's disabled state.
+    expect(row?.classList.contains('is-disabled')).toBe(false);
+    expect(row?.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('true');
+
+    click(row?.querySelector('[role="switch"]') ?? null);
+    await flushPromises();
+
+    expect(optionsActions.setFallbackQualityCapEnabled).toHaveBeenCalledWith(false);
   });
 
   it('keeps Audio-only and Background play only in Quick Controls', () => {
@@ -171,13 +224,97 @@ describe('Options', () => {
     click(container.querySelector('#option-skip [role="switch"]'));
     await flushPromises();
 
+    expect(optionsActions.requestSponsorPermission).toHaveBeenCalledOnce();
     expect(optionsActions.setSponsorBlockConsent).toHaveBeenCalledWith(true);
     expect(optionsActions.setSegmentSkipEnabled).toHaveBeenCalledWith(true);
+    expect(
+      vi.mocked(optionsActions.requestSponsorPermission).mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      vi.mocked(optionsActions.setSponsorBlockConsent).mock.invocationCallOrder[0] ?? 0
+    );
     expect(
       vi.mocked(optionsActions.setSponsorBlockConsent).mock.invocationCallOrder[0]
     ).toBeLessThan(
       vi.mocked(optionsActions.setSegmentSkipEnabled).mock.invocationCallOrder[0] ?? 0
     );
+  });
+
+  it('keeps segment skipping off when the SponsorBlock permission is denied', async () => {
+    segmentSkipEnabledSignal.value = false;
+    const optionsActions = actions();
+    optionsActions.requestSponsorPermission = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-skip [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setSponsorBlockConsent).not.toHaveBeenCalled();
+    expect(optionsActions.setSegmentSkipEnabled).not.toHaveBeenCalled();
+    expect(container.querySelector('#option-skip [role="alert"]')?.textContent).toBe(
+      "SponsorBlock access wasn't granted."
+    );
+  });
+
+  it('offers a one-gesture re-grant when skipping is on without its permission', async () => {
+    segmentSkipEnabledSignal.value = true;
+    const optionsActions = actions();
+    optionsActions.sponsorPermissionGranted = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+    await flushPromises();
+
+    const notice = container.querySelector('.permission-notice-row');
+    expect(notice?.textContent).toContain("SponsorBlock access isn't granted");
+    const grant = Array.from(notice?.querySelectorAll('button') ?? []).find(
+      (button) => button.textContent?.trim() === 'Grant access'
+    );
+    expect(grant).toBeDefined();
+
+    click(grant ?? null);
+    await flushPromises();
+
+    expect(optionsActions.requestSponsorPermission).toHaveBeenCalledOnce();
+    expect(container.querySelector('.permission-notice-row')).toBeNull();
+  });
+
+  it('hides the downloads row entirely where the downloads API is absent', () => {
+    const optionsActions = actions();
+    optionsActions.downloadsAvailable = vi.fn(() => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    expect(container.querySelector('#option-download')).toBeNull();
+    expect(container.querySelector('#downloads')).toBeNull();
+  });
+
+  it('keeps downloads off when the downloads permission is denied', async () => {
+    const optionsActions = actions();
+    optionsActions.requestDownloadsPermission = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-download [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setDownloadEnabled).not.toHaveBeenCalled();
+    expect(container.querySelector('#option-download [role="alert"]')?.textContent).toBe(
+      "Download access wasn't granted."
+    );
+  });
+
+  it('deep-links to the Data & consent row when opened with its hash', () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    window.location.hash = 'data-consent';
+
+    try {
+      const container = mount(<Options actions={actions()} />);
+      expect(container.querySelector('#data-consent')).not.toBeNull();
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      window.location.hash = '';
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    }
   });
 
   it('keeps SponsorBlock category rows absent until segment skipping is enabled', () => {
@@ -261,8 +398,11 @@ describe('Options', () => {
 
     searchFor(container, 'audio-only');
     expect(container.querySelector('#audio-only-page')).not.toBeNull();
-    expect(container.querySelector('#playback')).toBeNull();
-    expect(container.querySelector('a[href="#playback"]')).toBeNull();
+    // The fallback-quality row legitimately mentions audio-only (SPEC-017), so the Playback card
+    // holds exactly that row for this query.
+    const playback = container.querySelector('#playback');
+    expect(playback?.querySelectorAll('.setting-row')).toHaveLength(1);
+    expect(playback?.querySelector('#option-fallback-quality')).not.toBeNull();
 
     searchFor(container, 'background');
     expect(container.querySelector('#background-play-page')).not.toBeNull();
@@ -305,13 +445,16 @@ describe('Options', () => {
     expect(adSwitch?.getAttribute('aria-describedby')).toContain('option-ads-error');
   });
 
-  it('instant-applies options controls', () => {
+  it('instant-applies options controls', async () => {
     const optionsActions = actions();
     const container = mount(<Options actions={optionsActions} />);
 
     click(container.querySelector('#audio-only-page [role="switch"]'));
     click(container.querySelector('#option-ads [role="switch"]'));
     click(container.querySelector('#option-download [role="switch"]'));
+    // The download toggle requests its optional permission first (SPEC-013), so the setter runs
+    // after the permission promise settles.
+    await flushPromises();
 
     expect(optionsActions.setAudioOnlyEnabled).toHaveBeenCalledWith(false);
     expect(optionsActions.setAdBlockEnabled).toHaveBeenCalledWith(false);

@@ -29,7 +29,7 @@ concurrency:
 jobs:
   publish:
     name: Sign listed and submit to AMO
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Recommended manual gate: create a GitHub Environment named `amo-production` with a required
     # reviewer (and optionally scope AMO_JWT_ISSUER / AMO_JWT_SECRET to it). The deployment then
     # pauses for human approval before any step runs.
@@ -91,7 +91,7 @@ jobs:
       - name: Run gates
         run: npm run typecheck && npm run lint && npm test
 
-      # The ubuntu-latest system Firefox is a snap, which geckodriver cannot drive.
+      # The runner image's system Firefox is a snap, which geckodriver cannot drive.
       # setup-firefox installs a real, non-snap Firefox and exposes its path. We track the
       # latest mainline release (proven green): latest-esr regressed the seeded-settings
       # sessions in CI. If a future Firefox release breaks the bench, pin a known-good version here.

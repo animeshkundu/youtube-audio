@@ -7,6 +7,8 @@ export interface ExtensionSettings {
   audioOnlyEnabled: boolean;
   audioArtworkEnabled: boolean;
   backgroundPlayEnabled: boolean;
+  idleNagDefeatEnabled: boolean;
+  fallbackQualityCapEnabled: boolean;
   ghostEnabled: boolean;
   aggressiveTelemetry: boolean;
   adBlockEnabled: boolean;
@@ -17,6 +19,8 @@ export interface ExtensionSettings {
   hideShorts: boolean;
   hideRecommendations: boolean;
   hideComments: boolean;
+  hideThumbnails: boolean;
+  hideAvatars: boolean;
   loudnessNormalization: boolean;
   equalizerEnabled: boolean;
   equalizerBands: EqualizerBands;
@@ -29,7 +33,9 @@ export type QualityOfLifeSetting =
   | 'disableAutoplayNext'
   | 'hideShorts'
   | 'hideRecommendations'
-  | 'hideComments';
+  | 'hideComments'
+  | 'hideThumbnails'
+  | 'hideAvatars';
 export type MusicSetting = 'loudnessNormalization' | 'equalizerEnabled';
 export type DownloadSetting = 'downloadEnabled';
 
@@ -39,6 +45,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   audioOnlyEnabled: true,
   audioArtworkEnabled: true,
   backgroundPlayEnabled: true,
+  idleNagDefeatEnabled: true,
+  fallbackQualityCapEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
   adBlockEnabled: true,
@@ -49,6 +57,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  hideThumbnails: false,
+  hideAvatars: false,
   loudnessNormalization: true,
   equalizerEnabled: false,
   equalizerBands: FLAT_EQUALIZER,
@@ -90,6 +100,14 @@ export async function setAudioArtworkEnabled(enabled: boolean): Promise<void> {
 
 export async function setBackgroundPlayEnabled(enabled: boolean): Promise<void> {
   await setPlaybackSetting('backgroundPlayEnabled', enabled);
+}
+
+export async function setIdleNagDefeatEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, idleNagDefeatEnabled: enabled });
+}
+
+export async function setFallbackQualityCapEnabled(enabled: boolean): Promise<void> {
+  await persistSettings({ ...currentSettings, fallbackQualityCapEnabled: enabled });
 }
 
 export async function setTelemetrySetting(
@@ -216,6 +234,14 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.backgroundPlayEnabled === 'boolean'
         ? candidate.backgroundPlayEnabled
         : DEFAULT_SETTINGS.backgroundPlayEnabled,
+    idleNagDefeatEnabled:
+      typeof candidate.idleNagDefeatEnabled === 'boolean'
+        ? candidate.idleNagDefeatEnabled
+        : DEFAULT_SETTINGS.idleNagDefeatEnabled,
+    fallbackQualityCapEnabled:
+      typeof candidate.fallbackQualityCapEnabled === 'boolean'
+        ? candidate.fallbackQualityCapEnabled
+        : DEFAULT_SETTINGS.fallbackQualityCapEnabled,
     ghostEnabled:
       typeof candidate.ghostEnabled === 'boolean'
         ? candidate.ghostEnabled
@@ -252,6 +278,14 @@ function normalizeSettings(value: unknown): ExtensionSettings {
       typeof candidate.hideComments === 'boolean'
         ? candidate.hideComments
         : DEFAULT_SETTINGS.hideComments,
+    hideThumbnails:
+      typeof candidate.hideThumbnails === 'boolean'
+        ? candidate.hideThumbnails
+        : DEFAULT_SETTINGS.hideThumbnails,
+    hideAvatars:
+      typeof candidate.hideAvatars === 'boolean'
+        ? candidate.hideAvatars
+        : DEFAULT_SETTINGS.hideAvatars,
     loudnessNormalization:
       typeof candidate.loudnessNormalization === 'boolean'
         ? candidate.loudnessNormalization

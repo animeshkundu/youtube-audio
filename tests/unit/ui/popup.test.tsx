@@ -2,24 +2,29 @@
 
 import { render, type ComponentChild } from 'preact';
 import { act } from 'preact/test-utils';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Popup, type PopupActions } from '../../../entrypoints/popup/App';
+import { defaultActions, Popup, type PopupActions } from '../../../entrypoints/popup/App';
+import { consentSignal } from '../../../entrypoints/popup/consent-state';
 import { playbackStatusSignal } from '../../../entrypoints/popup/playback-status';
+import { tabAudioOnlyOverrideSignal } from '../../../entrypoints/popup/tab-scope';
 import {
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
+  fallbackQualityCapEnabledSignal,
+  forceQualityMaxSignal,
   loudnessNormalizationSignal,
 } from '../../../src/shared/settings-signals';
 
 function actions(): PopupActions {
   return {
     setEnabled: vi.fn(async () => undefined),
-    setAudioOnlyEnabled: vi.fn(async () => undefined),
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     openOptions: vi.fn(),
     openYouTube: vi.fn(),
+    openConsentSettings: vi.fn(),
+    setTabAudioOnly: vi.fn(async () => undefined),
   };
 }
 
@@ -38,7 +43,18 @@ function click(element: Element | null): void {
   act(() => element.click());
 }
 
+beforeEach(() => {
+  // Most cases exercise a granted install; the consent-specific cases override this.
+  consentSignal.value = {
+    granted: true,
+    sponsorBlockAllowed: false,
+    source: 'firefox',
+    pending: false,
+  };
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   act(() => {
     for (const container of mountedContainers) render(null, container);
   });
@@ -49,6 +65,9 @@ afterEach(() => {
   audioOnlyEnabledSignal.value = true;
   backgroundPlayEnabledSignal.value = true;
   loudnessNormalizationSignal.value = true;
+  fallbackQualityCapEnabledSignal.value = true;
+  forceQualityMaxSignal.value = 'off';
+  tabAudioOnlyOverrideSignal.value = null;
 });
 
 describe('Popup', () => {
@@ -123,30 +142,72 @@ describe('Popup', () => {
     expect(hero?.querySelector('.now-playing')).not.toBeNull();
   });
 
-  it('live fallback renders playing normally without Active or a pulse', () => {
+  it('live fallback names the low-quality save when the fallback cap is engaged', () => {
     audioOnlyEnabledSignal.value = true;
-    playbackStatusSignal.value = { kind: 'fallback', reason: 'live' };
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'youtube' };
 
     const container = mount(<Popup actions={actions()} />);
     const hero = container.querySelector('.popup-hero');
 
-    expect(hero?.textContent).toContain('Live stream, playing normally.');
+    expect(hero?.textContent).toContain('Live stream, playing at low quality to save data.');
     expect(hero?.textContent).not.toContain('Active');
     expect(hero?.classList.contains('is-active')).toBe(false);
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
 
-  it("unplayable fallback renders the isn't available message", () => {
+  it("unplayable fallback renders the isn't available message with the cap note", () => {
     audioOnlyEnabledSignal.value = true;
-    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable' };
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'youtube' };
 
     const container = mount(<Popup actions={actions()} />);
     const hero = container.querySelector('.popup-hero');
 
     expect(hero?.textContent).toContain(
-      "Audio-only isn't available on this video. Playing normally."
+      "Audio-only isn't available on this video. Playing at low quality to save data."
     );
     expect(hero?.querySelector('.now-playing')).toBeNull();
+  });
+
+  it('fallback copy stays normal when the cap setting is off', () => {
+    fallbackQualityCapEnabledSignal.value = false;
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'youtube' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      'Live stream, playing normally.'
+    );
+  });
+
+  it('fallback copy stays normal while a user maximum quality is set', () => {
+    forceQualityMaxSignal.value = '720p';
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'youtube' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      "Audio-only isn't available on this video. Playing normally."
+    );
+  });
+
+  it('Music fallback prefers the song wording when the cap is engaged', () => {
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'unplayable', host: 'music' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      "Audio-only isn't available on this video. Playing the song to save data."
+    );
+  });
+
+  it('Music live fallback still names low quality (a live stream has no song counterpart)', () => {
+    playbackStatusSignal.value = { kind: 'fallback', reason: 'live', host: 'music' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelector('.popup-hero')?.textContent).toContain(
+      'Live stream, playing at low quality to save data.'
+    );
   });
 
   it('connecting renders the checking state without an optimistic label', () => {
@@ -193,7 +254,36 @@ describe('Popup', () => {
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
 
-  it('instant-applies popup controls and opens full settings', () => {
+  it('renders the per-tab override over the global preference', () => {
+    audioOnlyEnabledSignal.value = true;
+    tabAudioOnlyOverrideSignal.value = false;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+    const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
+
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
+    expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
+    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).toContain('This tab');
+  });
+
+  it('an explicit tab override turns the hero on while the global preference is off', () => {
+    audioOnlyEnabledSignal.value = false;
+    tabAudioOnlyOverrideSignal.value = true;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const hero = container.querySelector('.popup-hero');
+    const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
+
+    expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('true');
+    expect(hero?.classList.contains('is-active')).toBe(true);
+    expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
+  });
+
+  it('instant-applies popup controls (audio-only to the tab) and opens full settings', () => {
     playbackStatusSignal.value = { kind: 'active' };
     const popupActions = actions();
     const container = mount(<Popup actions={popupActions} />);
@@ -203,9 +293,59 @@ describe('Popup', () => {
     click(container.querySelector('.popup-pause-action'));
     click(container.querySelector('[aria-label="Open settings"]'));
 
-    expect(popupActions.setAudioOnlyEnabled).toHaveBeenCalledWith(false);
+    expect(popupActions.setTabAudioOnly).toHaveBeenCalledWith(false);
     expect(popupActions.setBackgroundPlayEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.setEnabled).toHaveBeenCalledWith(false);
     expect(popupActions.openOptions).toHaveBeenCalledOnce();
+  });
+
+  it.each([[true], [false]])(
+    'denied consent (pending=%s) replaces every playback control with the consent card',
+    (pending: boolean) => {
+      consentSignal.value = {
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+        pending,
+      };
+      playbackStatusSignal.value = { kind: 'active' };
+      const popupActions = actions();
+
+      const container = mount(<Popup actions={popupActions} />);
+
+      expect(container.textContent).toContain('Consent needed');
+      expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+      expect(container.querySelector('.popup-hero')).toBeNull();
+      expect(container.querySelector('.popup-pause-action')).toBeNull();
+      expect(container.querySelector('.now-playing')).toBeNull();
+
+      click(container.querySelector('.popup-consent-state .primary-action'));
+      expect(popupActions.openConsentSettings).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('unresolved consent renders only the header, never a dead control', () => {
+    consentSignal.value = null;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+
+    expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+    expect(container.querySelector('.popup-hero')).toBeNull();
+    expect(container.textContent).not.toContain('Consent needed');
+  });
+
+  it('the default consent action deep-links to the options Data & consent section', () => {
+    const create = vi.fn();
+    vi.stubGlobal('browser', {
+      tabs: { create },
+      runtime: { getURL: (path: string) => `moz-extension://test/${path.replace(/^\//, '')}` },
+    });
+
+    defaultActions.openConsentSettings();
+
+    expect(create).toHaveBeenCalledWith({
+      url: 'moz-extension://test/options.html#data-consent',
+    });
   });
 });

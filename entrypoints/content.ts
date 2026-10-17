@@ -13,9 +13,9 @@ import {
 import {
   getSettings,
   initializeSettings,
-  setAudioOnlyEnabled,
   subscribeSettings,
   watchSettings,
+  type ExtensionSettings,
 } from '../src/shared/config';
 import {
   errorFields,
@@ -25,8 +25,19 @@ import {
 } from '../src/shared/diagnostics';
 import { isAllowedAudioUrl, isSafeDownloadFilename } from '../src/shared/download';
 import { buildDistractionStyles } from '../src/shared/quality-of-life';
+import { settingsEqual } from '../src/shared/settings-diff';
 import { isSponsorCategory } from '../src/shared/sponsorblock';
 import { isPlaybackStatus, STATUS_UPDATE_MESSAGE, type StatusUpdate } from '../src/shared/status';
+import { buildTeardownSnapshot, isTeardownMessage } from '../src/shared/teardown';
+import {
+  applyTabAudioOnlyOverride,
+  GET_TAB_SCOPE_MESSAGE,
+  parseTabScopePush,
+  parseTabScopeReply,
+  resolveTabAudioOnly,
+  SET_TAB_SCOPE_MESSAGE,
+  type TabAudioOnlyOverride,
+} from '../src/shared/tab-scope';
 
 // Compile-time flag injected by wxt.config.ts (vite `define`). `false` in production
 // builds, so the marker below is dead-code-eliminated and never runs on real YouTube.
@@ -98,6 +109,56 @@ export async function requestDataConsent(): Promise<DataConsentState> {
   }
 }
 
+/**
+ * True when this content-script instance runs in the tab's top frame (SPEC-015). The identity
+ * comparison reads no cross-origin properties, so it is safe inside embedded players. Only the top
+ * frame hosts UI and relays status; every frame still applies settings to its own document.
+ */
+function isTopFrame(): boolean {
+  return window.top === window.self;
+}
+
+/**
+ * This frame's per-tab audio-only override: `null` follows the global preference. The background
+ * owns the value (SPEC-012 §5; ADR-0014); this frame only mirrors it into its own settings push.
+ */
+let tabAudioOnlyOverride: TabAudioOnlyOverride = null;
+
+/**
+ * The last effective settings snapshot pushed to the page world (consent and tab scope applied).
+ * The in-player control reads it so it renders the tab's effective value instead of the global
+ * preference.
+ */
+let currentEffectiveSettings: ExtensionSettings | null = null;
+
+// Set by installPlayerControls while the top-frame control engine is live: a settings- or
+// teardown-driven enable flip must re-mount or remove the in-player controls immediately instead of
+// waiting for a page mutation that a static page may never deliver (SPEC-021).
+let requestControlReconcile: () => void = () => undefined;
+
+// Terminal per page load: once a teardown has run (extension disabled/updated, SPEC-021), no
+// snapshot is applied or pushed again for the life of this page.
+let contentTornDown = false;
+
+/** Ask the background for this tab's audio-only override; fail open to "follow the global". */
+async function fetchTabScopeOverride(): Promise<TabAudioOnlyOverride> {
+  try {
+    const reply = await browser.runtime.sendMessage({ type: GET_TAB_SCOPE_MESSAGE });
+    return parseTabScopeReply(reply)?.audioOnly ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the background to set this tab's audio-only override (the in-player quick control). */
+async function requestTabAudioOnly(audioOnly: boolean): Promise<void> {
+  try {
+    await browser.runtime.sendMessage({ type: SET_TAB_SCOPE_MESSAGE, audioOnly });
+  } catch {
+    // Fail open: the page keeps its current effective setting.
+  }
+}
+
 export default defineContentScript({
   matches: MATCHES,
   runAt: 'document_start',
@@ -116,17 +177,82 @@ export default defineContentScript({
       // denial broadcast that lands while that request is in flight cannot be missed. A generation
       // guard prevents that push from being overwritten by an older startup reply.
       let consent: DataConsentState = DENIED_DATA_CONSENT;
+      // Per-tab audio-only scope (SPEC-012 §5; ADR-0014): the background owns this tab's override
+      // and this frame merges it into the consented snapshot it pushes. An early push wins over the
+      // initial fetch's stale startup reply, so a quick control toggled during load is not lost.
+      let scopePushSeen = false;
       watchSettings();
       const applyEffectiveSettings = () => {
-        const settings = applyConsentToSettings(getSettings(), consent);
+        if (contentTornDown) return;
+        const settings = applyTabAudioOnlyOverride(
+          applyConsentToSettings(getSettings(), consent),
+          tabAudioOnlyOverride
+        );
+        // Every push recomputes the whole snapshot (storage echoes, duplicate consent/scope
+        // broadcasts); an identical one is dropped here so the page world never re-arms for it and
+        // the controls are not rewritten (SPEC-020).
+        if (currentEffectiveSettings && settingsEqual(currentEffectiveSettings, settings)) return;
+        currentEffectiveSettings = settings;
         window.postMessage(
           { channel: SETTINGS_EVENT, nonce: bridgeNonce, settings },
           location.origin
         );
-        updateToggle(settings.enabled && settings.audioOnlyEnabled);
-        updateDownloadButton(settings.enabled && settings.downloadEnabled);
+        // Embedded-player frames (SPEC-015) still receive and apply every setting, but all visible
+        // UI stays top-frame only: the popup and in-player controls are tab-scoped.
+        if (!isTopFrame()) return;
+        if (settings.enabled) {
+          updateToggle(settings.audioOnlyEnabled);
+          updateDownloadButton(settings.downloadEnabled);
+          // A disable/enable flip removes and re-mounts the controls; re-mounting otherwise waits
+          // for a page mutation, which a static watch page may not deliver (SPEC-021).
+          requestControlReconcile();
+        } else {
+          coachCleanup();
+          removeInPlayerControls();
+        }
         updateDistractionStyle(settings);
       };
+      const applyTabScope = (override: TabAudioOnlyOverride) => {
+        tabAudioOnlyOverride = override;
+        applyEffectiveSettings();
+      };
+      // Best-effort teardown (SPEC-021): the background asks for this on suspend (extension
+      // disabled or updated). Take down the content-side DOM and hand the page world a
+      // master-disabled snapshot over the ordinary bridge, whose disable path does the rest.
+      const beginTeardown = () => {
+        if (contentTornDown) return;
+        contentTornDown = true;
+        const snapshot = currentEffectiveSettings;
+        coachCleanup();
+        updateDistractionStyle(buildTeardownSnapshot(snapshot ?? getSettings()));
+        removeInPlayerControls();
+        // No snapshot ever reached the page world, so there is nothing of ours to take down there.
+        // A still-queued post-injection push is suppressed by the guard in applyEffectiveSettings.
+        if (!snapshot) return;
+        window.postMessage(
+          {
+            channel: SETTINGS_EVENT,
+            nonce: bridgeNonce,
+            settings: buildTeardownSnapshot(snapshot),
+          },
+          location.origin
+        );
+      };
+      browser.runtime.onMessage.addListener((message: unknown) => {
+        if (isTeardownMessage(message)) {
+          beginTeardown();
+          return undefined;
+        }
+        const scopePush = parseTabScopePush(message);
+        if (scopePush) {
+          scopePushSeen = true;
+          applyTabScope(scopePush.audioOnly);
+        }
+        return undefined;
+      });
+      void fetchTabScopeOverride().then((override) => {
+        if (!scopePushSeen) applyTabScope(override);
+      });
       const consentState = createContentConsentState((nextConsent) => {
         consent = nextConsent;
         applyEffectiveSettings();
@@ -152,8 +278,13 @@ export default defineContentScript({
       // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
       document.documentElement.dataset.ytaBridge = bridgeNonce;
       await injectScript('/main-world.js');
+      // The MAIN-world message listener only exists now that the injected script has evaluated, so
+      // every push the consent/scope callbacks above dispatched was posted into the void. Forget
+      // the diff baseline so this first post-injection push is never suppressed (SPEC-020): the
+      // page world must always receive the effective snapshot for the page it was loaded with.
+      currentEffectiveSettings = null;
       applyEffectiveSettings();
-      installPlayerControls(bridgeNonce);
+      if (isTopFrame()) installPlayerControls(bridgeNonce);
     } catch (error) {
       logFromContent('error', { where: 'content.init', ...errorFields(error) });
       console.error('[YouTube Audio] Content initialization failed', error);
@@ -372,7 +503,6 @@ export function createCoalescedFrameScheduler(
 }
 
 export function installPlayerControls(bridgeNonce: string): () => void {
-  installPlayerControlStyles();
   let observedPlayer: HTMLElement | null = null;
   let playerObserver: MutationObserver | null = null;
   let documentObserver: MutationObserver | null = null;
@@ -381,21 +511,36 @@ export function installPlayerControls(bridgeNonce: string): () => void {
   let observersActive = false;
 
   const reconcile = () => {
-    if (!observersActive) return;
+    if (!observersActive || contentTornDown) return;
     if (__BENCH__) {
       const runs = Number(document.documentElement.dataset.ytaReconcileRuns ?? '0') + 1;
       document.documentElement.dataset.ytaReconcileRuns = String(runs);
     }
     if (!observedPlayer?.isConnected) return;
-    const settings = getSettings();
+    // The effective snapshot (consent + tab scope) drives the control's state; the global
+    // preference is only the fallback for the instant before the first push.
+    const settings =
+      currentEffectiveSettings ?? applyTabAudioOnlyOverride(getSettings(), tabAudioOnlyOverride);
+    if (!settings.enabled) {
+      // A disabled extension leaves nothing of its own in the page (SPEC-021); an enable flip
+      // re-mounts through the same path, nudged by the settings push.
+      coachCleanup();
+      segmentToast?.dispose();
+      segmentToast = null;
+      removeInPlayerControls();
+      return;
+    }
+    installPlayerControlStyles();
     const result = reconcileInPlayerControls({
       playerRoot: observedPlayer,
       audioOnlyActive: settings.enabled && settings.audioOnlyEnabled,
       downloadVisible: settings.enabled && settings.downloadEnabled,
       mobile: location.hostname === 'm.youtube.com',
       onAudioOnlyToggle: () => {
-        const current = getSettings();
-        void setAudioOnlyEnabled(!current.audioOnlyEnabled).catch(() => undefined);
+        // Quick controls act on this tab (SPEC-012 §5; ADR-0014): the background applies the
+        // override and pushes it back, so the global preference is never written from a page.
+        const current = resolveTabAudioOnly(settings.audioOnlyEnabled, tabAudioOnlyOverride);
+        void requestTabAudioOnly(!current);
       },
       onDownload: (button) => {
         void requestAudioDownload(bridgeNonce, button);
@@ -426,6 +571,7 @@ export function installPlayerControls(bridgeNonce: string): () => void {
   const scheduleReconcile = () => {
     if (observersActive) reconcileScheduler.schedule();
   };
+  requestControlReconcile = scheduleReconcile;
   const playerSelector =
     location.hostname === 'm.youtube.com'
       ? '.html5-video-player, #player-container-id, #player'
@@ -457,19 +603,21 @@ export function installPlayerControls(bridgeNonce: string): () => void {
     if (observersActive) reconnectPlayerObserver();
   });
   const mutationMayReplacePlayer = (records: readonly MutationRecord[]): boolean => {
+    // Cheap checks first (SPEC-018). A detached observed player is the strongest replacement signal
+    // and needs no record walk; it also covers every removal path, because detaching any ancestor
+    // disconnects the player, so a removed-node scan could only re-find an already-disconnected
+    // reference. The added-node scan is the one path that can surface a replacement while the
+    // observed reference is still connectable.
     if (observedPlayer && !observedPlayer.isConnected) return true;
     const containsPlayer = (node: Node) =>
       node instanceof Element &&
       (node.matches(playerSelector) || node.querySelector(playerSelector) !== null);
-    return records.some(
-      (record) =>
-        Array.from(record.addedNodes).some(containsPlayer) ||
-        Array.from(record.removedNodes).some(
-          (node) =>
-            containsPlayer(node) ||
-            (observedPlayer !== null && node instanceof Element && node.contains(observedPlayer))
-        )
-    );
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (containsPlayer(node)) return true;
+      }
+    }
+    return false;
   };
 
   const stopObservers = () => {
@@ -532,6 +680,7 @@ export function installPlayerControls(bridgeNonce: string): () => void {
   syncObserverVisibility();
 
   return () => {
+    requestControlReconcile = () => undefined;
     stopObservers();
     document.removeEventListener('timeupdate', rememberPlaybackPosition, true);
     document.removeEventListener(SEGMENT_SKIPPED_EVENT, handleSegmentSkipped);
@@ -1271,10 +1420,13 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
           // Ignore malformed page events until the bounded timeout.
         }
       };
+      // The page-world walk can make up to four sequential credentialless requests (two clients,
+      // each with one visitorData retry), so the UI timeout must outlast a slow-but-successful
+      // walk, not just the old single fetch.
       const timeout = window.setTimeout(() => {
         document.removeEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
         reject(new Error('download-timeout'));
-      }, 8_000);
+      }, 30_000);
       document.addEventListener(DOWNLOAD_RESPONSE_EVENT, onResponse);
       document.dispatchEvent(
         new CustomEvent(DOWNLOAD_REQUEST_EVENT, {
@@ -1303,6 +1455,27 @@ async function requestAudioDownload(bridgeNonce: string, button: HTMLButtonEleme
     else announcePlayerStatus(`Audio download failed: ${reason}`);
   } finally {
     if (!feedback) button.disabled = false;
+  }
+}
+
+/**
+ * Removes every extension-owned node of the in-player UI (SPEC-021): the audio-only toggle, the
+ * download button, the status region, the tooltip, the injected control styles, the legacy segment
+ * button, and any live segment toast. Used when the extension is disabled and on teardown; a
+ * re-enabled extension re-mounts the controls through the reconcile path.
+ */
+export function removeInPlayerControls(): void {
+  for (const id of [
+    BUTTON_ID,
+    LEGACY_SEGMENT_BUTTON_ID,
+    DOWNLOAD_BUTTON_ID,
+    PLAYER_STATUS_ID,
+    PLAYER_TOOLTIP_ID,
+    PLAYER_CONTROL_STYLE_ID,
+    SEGMENT_TOAST_ID,
+    COACH_ID,
+  ]) {
+    for (const node of document.querySelectorAll(`[id="${id}"]`)) node.remove();
   }
 }
 
@@ -1389,9 +1562,10 @@ function updateStatusMarker(event: Event): void {
     else delete document.documentElement.dataset.ytaReason;
   }
 
-  // Production: relay the real per-video status to the background per-tab map so the popup can read
-  // the honest state of THIS tab. Additive to the bench marker; both run under the bench build.
-  pushStatusToBackground(message);
+  // Production: only the top frame relays the real per-video status to the background per-tab map
+  // (SPEC-015). An embedded player's status stays local to its frame, so it can never overwrite the
+  // honest state of the tab in front of the user.
+  if (isTopFrame()) pushStatusToBackground(message);
 }
 
 /**

@@ -1,28 +1,51 @@
 import { defineUnlistedScript } from 'wxt/utils/define-unlisted-script';
 
-import { createAudioGraph, loudnessDbToGain, type EqualizerBands } from '../src/shared/audiograph';
+import {
+  applyGraphSettings,
+  createAudioGraph,
+  type AudioGraphHandle,
+} from '../src/shared/audiograph';
 import { pickArtworkUrl, showArtworkOverlay } from '../src/shared/artwork';
 import { createPageLogger, errorFields } from '../src/shared/diagnostics';
 import { buildAudioFilename, isAllowedAudioUrl } from '../src/shared/download';
 import {
-  buildAndroidVrPlayerRequest,
+  fallbackQualityEngaged,
+  selectLowestQualityLabel,
+  switchToSongMode,
+} from '../src/shared/fallback-quality';
+import {
+  IDLE_NAG_PRIME_MS,
+  dismissIdleNag,
+  findIdleNagRenderer,
+  isIdleNagNodeName,
+  nextIdleNagDelayMs,
+} from '../src/shared/idle-nag';
+import {
+  buildPlayerRequest,
   getPlayability,
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  walkMediaClients,
+  type MediaClientWalkOutcome,
   type PlayerResponse,
 } from '../src/shared/innertube';
-import { PlayerHandle, type PlayerReleaseRecord } from '../src/shared/player';
-import { getQualityLabel, isQualityCap, type QualityCap } from '../src/shared/quality-of-life';
+import { installValuePatch } from '../src/shared/own-patch';
+import { PlayerHandle } from '../src/shared/player';
+import { getQualityLabel, isQualityCap } from '../src/shared/quality-of-life';
+import { armOneShotPause, createReclaimTracker } from '../src/shared/reclaim';
 import { loadRescueConfig } from '../src/shared/rescue';
 import { applyScriptletOperations } from '../src/shared/scriptlets';
+import { pageSubsystemReArm, type PageSettingsSnapshot } from '../src/shared/settings-diff';
 import { observeYouTubeSpa } from '../src/shared/spa';
-import type { PlaybackStatus } from '../src/shared/status';
+import { parseVideoId, type PlaybackStatus } from '../src/shared/status';
 import {
   isSponsorCategory,
+  resolveSegmentSkipTarget,
   type SponsorCategory,
   type SponsorSegment,
 } from '../src/shared/sponsorblock';
+import { installVisibilityOverride } from '../src/shared/visibility-override';
 
 const SETTINGS_EVENT = 'yta:settings';
 const STATUS_EVENT = 'yta:status';
@@ -32,22 +55,8 @@ const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
-
-interface PageSettings {
-  enabled: boolean;
-  audioOnlyEnabled: boolean;
-  audioArtworkEnabled: boolean;
-  backgroundPlayEnabled: boolean;
-  adBlockEnabled: boolean;
-  segmentSkipEnabled: boolean;
-  segmentSkipCategories: readonly SponsorCategory[];
-  forceQualityMax: QualityCap;
-  disableAutoplayNext: boolean;
-  loudnessNormalization: boolean;
-  equalizerEnabled: boolean;
-  equalizerBands: EqualizerBands;
-  downloadEnabled: boolean;
-}
+// SPEC-017: one bounded retry when the player (or, on Music, the song toggle) has not mounted yet.
+const FALLBACK_QUALITY_RETRY_MS = 1_000;
 
 interface YouTubeConfig {
   get?(key: string): unknown;
@@ -62,6 +71,7 @@ interface PlaybackOperation {
 interface YouTubePlayerElement extends HTMLElement {
   setPlaybackQualityRange?(minimum: string, maximum?: string): void;
   setPlaybackQuality?(quality: string): void;
+  getAvailableQualityLevels?(): unknown;
   loadVideoById?(request: { videoId: string; startSeconds?: number }): void;
   pauseVideo?(): void;
 }
@@ -85,7 +95,9 @@ export default defineUnlistedScript(() => {
   // to the exact video we hijacked, so an SPA navigation (which changes the live videoId) never
   // reloads the wrong video at the old position.
   let currentHijackVideoId: string | null = null;
-  let pendingReclaim: (PlayerReleaseRecord & { videoId: string | null }) | null = null;
+  // The single pending reclaim, held by the bounded, atomically-consumed tracker in
+  // src/shared/reclaim.ts (TTL plus a one-generation skew bound; interleavings unit-tested there).
+  const reclaims = createReclaimTracker();
   // Set while a toggle-off reclaim's loadVideoById is still reloading the native element (which is
   // transiently at currentTime 0 / playing). A fast re-hijack of the same video reads this intent so
   // it resumes at the real pre-toggle-off position/paused instead of that transient. Cleared once the
@@ -104,8 +116,16 @@ export default defineUnlistedScript(() => {
     settlingReclaim.dispose();
     settlingReclaim = null;
   };
+  // The single armed one-shot pause for a paused reclaim. Single-winner: arming for a newer reclaim
+  // disposes the previous arm, and a re-hijack that attaches clears it, so two terminal statuses for
+  // one release can never pause twice.
+  let reclaimPauseArm: () => void = () => undefined;
+  const clearReclaimPause = () => {
+    reclaimPauseArm();
+    reclaimPauseArm = () => undefined;
+  };
   player.onRelease((record, reason) => {
-    pendingReclaim = { ...record, videoId: currentHijackVideoId };
+    reclaims.set(record, currentHijackVideoId, player.generation);
     if (reason === 'circuit' || reason === 'disable') queueMicrotask(reclaimNativePlayback);
   });
   let artworkCleanup: () => void = () => undefined;
@@ -118,11 +138,13 @@ export default defineUnlistedScript(() => {
   });
   const bridgeNonce = readAndClearBridgeNonce();
   const log = createPageLogger(bridgeNonce);
-  let settings: PageSettings = {
+  let settings: PageSettingsSnapshot = {
     enabled: false,
     audioOnlyEnabled: false,
     audioArtworkEnabled: true,
     backgroundPlayEnabled: false,
+    idleNagDefeatEnabled: false,
+    fallbackQualityCapEnabled: false,
     adBlockEnabled: false,
     segmentSkipEnabled: false,
     segmentSkipCategories: [],
@@ -133,23 +155,72 @@ export default defineUnlistedScript(() => {
     equalizerBands: [],
     downloadEnabled: false,
   };
+  // SPEC-017: keep the data cost of a native fallback low. The Music path prefers the site's own
+  // song playback when the item offers it; otherwise one request for the lowest available quality
+  // tier. One bounded retry covers a player that has not mounted yet, and the live settings are
+  // re-read at retry time so a toggle change in between wins. Never a re-assert loop, and never a
+  // restore promise (there is no getter for the user's previous quality preference).
+  const applyLowestQualityCap = (): boolean => {
+    // An explicit user maximum quality stays the only quality writer; report "done" so the caller
+    // does not retry.
+    if (!fallbackQualityEngaged(settings)) return true;
+    try {
+      const player = document.querySelector<YouTubePlayerElement>(
+        '#movie_player, .html5-video-player'
+      );
+      if (!player) return false;
+      const label = selectLowestQualityLabel(player.getAvailableQualityLevels?.());
+      player.setPlaybackQualityRange?.(label, label);
+      player.setPlaybackQuality?.(label);
+      return true;
+    } catch {
+      // Undocumented player APIs are optional; native ABR remains in control.
+      return false;
+    }
+  };
+  const tryFallbackQuality = (): boolean => {
+    // Song mode is not a quality choice, so a user maximum quality never suppresses it.
+    if (isMusicPage() && switchToSongMode(document)) return true;
+    return applyLowestQualityCap();
+  };
+  const applyFallbackQuality = () => {
+    if (!settings.enabled || !settings.fallbackQualityCapEnabled) return;
+    if (tryFallbackQuality()) return;
+    window.setTimeout(() => {
+      if (!settings.enabled || !settings.fallbackQualityCapEnabled) return;
+      tryFallbackQuality();
+    }, FALLBACK_QUALITY_RETRY_MS);
+  };
   player.navigate();
   let visibilityCleanup: () => void = () => undefined;
+  let idleNagCleanup: () => void = () => undefined;
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
   let qualityOfLifeCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
+  // False until the first settings push. The first push arms every subsystem (there is no previous
+  // snapshot to diff against); later pushes re-arm only what changed (SPEC-020).
+  let settingsApplied = false;
+  // The last emitted playback status; a mid-session fallback-quality toggle only re-applies the cap
+  // where the session is already in native fallback (SPEC-020).
+  let lastStatus: PlaybackStatus | null = null;
   let audioGraphCleanup: () => void = () => undefined;
+  // The live graph handle and the loudness dB it was armed with, kept beside the cleanup so a
+  // graph-only settings change can be applied in place instead of refetching the stream (SPEC-020).
+  let audioGraphHandle: AudioGraphHandle | null = null;
+  let liveLoudnessDb: number | undefined;
 
   const emitStatus = (status: PlaybackStatus, operation: PlaybackOperation, reason?: string) => {
     log('playback.status', { status, ...(reason ? { reason } : {}) });
+    lastStatus = status;
     // Resolve any pending native reclaim against this operation's outcome BEFORE dispatching (the
     // dispatch is synchronous, so ordering the bookkeeping first keeps it insulated from listeners).
     // 'fetching' is transient, so it neither reclaims nor clears.
-    if (status === 'active') pendingReclaim = null;
+    if (status === 'active') reclaims.clear();
     else if (status === 'disabled' || status === 'fallback') reclaimNativePlayback();
+    if (status === 'fallback') applyFallbackQuality();
     // Carries only display fields. The ordering provenance (runStart + generation) is owned by the
     // isolated content script, which never trusts this page-observable event for ordering.
     document.dispatchEvent(
@@ -170,25 +241,26 @@ export default defineUnlistedScript(() => {
   // already reasserted its own src, native playback is (or will be) restored by YouTube itself, so we
   // drop the record and never touch the element (preserving the sole-writer + fail-open invariants).
   function reclaimNativePlayback(): void {
-    const record = pendingReclaim;
+    const record = reclaims.match(undefined, player.generation);
     if (!record) return;
     if (
       !record.videoId ||
       record.videoId !== getVideoId() ||
       record.element.src !== record.ownedUrl
     ) {
-      pendingReclaim = null;
+      reclaims.clear();
       return;
     }
     const playerElement = document.querySelector<YouTubePlayerElement>(
       '#movie_player, .html5-video-player'
     );
     if (!playerElement) return; // Player not mounted yet: keep the record for the next terminal status.
-    pendingReclaim = null;
+    const consumed = reclaims.take(record.videoId, player.generation);
+    if (!consumed) return; // Another path consumed the reclaim: at most one reclaim may ever run.
     try {
       const videoId = record.videoId;
-      const startSeconds = Number.isFinite(record.currentTime)
-        ? Math.max(0, record.currentTime)
+      const startSeconds = Number.isFinite(consumed.currentTime)
+        ? Math.max(0, consumed.currentTime)
         : 0;
       // Always load (never cue): cueVideoById only fetches a thumbnail and, per YouTube's own
       // player-API contract, defers requesting the actual media stream until playVideo()/seekTo()
@@ -200,8 +272,8 @@ export default defineUnlistedScript(() => {
       // the load to land first, mirroring the readyState-then-event pattern PlayerHandle already
       // uses for restorePlaybackState).
       playerElement.loadVideoById?.({ videoId, startSeconds });
-      armReclaimSettling(record.element, videoId, startSeconds, record.paused);
-      if (record.paused) pauseOnceLoaded(record.element, playerElement, videoId);
+      armReclaimSettling(consumed.element, videoId, startSeconds, consumed.paused);
+      if (consumed.paused) armReclaimPause(consumed.element, playerElement, videoId);
     } catch {
       // Fail open: leave native-playback control with YouTube.
     }
@@ -227,37 +299,29 @@ export default defineUnlistedScript(() => {
     element.addEventListener('loadeddata', onSettled, { once: true });
   }
 
-  // Calls pauseVideo() once the element has actually attached real media after a loadVideoById()
-  // reclaim, instead of racing it synchronously (which YouTube silently drops, leaving the video
-  // auto-playing instead of paused). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
-  // we leave YouTube's autoplay in control rather than pausing a still-loading element. Guarded by
-  // videoId (so a mid-wait SPA navigation never pauses the newly-navigated video) and by an active
-  // hijack (so a fast re-toggle-on that re-hijacks the same element is not paused by this stale call).
-  function pauseOnceLoaded(
+  // Arm the paused reclaim's pause once the freshly loaded media has actually attached. Single
+  // winner: arming for a newer reclaim disposes the previous arm, so two terminal statuses for one
+  // release can never pause twice. Still guarded by videoId (a mid-wait SPA navigation is never
+  // paused) and by an active hijack (a fast re-toggle-on that re-hijacks the same element is not
+  // paused by this stale call). Fail-open and one-shot: if nothing loads within VIDEO_WAIT_MS,
+  // YouTube's autoplay stays in control rather than pausing a still-loading element.
+  function armReclaimPause(
     element: HTMLMediaElement,
     playerElement: YouTubePlayerElement,
     videoId: string
   ): void {
-    const tryPause = () => {
-      if (getVideoId() !== videoId || player.getMediaElement() !== null) return;
-      try {
-        playerElement.pauseVideo?.();
-      } catch {
-        // Fail open: leave native-playback control with YouTube.
-      }
-    };
-    if (element.readyState >= 2) {
-      tryPause();
-      return;
-    }
-    const onLoadedData = () => {
-      window.clearTimeout(timeout);
-      tryPause();
-    };
-    const timeout = window.setTimeout(() => {
-      element.removeEventListener('loadeddata', onLoadedData);
-    }, VIDEO_WAIT_MS);
-    element.addEventListener('loadeddata', onLoadedData, { once: true });
+    clearReclaimPause();
+    reclaimPauseArm = armOneShotPause(element, {
+      isCurrent: () => getVideoId() === videoId && player.getMediaElement() === null,
+      pause: () => {
+        try {
+          playerElement.pauseVideo?.();
+        } catch {
+          // Fail open: leave native-playback control with YouTube.
+        }
+      },
+      timeoutMs: VIDEO_WAIT_MS,
+    });
   }
 
   const startPlaybackOperation = (): PlaybackOperation => {
@@ -265,33 +329,84 @@ export default defineUnlistedScript(() => {
     return { videoId, generation: player.navigate() };
   };
 
-  const applySettings = (next: PageSettings) => {
-    settings = next;
-    visibilityCleanup();
-    visibilityCleanup =
-      settings.enabled && settings.backgroundPlayEnabled ? enableBackgroundPlay() : () => undefined;
-    const nextScriptletGeneration = ++scriptletGeneration;
-    scriptletCleanup();
-    scriptletCleanup = () => undefined;
-    if (settings.enabled && settings.adBlockEnabled) {
-      void loadRescueConfig()
-        .then((config) => {
-          if (nextScriptletGeneration !== scriptletGeneration) return;
-          scriptletCleanup = applyScriptletOperations(config.scriptlets).cleanup;
-        })
-        .catch(() => undefined);
-    }
-    const operation = startPlaybackOperation();
-    restartSegmentSkipping();
-    qualityOfLifeCleanup();
-    qualityOfLifeCleanup = applyQualityOfLife(settings);
-    audioGraphCleanup();
+  // Runs the armed graph cleanup exactly once and forgets the live handle, so a later push cannot
+  // update a disposed graph and a second dispose is a no-op.
+  const disposeAudioGraph = () => {
+    const cleanup = audioGraphCleanup;
     audioGraphCleanup = () => undefined;
-    if (!settings.enabled) {
+    audioGraphHandle = null;
+    cleanup();
+  };
+
+  const applySettings = (next: PageSettingsSnapshot) => {
+    // Re-arm only the subsystems whose inputs changed (SPEC-020): the first push arms everything
+    // (no previous snapshot), a duplicate or content-only push re-arms nothing, and a graph-only
+    // change is absorbed by the live audio graph instead of restarting the media operation.
+    const groups = pageSubsystemReArm(settingsApplied ? settings : null, next);
+    settings = next;
+    settingsApplied = true;
+
+    if (groups.visibility) {
+      visibilityCleanup();
+      visibilityCleanup =
+        next.enabled && next.backgroundPlayEnabled
+          ? installVisibilityOverride(document)
+          : () => undefined;
+    }
+    if (groups.idleNag) {
+      idleNagCleanup();
+      idleNagCleanup =
+        next.enabled && next.backgroundPlayEnabled && next.idleNagDefeatEnabled
+          ? enableIdleNagDefeat()
+          : () => undefined;
+    }
+    if (groups.scriptlets) {
+      const nextScriptletGeneration = ++scriptletGeneration;
+      scriptletCleanup();
+      scriptletCleanup = () => undefined;
+      if (next.enabled && next.adBlockEnabled) {
+        void loadRescueConfig()
+          .then((config) => {
+            if (nextScriptletGeneration !== scriptletGeneration) return;
+            scriptletCleanup = applyScriptletOperations(config.scriptlets).cleanup;
+          })
+          .catch(() => undefined);
+      }
+    }
+    if (groups.qualityOfLife) {
+      qualityOfLifeCleanup();
+      qualityOfLifeCleanup = applyQualityOfLife(next);
+    }
+    if (groups.segments) restartSegmentSkipping();
+    // The cap is a fallback-time policy: when the session is already fallen back, apply it now; a
+    // media restart below re-derives the status and applies it through emitStatus instead.
+    if (groups.fallbackQuality && !groups.media && lastStatus === 'fallback')
+      applyFallbackQuality();
+
+    let restartMedia = groups.media;
+    if (!restartMedia && groups.graph) {
+      const graph = audioGraphHandle;
+      if (graph) {
+        if (!next.loudnessNormalization && !next.equalizerEnabled) {
+          disposeAudioGraph();
+        } else {
+          const gain = applyGraphSettings(graph, next, liveLoudnessDb);
+          publishAudioGraphBench(gain, graph);
+        }
+      } else if (next.loudnessNormalization || next.equalizerEnabled) {
+        // A feature turned on with no live graph: the full path arms one from a fresh response.
+        restartMedia = true;
+      }
+    }
+    if (!restartMedia) return;
+
+    const operation = startPlaybackOperation();
+    disposeAudioGraph();
+    if (!next.enabled) {
       emitStatus('disabled', operation);
       return;
     }
-    if (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled) {
+    if (next.audioOnlyEnabled || next.loudnessNormalization || next.equalizerEnabled) {
       void activateEnhancements(operation);
     } else {
       emitStatus('disabled', operation);
@@ -311,6 +426,32 @@ export default defineUnlistedScript(() => {
   document.addEventListener(DOWNLOAD_REQUEST_EVENT, (event) => {
     void handleDownloadRequest(event);
   });
+
+  // Thin adapter over the pure, unit-tested walk in src/shared/innertube.ts (SPEC-014,
+  // ADR-0012). This function owns only the page-world specifics: the endpoint, the credentialless
+  // POST, the ytcfg visitorData, and the bench-aware URL allowlist.
+  function fetchPlayerResponse(
+    videoId: string,
+    apiKey: string,
+    requireDirectAudio: boolean,
+    isStale: () => boolean
+  ): Promise<MediaClientWalkOutcome> {
+    const endpoint = `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`;
+    const benchOrigin = __BENCH__ ? location.origin : undefined;
+    return walkMediaClients({
+      requireDirectAudio,
+      isStale,
+      pageVisitorData: getConfigString('VISITOR_DATA') ?? null,
+      fetchPlayer: (client, visitorData) =>
+        fetch(endpoint, {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPlayerRequest(client, videoId, visitorData ?? undefined)),
+        }),
+      isAllowedUrl: (url) => isAllowedAudioUrl(url, benchOrigin),
+    });
+  }
 
   async function handleDownloadRequest(event: Event): Promise<void> {
     const detail = (event as CustomEvent<unknown>).detail;
@@ -343,6 +484,16 @@ export default defineUnlistedScript(() => {
         })
       );
     };
+    // Maps a walk failure onto the bounded download-reason vocabulary: the download log schema
+    // accepts only these tokens (plus http-NNN), so anything else collapses to `unplayable`.
+    const downloadReason = (reason: string): string =>
+      reason === 'no-direct-audio' ||
+      reason === 'request-failed' ||
+      reason === 'live' ||
+      reason === 'unplayable' ||
+      /^http-\d{3}$/.test(reason)
+        ? reason
+        : 'unplayable';
     if (!settings.enabled || !settings.downloadEnabled) {
       respond({ ok: false, reason: 'disabled' });
       return;
@@ -354,30 +505,20 @@ export default defineUnlistedScript(() => {
         respond({ ok: false, reason: 'not-a-watch-page' });
         return;
       }
-      const visitorData = getConfigString('VISITOR_DATA');
-      const response = await fetch(
-        `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
-        {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildAndroidVrPlayerRequest(videoId, visitorData ?? undefined)),
-        }
-      );
-      if (!response.ok) {
-        respond({ ok: false, reason: `http-${response.status}` });
-        return;
-      }
-      const playerResponse: unknown = await response.json();
-      if (!getPlayability(playerResponse).isPlayable) {
-        respond({ ok: false, reason: 'unplayable' });
-        return;
-      }
-      if (isLiveStream(playerResponse)) {
+      const outcome = await fetchPlayerResponse(videoId, apiKey, true, () => false);
+      if (outcome.kind === 'live') {
         // A live-edge audio url is not a finite downloadable file.
         respond({ ok: false, reason: 'live' });
         return;
       }
+      if (outcome.kind !== 'ok') {
+        respond({
+          ok: false,
+          reason: downloadReason(outcome.kind === 'failed' ? outcome.reason : 'request-failed'),
+        });
+        return;
+      }
+      const playerResponse = outcome.response;
       const format = pickBestAudioFormat(playerResponse, true);
       const url = format?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
@@ -499,30 +640,47 @@ export default defineUnlistedScript(() => {
       }
 
       emitStatus('fetching', operation);
-      const visitorData = getConfigString('VISITOR_DATA');
-      const response = await fetch(
-        `/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
-        {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildAndroidVrPlayerRequest(videoId, visitorData ?? undefined)),
-        }
+      const outcome = await fetchPlayerResponse(
+        videoId,
+        apiKey,
+        settings.audioOnlyEnabled,
+        () => operationGeneration !== player.generation
       );
-      if (operationGeneration !== player.generation) return;
-      if (!response.ok) {
-        emitStatus('fallback', operation, `http-${response.status}`);
+      if (outcome.kind === 'stale') return;
+      const usableResponse = outcome.kind === 'failed' ? outcome.lastPlayable : outcome.response;
+      if (!usableResponse) {
+        // Every parsed response was unplayable: the most diagnostically interesting failure, so
+        // log the last parsed response's bounded shape before falling back.
+        const lastParsed = outcome.kind === 'failed' ? outcome.lastParsed : null;
+        if (lastParsed) {
+          log('player.props', describePlayer(lastParsed, getPlayability(lastParsed).isPlayable));
+        }
+        emitStatus('fallback', operation, outcome.reason);
         return;
       }
-
-      const playerResponse: unknown = await response.json();
-      if (operationGeneration !== player.generation) return;
-      const playability = getPlayability(playerResponse);
-      log('player.props', describePlayer(playerResponse, playability.isPlayable));
-      if (!playability.isPlayable) {
-        emitStatus('fallback', operation, playability.status ?? 'unplayable');
+      log(
+        'player.props',
+        describePlayer(usableResponse, getPlayability(usableResponse).isPlayable)
+      );
+      if (outcome.kind === 'failed') {
+        // Preserve the pre-rotation behavior: with a playable response in hand but no usable
+        // direct audio, arm loudness/EQ on the native fallback before emitting `fallback`.
+        const fallbackElement = await waitForVideo(operationGeneration);
+        if (fallbackElement && operationGeneration === player.generation) {
+          armAudioGraph(
+            fallbackElement,
+            (usableResponse as PlayerResponse).playerConfig?.audioConfig?.loudnessDb
+          );
+        }
+        // A superseded operation (settings echo or SPA navigation during the wait) must not emit a
+        // stale fallback: the newer operation owns the status now.
+        if (operationGeneration === player.generation) {
+          emitStatus('fallback', operation, outcome.reason);
+        }
         return;
       }
+      log('media.client', { client: outcome.clientId, attempt: outcome.attempt });
+      const playerResponse: unknown = usableResponse;
 
       const mediaElement = await waitForVideo(operationGeneration);
       if (!mediaElement || operationGeneration !== player.generation) return;
@@ -536,7 +694,7 @@ export default defineUnlistedScript(() => {
       // Live/DVR broadcasts return OK + an audio url, but that url is a live-edge segment that
       // stalls when hijacked as a progressive <video>.src. Leave YouTube's native player in control
       // (the audio graph armed above still applies loudness/EQ to normal playback).
-      if (isLiveStream(playerResponse)) {
+      if (outcome.kind === 'live') {
         emitStatus('fallback', operation, 'live');
         return;
       }
@@ -550,10 +708,10 @@ export default defineUnlistedScript(() => {
       // A plain player-element replacement (mobile: the native player swaps the <video> mid-playback)
       // arms no settling reclaim, so fall back to the release record's live position for the same
       // video; otherwise the re-hijack would restart at the fresh element's zero/stale clock.
-      const releasedPosition =
-        pendingReclaim && pendingReclaim.videoId === videoId
-          ? { currentTime: pendingReclaim.currentTime, paused: pendingReclaim.paused }
-          : undefined;
+      const releasedRecord = reclaims.match(videoId, operationGeneration);
+      const releasedPosition = releasedRecord
+        ? { currentTime: releasedRecord.currentTime, paused: releasedRecord.paused }
+        : undefined;
       const intent =
         settlingReclaim && settlingReclaim.videoId === videoId
           ? { currentTime: settlingReclaim.currentTime, paused: settlingReclaim.paused }
@@ -562,8 +720,11 @@ export default defineUnlistedScript(() => {
         // The released position is one-shot: once a same-video re-hijack has consumed it, drop it so a
         // later same-video attach (a replay or re-navigation) cannot resume at a stale position. This
         // only clears when releasedPosition was actually used, never another video's pending record.
-        if (releasedPosition && intent === releasedPosition) pendingReclaim = null;
+        if (releasedPosition && intent === releasedPosition) {
+          reclaims.take(videoId, operationGeneration);
+        }
         clearSettling();
+        clearReclaimPause();
         currentHijackVideoId = videoId;
         if (settings.audioArtworkEnabled) {
           const overlayEpoch = artworkEpoch;
@@ -589,24 +750,27 @@ export default defineUnlistedScript(() => {
     }
   }
 
+  function publishAudioGraphBench(gain: number, graph: AudioGraphHandle): void {
+    if (!__BENCH__) return;
+    document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
+      gain,
+      eqGains: graph.getEqualizerGains(),
+    });
+  }
+
   function armAudioGraph(media: HTMLMediaElement, loudnessDb: number | undefined): void {
     if (!settings.loudnessNormalization && !settings.equalizerEnabled) return;
     const graph = createAudioGraph(media);
     if (!graph) return;
-    const gain = settings.loudnessNormalization ? loudnessDbToGain(loudnessDb ?? Number.NaN) : 1;
-    graph.setGain(gain);
-    graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
+    const gain = applyGraphSettings(graph, settings, loudnessDb);
     audioGraphCleanup = () => graph.dispose();
+    audioGraphHandle = graph;
+    liveLoudnessDb = loudnessDb;
     log('audio.graph', {
       loudness: settings.loudnessNormalization,
       eq: settings.equalizerEnabled,
     });
-    if (__BENCH__) {
-      document.documentElement.dataset.ytaAudioGraph = JSON.stringify({
-        gain,
-        eqGains: graph.getEqualizerGains(),
-      });
-    }
+    publishAudioGraphBench(gain, graph);
   }
 
   async function waitForVideo(operationGeneration: number): Promise<HTMLMediaElement | null> {
@@ -629,7 +793,7 @@ export default defineUnlistedScript(() => {
   }
 });
 
-function applyQualityOfLife(settings: PageSettings): () => void {
+function applyQualityOfLife(settings: PageSettingsSnapshot): () => void {
   if (!settings.enabled) return () => undefined;
   const qualityLabel = getQualityLabel(settings.forceQualityMax);
   const timers: number[] = [];
@@ -795,18 +959,18 @@ function installSegmentSkipping(
         if (handled.has(index)) continue;
         const segment = segments[index];
         if (!segment) continue;
-        const [start, end] = segment.segment;
-        if (currentTime < start || currentTime >= end) continue;
-        const target =
-          Number.isFinite(video.duration) && video.duration > 0
-            ? Math.min(end, video.duration)
-            : end;
-        if (target > currentTime) {
-          video.currentTime = target;
-          document.dispatchEvent(
-            new CustomEvent(SEGMENT_SKIPPED_EVENT, { detail: segment.category })
-          );
-        }
+        // One decision point (SPEC-019, ADR-0015): null covers both "outside the segment" and the
+        // double-seek guard (a playhead already at/past the end), so no second seek is ever issued.
+        const target = resolveSegmentSkipTarget({
+          segment,
+          currentTime,
+          duration: video.duration,
+        });
+        if (target === null) continue;
+        video.currentTime = target;
+        document.dispatchEvent(
+          new CustomEvent(SEGMENT_SKIPPED_EVENT, { detail: segment.category })
+        );
         return;
       }
     } catch {
@@ -864,6 +1028,15 @@ function readAndClearBridgeNonce(): string | null {
 }
 
 /**
+ * Whether this page is YouTube Music. The bench-only `ytm=1` query parameter lets the hermetic
+ * fixture exercise the Music branch; production builds compile that branch out (`__BENCH__`).
+ */
+function isMusicPage(): boolean {
+  if (location.hostname === 'music.youtube.com') return true;
+  return __BENCH__ && new URLSearchParams(location.search).has('ytm');
+}
+
+/**
  * Behavior-determining video properties for reproduction, derived defensively and containing no
  * identity (no video/playlist/channel id, no url). Probing never throws into the caller.
  */
@@ -880,7 +1053,7 @@ function describePlayer(
 } {
   const props = {
     live: false,
-    music: location.hostname === 'music.youtube.com',
+    music: isMusicPage(),
     hasAudio: false,
     loudness: false,
     playable,
@@ -902,13 +1075,10 @@ function describePlayer(
   return props;
 }
 
+// Watch pages, embedded players (/embed/<id>), and legacy embeds (/v/<id>) all resolve here through
+// the shared classifier, so the page world and the popup agree on one URL model (SPEC-015).
 function getVideoId(): string | null {
-  try {
-    const id = new URL(location.href).searchParams.get('v');
-    return id && /^[A-Za-z0-9_-]{6,20}$/.test(id) ? id : null;
-  } catch {
-    return null;
-  }
+  return parseVideoId(location.href);
 }
 
 function getConfigString(key: string): string | null {
@@ -920,14 +1090,16 @@ function getConfigString(key: string): string | null {
   }
 }
 
-function parseSettings(value: unknown): PageSettings | null {
+function parseSettings(value: unknown): PageSettingsSnapshot | null {
   if (typeof value !== 'object' || value === null) return null;
-  const candidate = value as Partial<PageSettings>;
+  const candidate = value as Partial<PageSettingsSnapshot>;
   if (
     typeof candidate.enabled !== 'boolean' ||
     typeof candidate.audioOnlyEnabled !== 'boolean' ||
     typeof candidate.audioArtworkEnabled !== 'boolean' ||
     typeof candidate.backgroundPlayEnabled !== 'boolean' ||
+    typeof candidate.idleNagDefeatEnabled !== 'boolean' ||
+    typeof candidate.fallbackQualityCapEnabled !== 'boolean' ||
     typeof candidate.adBlockEnabled !== 'boolean' ||
     typeof candidate.segmentSkipEnabled !== 'boolean' ||
     !Array.isArray(candidate.segmentSkipCategories) ||
@@ -950,6 +1122,8 @@ function parseSettings(value: unknown): PageSettings | null {
     audioOnlyEnabled: candidate.audioOnlyEnabled,
     audioArtworkEnabled: candidate.audioArtworkEnabled,
     backgroundPlayEnabled: candidate.backgroundPlayEnabled,
+    idleNagDefeatEnabled: candidate.idleNagDefeatEnabled,
+    fallbackQualityCapEnabled: candidate.fallbackQualityCapEnabled,
     adBlockEnabled: candidate.adBlockEnabled,
     segmentSkipEnabled: candidate.segmentSkipEnabled,
     segmentSkipCategories: candidate.segmentSkipCategories,
@@ -962,46 +1136,197 @@ function parseSettings(value: unknown): PageSettings | null {
   };
 }
 
-function enableBackgroundPlay(): () => void {
-  const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, 'hidden');
-  const visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
-  const swallow = (event: Event) => event.stopImmediatePropagation();
-  let hiddenPatched = false;
-  let visibilityPatched = false;
-  let listenerAdded = false;
+interface IdleNagPlayerElement extends HTMLElement {
+  updateLastActiveTime?(): void;
+  youthereDataChanged_?(...args: unknown[]): void;
+}
 
-  const cleanup = () => {
-    if (listenerAdded) document.removeEventListener('visibilitychange', swallow, true);
+type SetActionHandler = (
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler | null
+) => void;
+
+/**
+ * Idle-nag defeat (SPEC-016). Layered and individually reversible: a low-frequency keepalive
+ * refreshes the page's own activity signals, the player's you-there state transition is no-op'ed
+ * while armed, confirm/you-there dialogs are auto-confirmed, and YouTube's mediaSession pause
+ * handler is neutralised in favour of a direct pause so a user pause still pauses. Every layer is
+ * existence-checked and fail-open; the returned cleanup restores all of them.
+ */
+function enableIdleNagDefeat(): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let trailingCheck: ReturnType<typeof setTimeout> | null = null;
+  let lastDialogCheck = 0;
+  let observer: MutationObserver | null = null;
+  let lastHandledRenderer: Element | null = null;
+  const noopYouThere = () => undefined;
+  let restoreYouThere: (() => void) | null = null;
+
+  // The event path is the primary dismissal; the observer is a bounded fallback, so a busy DOM
+  // never turns into a query-per-mutation-batch hot loop (at most one check per window, plus one
+  // trailing check so a dialog inserted inside a burst is still seen).
+  const DIALOG_CHECK_INTERVAL_MS = 500;
+
+  const mediaElement = (): HTMLMediaElement | null => document.querySelector('video, audio');
+
+  const pauseDirectly = () => {
+    const media = mediaElement();
+    if (!(media instanceof HTMLMediaElement) || media.paused) return;
     try {
-      if (hiddenPatched) {
-        if (hiddenDescriptor) Object.defineProperty(document, 'hidden', hiddenDescriptor);
-        else delete (document as unknown as Record<string, unknown>).hidden;
-      }
-      if (visibilityPatched) {
-        if (visibilityDescriptor)
-          Object.defineProperty(document, 'visibilityState', visibilityDescriptor);
-        else delete (document as unknown as Record<string, unknown>).visibilityState;
-      }
+      HTMLMediaElement.prototype.pause.call(media);
     } catch {
-      // Keep the fail-open page boundary intact.
+      // Fail open: the page keeps whatever state it already had.
     }
   };
 
-  try {
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
-    hiddenPatched = true;
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      get: () => 'visible',
-    });
-    visibilityPatched = true;
-    document.addEventListener('visibilitychange', swallow, true);
-    listenerAdded = true;
-  } catch {
-    // Roll back any partial override so normal YouTube visibility behaviour is preserved.
-    cleanup();
-    return () => undefined;
+  const resumeIfPaused = () => {
+    const media = mediaElement();
+    if (!(media instanceof HTMLMediaElement) || media.ended || !media.paused) return;
+    try {
+      void media.play().catch(() => undefined);
+    } catch {
+      // Fail open: a refused resume leaves the page exactly as YouTube left it.
+    }
+  };
+
+  // One dismissal per dialog instance: the same renderer is never clicked twice, and a new dialog
+  // (a new element) is handled afresh. A failed click does not latch, so it can retry.
+  const attemptDismiss = () => {
+    const renderer = findIdleNagRenderer(document);
+    if (renderer && renderer === lastHandledRenderer) return;
+    if (!dismissIdleNag(document)) return;
+    lastHandledRenderer = renderer;
+    resumeIfPaused();
+  };
+
+  const runKeepalive = () => {
+    try {
+      const scope = window as unknown as { _lact?: unknown };
+      if (typeof scope._lact === 'number') scope._lact = Date.now();
+    } catch {
+      // A throwing or frozen scope is skipped; the other layers stay armed.
+    }
+    try {
+      const playerElement = document.querySelector<IdleNagPlayerElement>(
+        '#movie_player, .html5-video-player'
+      );
+      if (playerElement && typeof playerElement.updateLastActiveTime === 'function') {
+        playerElement.updateLastActiveTime();
+      }
+    } catch {
+      // Same fail-open rule for the player call.
+    }
+  };
+
+  let primed = false;
+  const scheduleKeepalive = () => {
+    const delay = primed ? nextIdleNagDelayMs() : IDLE_NAG_PRIME_MS;
+    primed = true;
+    timer = setTimeout(() => {
+      if (stopped) return;
+      runKeepalive();
+      scheduleKeepalive();
+    }, delay);
+  };
+
+  const patchYouThere = () => {
+    if (restoreYouThere) return;
+    const candidate = document.querySelector<IdleNagPlayerElement>(
+      '#movie_player, .html5-video-player'
+    );
+    if (!candidate || typeof candidate.youthereDataChanged_ !== 'function') return;
+    // ADR-0015: identity-checked teardown; a later patch over the no-op survives our cleanup. A
+    // frozen or accessor-only property returns null: skip the layer, keep the rest armed.
+    const restore = installValuePatch(candidate, 'youthereDataChanged_', noopYouThere);
+    if (restore) restoreYouThere = restore;
+  };
+
+  const checkDialogs = () => {
+    lastDialogCheck = Date.now();
+    patchYouThere();
+    if (findIdleNagRenderer(document)) attemptDismiss();
+  };
+
+  const onMutations = () => {
+    if (stopped) return;
+    const elapsed = Date.now() - lastDialogCheck;
+    if (elapsed >= DIALOG_CHECK_INTERVAL_MS) {
+      checkDialogs();
+      return;
+    }
+    if (trailingCheck !== null) return;
+    trailingCheck = setTimeout(() => {
+      trailingCheck = null;
+      if (stopped) return;
+      checkDialogs();
+    }, DIALOG_CHECK_INTERVAL_MS - elapsed);
+  };
+
+  const pauseHandler = () => pauseDirectly();
+
+  const mediaSession = typeof navigator === 'undefined' ? undefined : navigator.mediaSession;
+  let restoreSetActionHandler: (() => void) | null = null;
+  let boundSetActionHandler: SetActionHandler | null = null;
+  let blockedPauseHandler: MediaSessionActionHandler | null = null;
+
+  if (mediaSession && typeof mediaSession.setActionHandler === 'function') {
+    const originalSetActionHandler = mediaSession.setActionHandler;
+    boundSetActionHandler = originalSetActionHandler.bind(mediaSession) as SetActionHandler;
+    const originalBound = boundSetActionHandler;
+    const patchedSetActionHandler: MediaSession['setActionHandler'] = (action, handler) => {
+      if (action !== 'pause') {
+        originalBound(action, handler);
+        return;
+      }
+      // Neutralise YouTube's own pause handler, then register a direct pause so a user pause
+      // (media key, headset, notification) still pauses immediately. A null clears as usual.
+      blockedPauseHandler = handler;
+      originalBound(action, handler === null ? null : pauseHandler);
+    };
+    // ADR-0015: identity-checked teardown; a wrapper patched over ours survives our cleanup.
+    restoreSetActionHandler = installValuePatch(
+      mediaSession,
+      'setActionHandler',
+      patchedSetActionHandler
+    );
   }
 
-  return cleanup;
+  runKeepalive();
+  scheduleKeepalive();
+  patchYouThere();
+
+  const handlePopupOpened = (event: Event) => {
+    const detail = (event as CustomEvent<{ nodeName?: unknown } | null>).detail;
+    if (!isIdleNagNodeName(detail?.nodeName)) return;
+    attemptDismiss();
+  };
+  document.addEventListener('yt-popup-opened', handlePopupOpened, true);
+  observer = new MutationObserver(onMutations);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  return () => {
+    stopped = true;
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (trailingCheck !== null) clearTimeout(trailingCheck);
+    trailingCheck = null;
+    if (observer) observer.disconnect();
+    observer = null;
+    document.removeEventListener('yt-popup-opened', handlePopupOpened, true);
+    if (restoreYouThere) {
+      restoreYouThere();
+      restoreYouThere = null;
+    }
+    if (restoreSetActionHandler) {
+      try {
+        restoreSetActionHandler();
+        // The registry undo is unconditional: the neutralised pause entry is ours regardless of
+        // who owns the property now.
+        if (blockedPauseHandler) boundSetActionHandler?.('pause', blockedPauseHandler);
+      } catch {
+        // Restoring is best effort; the page keeps working either way.
+      }
+    }
+  };
 }

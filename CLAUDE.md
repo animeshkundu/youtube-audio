@@ -17,7 +17,7 @@ This repository is **AI-Enabled** and optimized for Agentic Coding. Before perfo
 
 ### Core mechanism
 
-A credentialless **ANDROID_VR** InnerTube `POST /youtubei/v1/player` (`credentials:"omit"`) returns a direct audio URL; the extension hijacks the page `<video>.src` to it (native player UI intact, video bytes stop). It falls back to normal playback whenever the credentialless fetch is non-playable (live, made-for-kids, age-restricted, members-only, unavailable).
+A credentialless InnerTube client table posts `POST /youtubei/v1/player` with `credentials:"omit"` (**VISIONOS 1.02** primary, **ANDROID_VR 1.65.10** fallback, both going through `src/shared/innertube.ts`) and returns a direct audio URL; the extension hijacks the page `<video>.src` to it (native player UI intact, video bytes stop). It falls back to normal playback whenever no credentialless client yields a playable, non-live response with a usable direct URL (live, made-for-kids, age-restricted, members-only, unavailable). See ADR-0012.
 
 ### Distribution
 
@@ -107,8 +107,9 @@ If you modify code, you **MUST**:
 ```
 youtube-audio/
 ├── entrypoints/            # WXT entrypoints: background.ts, content.ts, main-world.ts, ui/, popup/, options/
-├── src/shared/             # Core logic: innertube, player, audiograph, adblock, scriptlets, rescue,
-│                           #   sponsorblock, telemetry, quality-of-life, download, config, spa, platform,
+├── src/shared/             # Core logic: innertube, player, reclaim, audiograph, adblock, scriptlets,
+│                           #   rescue, sponsorblock, status, tab-scope, telemetry, quality-of-life,
+│                           #   download, config, consent, spa, platform,
 │                           #   logger + redact + report + diagnostics (PII-free local log)
 ├── tests/
 │   ├── unit/               # Vitest unit tests
@@ -118,6 +119,7 @@ youtube-audio/
 │   ├── agent-instructions/ # Agent protocols (00-03)
 │   ├── architecture/       # System diagrams
 │   ├── history/            # Handoff records
+│   ├── plans/              # Approved release plans
 │   ├── research/           # Grounding research (01-19)
 │   └── specs/              # Technical specifications (SPEC-001..012)
 ├── img/                    # Icons and images

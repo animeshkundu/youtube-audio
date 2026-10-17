@@ -42,7 +42,7 @@ flowchart LR
 
 ### Background
 
-The persistent MV2 background entrypoint owns privileged APIs, network adapters, downloads, and remote-service proxies. M2a installs an allowlist-based blocking `webRequest.onBeforeRequest` listener for first-party YouTube telemetry. Its conservative default preserves InnerTube player, attestation, Googlevideo media, `log_event`, and watch-history endpoints; errors fail open.
+The persistent MV2 background entrypoint owns privileged APIs, network adapters, downloads, and remote-service proxies. It also owns the toolbar consent badge and the optional-permission gates for SponsorBlock and downloads. M2a installs an allowlist-based blocking `webRequest.onBeforeRequest` listener for first-party YouTube telemetry. Its conservative default preserves InnerTube player, attestation, Googlevideo media, `log_event`, and watch-history endpoints; errors fail open.
 
 ### Isolated content
 
@@ -50,7 +50,7 @@ The content entrypoint runs at `document_start` on the four supported YouTube ma
 
 ### MAIN world
 
-The MAIN-world entrypoint is the only layer intended to touch YouTube player APIs and page-owned prototypes. M0 installs no hooks. M1 will implement the proven `<video>.src` hijack behind `PlayerHandle`.
+The MAIN-world entrypoint is the only layer intended to touch YouTube player APIs and page-owned prototypes: the `<video>.src` hijack through `PlayerHandle`, the credentialless media fetch, the background-play visibility override, the idle-nag defeat, and the SponsorBlock seek decision. The page-owned surfaces it touches follow the coexistence contract (ADR-0015): adopt an existing override, wrap additively when wrapping is unavoidable, and revert only what this extension installed.
 
 ### Shared modules
 
@@ -58,7 +58,7 @@ The MAIN-world entrypoint is the only layer intended to touch YouTube player API
 
 ### UI
 
-Popup, options, and the custom consent page are extension-owned documents built with Preact and `@preact/signals`. They share one storage-backed settings model and reusable tokenized control kit. The desktop popup is a focused quick-control surface; the responsive options page repeats those quick controls first for Firefox Android, then exposes every setting through searchable groups and progressive disclosure. Firefox 128-139 receives a focused, single-page custom consent tab before extension-owned transmission; newer Firefox versions use built-in install consent. Options permanently exposes consent review and revocation. A separate local flag records the one-time onboarding panel without changing feature settings. Preact is not used in background, content, or page-world code.
+Popup, options, and the custom consent page are extension-owned documents built with Preact and `@preact/signals`. They share one storage-backed settings model and reusable tokenized control kit. The desktop popup is a focused quick-control surface; the responsive options page repeats those quick controls first for Firefox Android, then exposes every setting through searchable groups and progressive disclosure. While consent is undecided the popup shows its consent-required card and the toolbar action carries a `!` badge; neither renders a control that could not take effect. Firefox 128-139 receives a focused, single-page custom consent tab before extension-owned transmission; newer Firefox versions use built-in install consent. Options permanently exposes consent review and revocation. A separate local flag records the one-time onboarding panel without changing feature settings. Preact is not used in background, content, or page-world code.
 
 ## State Flow
 
@@ -99,7 +99,7 @@ sequenceDiagram
 
 ## Hybrid Consent Gate
 
-Consent resolution starts denied. The privileged background reads Firefox's version, platform, granted permissions, and extension-local decision, then answers a fixed content request. The isolated content script validates and awaits that response before injecting MAIN world; background unavailability or a malformed reply is denied, and `applyConsentToSettings()` disables every extension-originated media request. The background independently gates optional SponsorBlock fetches and pushes consent changes to running content scripts. Permission removal denies before re-resolution; permission addition only re-resolves, avoiding a transient startup denial. Firefox desktop 140+ and Android 142+ use built-in install consent and grant only when `permissions.getAll()` contains `websiteContent`; older supported versions require the extension-owned consent tab. Missing, malformed, unreadable, or undetectable state fails closed without falling back to a stored custom grant.
+Consent resolution starts denied. The privileged background reads Firefox's version, platform, granted permissions, and extension-local decision, then answers a fixed content request. The isolated content script validates and awaits that response before injecting MAIN world; background unavailability or a malformed reply is denied, and `applyConsentToSettings()` disables every extension-originated media request. The background independently gates optional SponsorBlock fetches on both the stored SponsorBlock consent and the granted `sponsor.ajay.app` host permission, and pushes consent changes to running content scripts. While an unseeded custom install (Firefox 128-139) has no recorded decision, the toolbar action shows a `!` badge and the popup renders a consent-required card that deep-links to the options Data & consent row instead of controls that could not take effect (SPEC-013). Permission removal denies before re-resolution; permission addition only re-resolves, avoiding a transient startup denial. Firefox desktop 140+ and Android 142+ use built-in install consent and grant only when `permissions.getAll()` contains `websiteContent`; older supported versions require the extension-owned consent tab. Missing, malformed, unreadable, or undetectable state fails closed without falling back to a stored custom grant.
 
 ```mermaid
 sequenceDiagram
@@ -135,9 +135,22 @@ sequenceDiagram
 
 - Page-world data is untrusted. No page-message handler exists in M0.
 - The background never accepts arbitrary URLs.
-- Only YouTube page patterns and `*.googlevideo.com` are granted.
-- SponsorBlock access is limited to `https://sponsor.ajay.app/*` and runs only after explicit opt-in.
+- Only YouTube page patterns and `*.googlevideo.com` are granted at install time. Third-party access is an optional grant: `sponsor.ajay.app` and `downloads` are requested from the gesture that enables their feature, and `tabs` is not requested at all.
+- SponsorBlock access is limited to `https://sponsor.ajay.app/*`, granted only from the opt-in gesture, and runs only with both that grant and explicit consent.
 - Feature failures must leave native YouTube behavior intact.
+
+## Coexistence with Other Extensions
+
+Other YouTube extensions share the page world. Every surface this extension controls follows one
+contract (ADR-0015, SPEC-019): an existing override is adopted rather than stacked, wrappers chain
+additively (ADR-0013), and teardown restores only what this extension installed. Concretely, the
+visibility override (`src/shared/visibility-override.ts`) adopts an existing own-property
+`document.hidden`/`visibilityState` patch and leaves later foreign patches in place; page-object
+patches (`src/shared/own-patch.ts`, used by the idle-nag defeat) and the media `src` accessor
+(`src/shared/player.ts`) are restored only while this extension's patch is still installed;
+injected player buttons anchor before the native gear and never move or remove foreign controls;
+and sponsor skips go through one decision point (`resolveSegmentSkipTarget`) that never re-seeks a
+playhead already at or past a segment end.
 
 ## M1 Playback Flow
 
@@ -251,7 +264,7 @@ Any graph or media failure is a no-op. Scrobbling is out of scope because it con
 
 ## M5 Audio Download Flow
 
-An off-by-default in-player control initiates a fresh credentialless ANDROID_VR request in MAIN world. MAIN selects the preferred direct audio format and sends a nonce-authenticated JSON-string payload through isolated content. The background independently validates the Googlevideo URL and bounded canonical filename, then uses the downloads API directly. A credentialless Blob fallback is used only when the direct handoff fails.
+An off-by-default in-player control initiates a fresh credentialless ANDROID_VR request in MAIN world. MAIN selects the preferred direct audio format and sends a nonce-authenticated JSON-string payload through isolated content. The background independently validates the Googlevideo URL and bounded canonical filename, then uses the downloads API directly when its optional `downloads` permission is granted (the setting is hidden entirely where the API is absent, i.e. Firefox for Android). A credentialless Blob fallback is used only when the direct handoff fails.
 
 ```mermaid
 sequenceDiagram

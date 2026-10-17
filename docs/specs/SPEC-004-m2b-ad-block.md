@@ -27,7 +27,7 @@ M2b removes known client-side YouTube ad descriptors from InnerTube player respo
 
 `src/shared/adblock.ts` exports a pure string-to-string function. It parses JSON, recursively deletes the four allowlisted ad keys from objects and arrays, and serializes the result. Malformed input and every unexpected error return the exact original string.
 
-The persistent MV2 background registers `webRequest.onBeforeRequest` for the existing YouTube patterns and, in bench builds, local fixture hosts. For matching POST responses it opens `filterResponseData`, copies and buffers every byte, then writes either the pruned UTF-8 JSON or the original bytes. The filter is inert unless global protection and ad blocking are enabled. All failure paths attempt to write the original byte sequence and close the filter.
+The persistent MV2 background registers `webRequest.onBeforeRequest` for the existing YouTube patterns and, in bench builds, local fixture hosts. For matching POST responses it opens `filterResponseData` and buffers the body for pruning under a hard budget (`MAX_PRUNABLE_RESPONSE_BYTES`, 8 MiB, `src/shared/adblock.ts`). Once a response crosses that budget the filter flushes everything it held and streams the remaining chunks through verbatim, so an over-budget body is deliberately delivered unparsed with its ad descriptors intact: bounded background memory and intact playback matter more than pruning a pathological response. Under budget it writes either the pruned UTF-8 JSON or the original bytes. The filter is inert unless global protection and ad blocking are enabled. All failure paths attempt to write what was held unchanged and close the filter. The success path never logs per response; only unexpected filter failures produce one bounded diagnostics error entry.
 
 ### Bundled baseline and scriptlets
 
@@ -35,7 +35,7 @@ The persistent MV2 background registers `webRequest.onBeforeRequest` for the exi
 
 `src/shared/scriptlets.ts` dispatches only known operation IDs. The baseline installs a reversible `ytInitialPlayerResponse` accessor before page scripts run, prunes any already-present response, and wraps `JSON.parse` so parsed player responses containing known ad descriptors are pruned in place. The wrapper inspects only parsed objects with `streamingData` or `playabilityStatus`, returns all non-player values untouched, and catches inspection failures without changing native parse behavior. The baseline also performs conservative operations against already-present page globals: neutralizing an exposed abnormality callback and setting an already-present inline-playback ad flag. Missing or incompatible targets are no-ops. Each operation catches its own failures and returns cleanup behavior.
 
-Before applying operations, the engine checks whether `JSON.parse` or `JSON.stringify` appears non-native. This is a best-effort coexistence heuristic for page-context blocker hooks. It can have false positives and false negatives because extensions may hide wrappers or inject by other means; response pruning remains independent and fail-open.
+Coexistence is additive chaining, not a skip: each operation wraps whatever implementation is currently installed (including another extension's or YouTube's own), calls through to it, and prunes only the value it produced, and cleanup restores prior values only when the operation still owns what it installed. The historical "`JSON.parse`/`JSON.stringify` looks non-native, so stand down entirely" heuristic false-positived on stock YouTube (which itself freezes or replaces JSON serialization in places) and disabled every scriptlet there, so it was removed (ADR-0013). Response pruning in the background remains independent and fail-open.
 
 ### Settings and UI
 
@@ -48,12 +48,13 @@ Every boundary fails open. The background retains original bytes before parsing 
 ## Testing Strategy
 
 - Unit tests import the real pruner and cover all target fields at multiple depths, arrays, preservation of streaming/video/unknown data, malformed JSON, primitive JSON, and non-mutation of the input string.
+- Unit tests also lock the response budget: chunks below the boundary stay buffered, crossing it flushes everything held exactly once, and each later chunk streams through unparsed. The bench serves a 9 MiB padded fixture response (`BIG*` ids) and asserts the session still reaches `active` within a generous latency-sanity bound while the page-visible body keeps its ad descriptors, proving over-budget responses stream through unparsed instead of being buffered.
 - The packaged-extension bench fetches the fixture player response from page context and asserts ad descriptors are absent with default settings and present when ad blocking is disabled.
 - Release gates: strict typecheck, zero-warning lint, gate-weakener scan, real-source coverage, packaged Firefox bench, MV2 build, and production manifest inspection.
 
 ## Security and AMO Considerations
 
-No code or configuration is fetched remotely. The rescue schema cannot name arbitrary functions, paths, URLs, or source text. Player bodies remain inside Firefox's response filter and are not persisted or sent elsewhere. The implementation does not add permissions or origins.
+No code or configuration is fetched remotely. The rescue schema cannot name arbitrary functions, paths, URLs, or source text. Player bodies remain inside Firefox's response filter and are not persisted or sent elsewhere. The implementation does not add permissions or origins. The MV3 capability artifact additionally declares `webRequestFilterResponse` so both manifest lanes expose the same response-pruning surface; MV3 is emitted as a capability artifact only and is not a distribution target (ADR-0006).
 
 ## Rollout and Rollback
 

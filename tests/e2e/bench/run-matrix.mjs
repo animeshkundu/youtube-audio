@@ -55,6 +55,8 @@ const TOGGLES = [
   'hideShorts',
   'hideRecommendations',
   'hideComments',
+  'hideThumbnails',
+  'hideAvatars',
   'loudnessNormalization',
   'equalizerEnabled',
   'downloadEnabled',
@@ -66,6 +68,8 @@ const BASE = Object.freeze({
   audioOnlyEnabled: false,
   audioArtworkEnabled: false,
   backgroundPlayEnabled: false,
+  idleNagDefeatEnabled: false,
+  fallbackQualityCapEnabled: false,
   ghostEnabled: false,
   aggressiveTelemetry: false,
   adBlockEnabled: false,
@@ -76,6 +80,8 @@ const BASE = Object.freeze({
   hideShorts: false,
   hideRecommendations: false,
   hideComments: false,
+  hideThumbnails: false,
+  hideAvatars: false,
   loudnessNormalization: false,
   equalizerEnabled: false,
   equalizerBands: [0, 0, 0, 0, 0],
@@ -141,6 +147,10 @@ function checkFeature(feature, s, r, log) {
       return want ? (r.qol?.recsHidden === true ? null : 'hideRecs on: recs visible') : (r.qol?.recsHidden === false ? null : 'hideRecs off: recs not confirmed visible');
     case 'hideComments':
       return want ? (r.qol?.commentsHidden === true ? null : 'hideComments on: comments visible') : (r.qol?.commentsHidden === false ? null : 'hideComments off: comments not confirmed visible');
+    case 'hideThumbnails':
+      return want ? (r.qol?.thumbnailsHidden === true ? null : 'hideThumbnails on: thumbnails visible') : (r.qol?.thumbnailsHidden === false ? null : 'hideThumbnails off: thumbnails not confirmed visible');
+    case 'hideAvatars':
+      return want ? (r.qol?.avatarsHidden === true ? null : 'hideAvatars on: avatars visible') : (r.qol?.avatarsHidden === false ? null : 'hideAvatars off: avatars not confirmed visible');
     case 'downloadEnabled':
       return want ? (r.downloadButtonVisible === true ? null : 'download on: button hidden') : (r.downloadButtonVisible !== true ? null : 'download off: button visible');
     case 'disableAutoplayNext':
@@ -316,8 +326,10 @@ async function main() {
       const failures = [];
       if (hijacked(r)) failures.push('master-gate: hijacked despite enabled=false');
       if (r.downloadButtonVisible === true) failures.push('master-gate: download button shown');
+      if (r.audioOnlyTogglePresent === true) failures.push('master-gate: in-player control present');
+      if (Number(r.ytaNodeCount ?? 0) > 0) failures.push('master-gate: extension nodes left in the page');
       if (r.ytaArtwork !== null) failures.push('master-gate: artwork rendered');
-      if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true) failures.push('master-gate: distractions hidden');
+      if (r.qol?.shortsHidden === true || r.qol?.recsHidden === true || r.qol?.commentsHidden === true || r.qol?.thumbnailsHidden === true || r.qol?.avatarsHidden === true) failures.push('master-gate: distractions hidden');
       if (r.audioGraph !== null) failures.push('master-gate: audio graph armed');
       if (r.vis?.swallowed === true) failures.push('master-gate: visibility swallowed despite disabled');
       if (r.skipArmed === '1') failures.push('master-gate: segment skip armed despite disabled');
@@ -328,7 +340,18 @@ async function main() {
     }
 
     // All features on together.
-    await runCombo('global:all-on', settings(Object.fromEntries([...TOGGLES.map((t) => [t, true]), ['forceQualityMax', '1080p']])), ctx);
+    await runCombo(
+      'global:all-on',
+      settings(
+        Object.fromEntries([
+          ...TOGGLES.map((t) => [t, true]),
+          ['forceQualityMax', '1080p'],
+          ['idleNagDefeatEnabled', true],
+          ['fallbackQualityCapEnabled', true],
+        ])
+      ),
+      ctx
+    );
     // Enabled, every feature off.
     await runCombo('global:all-off', settings({}), ctx);
 
@@ -341,6 +364,135 @@ async function main() {
     // asserts the exact label is requested), so a regression collapsing the enum is caught.
     await runCombo('single:forceQualityMax-480p', settings({ forceQualityMax: '480p' }), ctx);
     await runCombo('single:forceQualityMax-720p', settings({ forceQualityMax: '720p' }), ctx);
+
+    // --- Per-tab audio-only scope (SPEC-012 §5; ADR-0014) ------------------
+    // The full precedence/isolation proof runs as a run-bench case; the matrix re-runs the same
+    // scenario under a MIXED settings row (audio-only globally off, ad-block + loudness on) so the
+    // per-tab override is exercised alongside other active features, not only in isolation.
+    {
+      const s = settings({
+        audioOnlyEnabled: false,
+        adBlockEnabled: true,
+        loudnessNormalization: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        probePlayerFromPage: true,
+        videoId: 'SCOPE0001',
+        expectedTerminalStatus: 'disabled',
+        probeTabScope: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const scope = r.tabScope;
+      const failures = [];
+      if (scope?.disabledBefore !== 'disabled')
+        failures.push(`scope: expected disabled before the override (${scope?.disabledBefore})`);
+      if (scope?.activeAfterOverride !== true)
+        failures.push('scope: override did not activate the tab');
+      if (scope?.globalAfterOverride !== false)
+        failures.push('scope: override leaked into the global preference in storage');
+      if (scope?.secondDisabled !== true)
+        failures.push('scope: a second tab without an override should follow the global off');
+      if (scope?.secondActiveAfterOverride !== true)
+        failures.push('scope: the second tab override did not activate it');
+      if (scope?.prunedSecondTab !== true || scope?.primaryStillPresent !== true)
+        failures.push('scope: closing a tab did not prune only its entry');
+      if (scope?.persistedAcrossReload !== true)
+        failures.push('scope: override lost across a reload of its tab');
+      if (scope?.persistedAcrossSpa !== true)
+        failures.push('scope: override lost across an in-page SPA navigation');
+      if (scope?.stillActiveWithGlobalOn !== true)
+        failures.push('scope: override-on lost when the global preference turned on');
+      if (scope?.disabledAfterOverrideOff !== true)
+        failures.push('scope: override-off did not beat the global on');
+      if (r.marker !== '1') failures.push(`scope: content script marker missing (marker=${r.marker})`);
+      record('scope:per-tab-override-beats-global-and-prunes', failures, {
+        status: r.status,
+        disabledBefore: scope?.disabledBefore,
+        activeAfterOverride: scope?.activeAfterOverride,
+        globalAfterOverride: scope?.globalAfterOverride,
+        secondDisabled: scope?.secondDisabled,
+        secondActiveAfterOverride: scope?.secondActiveAfterOverride,
+        persistedAcrossReload: scope?.persistedAcrossReload,
+        persistedAcrossSpa: scope?.persistedAcrossSpa,
+        stillActiveWithGlobalOn: scope?.stillActiveWithGlobalOn,
+        disabledAfterOverrideOff: scope?.disabledAfterOverrideOff,
+      });
+    }
+
+    // --- Idle-nag defeat (SPEC-016) ----------------------------------------
+    // The run-bench cases prove the layered outcome in isolation; the matrix re-runs the fixture
+    // nag inside a MIXED row (defeat off while audio-only, ad-block, and loudness are on) so the
+    // off state is exercised alongside other active features instead of only in a bare session.
+    {
+      const s = settings({
+        idleNagDefeatEnabled: false,
+        audioOnlyEnabled: true,
+        adBlockEnabled: true,
+        loudnessNormalization: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        videoId: 'NAG0001',
+        watchQuery: 'nag=1',
+        probeIdleNag: 'untouched',
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const nag = r.idleNag;
+      const failures = [];
+      if (nag?.opened !== true) failures.push('idle-nag: fixture dialog never opened');
+      if (nag?.confirmed === true) failures.push('idle-nag off: dialog was confirmed');
+      if (nag?.dialogStillOpen !== true) failures.push('idle-nag off: dialog was dismissed');
+      if (nag?.lact !== 1) failures.push(`idle-nag off: activity clock was touched (lact=${nag?.lact})`);
+      if (nag?.paused !== true) failures.push('idle-nag off: paused media was resumed');
+      if (r.audioGraph === null) failures.push('idle-nag off: loudness graph unexpectedly idle');
+      if (r.marker !== '1') failures.push(`idle-nag: content script marker missing (marker=${r.marker})`);
+      record('idle-nag:off-inside-mixed-row-leaves-untouched', failures, {
+        status: r.status,
+        opened: nag?.opened,
+        confirmed: nag?.confirmed,
+        lact: nag?.lact,
+      });
+    }
+
+    // --- Fallback quality (SPEC-017) ---------------------------------------
+    // The run-bench cases prove the outcome in isolation; the matrix re-runs a live fallback
+    // under a MIXED row where the user's own maximum quality is set alongside other active
+    // features, so "never fight forceQualityMax" is exercised in context: the quality-of-life
+    // request must be the only one, and no fallback tier may be requested.
+    {
+      const s = settings({
+        fallbackQualityCapEnabled: true,
+        forceQualityMax: '1080p',
+        audioOnlyEnabled: true,
+        adBlockEnabled: true,
+      });
+      const r = await runSession({
+        withAddon: true,
+        seedSettings: s,
+        videoId: 'LIVESTREAM01',
+        probeFallbackQuality: true,
+        origin,
+        resetLog: () => fixture.reset(),
+      });
+      const calls = r.fallbackQuality?.qualityCalls || [];
+      const failures = [];
+      if (r.status !== 'fallback') failures.push(`fallback-quality: expected fallback (${r.status})`);
+      if (r.marker !== '1')
+        failures.push(`fallback-quality: content script marker missing (marker=${r.marker})`);
+      if (calls.length === 0) failures.push('fallback-quality: quality-of-life cap never requested');
+      const stray = calls.filter((c) => (c.min ?? c.quality) !== 'hd1080');
+      if (stray.length > 0)
+        failures.push(`fallback-quality: unexpected quality requests ${JSON.stringify(stray)}`);
+      record('fallback-quality:force-quality-max-wins-inside-mixed-row', failures, {
+        status: r.status,
+        qualityCalls: calls,
+      });
+    }
 
     // --- Key interactions --------------------------------------------------
     await runCombo('pair:audioOnly+adBlock', settings({ audioOnlyEnabled: true, adBlockEnabled: true }), ctx);
@@ -380,7 +532,7 @@ async function main() {
     }
     await runCombo('pair:audioOnly+background', settings({ audioOnlyEnabled: true, backgroundPlayEnabled: true }), ctx);
     await runCombo('pair:ghost+aggressiveTelemetry', settings({ ghostEnabled: true, aggressiveTelemetry: true }), ctx);
-    await runCombo('pair:all-three-distractions', settings({ hideShorts: true, hideRecommendations: true, hideComments: true }), ctx);
+    await runCombo('pair:all-distractions', settings({ hideShorts: true, hideRecommendations: true, hideComments: true, hideThumbnails: true, hideAvatars: true }), ctx);
     // Edge: audio-only has no video track; a quality cap must no-op gracefully (no error).
     await runCombo('edge:forceQuality+audioOnly-graceful', settings({ audioOnlyEnabled: true, forceQualityMax: '1080p' }), ctx);
     // Segment-skip seek needs audio-only off (matches run-bench); assert the actual seek here.

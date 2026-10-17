@@ -25,6 +25,12 @@ Each `master` push gets a run-ID-scoped CI concurrency group so every merge comp
 the release job then uses a shared non-cancelling `release-on-merge` group so two merges cannot
 publish or bump concurrently.
 
+Every workflow pins `runs-on: ubuntu-24.04` rather than `ubuntu-latest`, which is a no-op while
+`ubuntu-latest` still resolves to 24.04. GitHub begins phasing the label to Ubuntu 26 on 2026-10-19
+(`actions/runner-images#14748`), inside the 1.1.0 soak and publish window, and the explicit pin
+keeps the gates on the image the pinned Firefox and geckodriver installs were validated against.
+Revisit the pin once the migration is validated.
+
 ## CI (gating)
 
 Five executable gate outcomes must pass:
@@ -170,6 +176,17 @@ AMO hosts the signed XPI and becomes the sole update authority for desktop and A
 Release asset and no self-hosted `updates.json`. The recommended human gate is a GitHub Environment
 `amo-production` with a required reviewer. See `RELEASE.md`.
 
+**Listing support fields (Developer Hub, not the manifest).** Firefox manifests have no
+`support_url`/`support_email` keys, so the support surfaces are listing fields set by hand when the
+listing is edited alongside the 1.1.0 submission: **Support site** →
+`https://github.com/animeshkundu/youtube-audio/issues/new/choose` (the issue chooser, whose YouTube
+breakage template asks for the local diagnostics export), **Support email** → the maintainer's
+monitored address. `amo-metadata.json` cannot carry them into an existing listing: `web-ext sign`
+applies its add-on-level properties only to a first listing (later publishes accept only
+`version.*`), which is why the listing edit is a hand step. The in-package surfaces are
+`homepage_url` (the product site) and `developer.url` (the repository), emitted by `wxt.config.ts`
+into every build; `amo-metadata.json` carries the listing `homepage` for the record.
+
 ## Mobile Hermetic E2E (gating)
 
 Every pull request runs the BENCH extension against the local fixture in Fenix `128.0`, `136.0`,
@@ -294,24 +311,73 @@ with `VIDEO_ID`, `HOLD_SECONDS`, and `SAMPLE_SECONDS`. The older
 ## Live YouTube Canary (non-gating, best-effort)
 
 Nightly desktop probe (`tests/e2e/probe-audio-playback.mjs`) that installs the `BENCH` XPI in a
-real (non-snap) Firefox under `xvfb` and drives live YouTube watch pages, asserting that eligible
-VODs actually play audio-only (currentTime advances, `videoWidth === 0`, googlevideo src) and live
-streams fall back gracefully. It is network-dependent and bot-flag-prone, so it is
-`continue-on-error: true` and non-gating; its job is to surface YouTube-side drift the hermetic
-bench cannot see.
+real (non-snap) Firefox under `xvfb` and drives live YouTube watch pages. Per eligible VOD it asserts
+the hijack (`videoWidth === 0`, googlevideo src), a sustained playback window
+(`PROBE_SUSTAIN_MS`, default 45 s; release runs use 90 s), a buffered-ahead margin, and a seek to
+80 % of duration that resumes advancing; live streams must fall back to native playback. It is
+network-dependent and bot-flag-prone, so it is non-gating (never a required check, runbook below is
+authoritative), but the job is deliberately no longer `continue-on-error`, so a red probe is a red
+run with its log in the run summary and as the `live-canary-log` artifact.
 
 Because that probe uses geckodriver's default Firefox discovery (it does not read `FIREFOX_BIN`),
 the workflow symlinks the setup-firefox binary to `/usr/local/bin/firefox` (ahead of the snap on
-`PATH`) so geckodriver drives the real Firefox.
+`PATH`) so geckodriver drives the real Firefox. The probe starts geckodriver with
+`--allow-system-access`; without it geckodriver refuses to navigate to the privileged
+`moz-extension:` options page and the run dies in setup. That failure mode hid behind the mask:
+sampled masked runs back to 2026-10-07 all printed it as a generic `[FAIL] undefined` line while
+the run conclusion stayed green.
+
+Verdict semantics: GitHub-hosted runners are datacenter IPs, and YouTube frequently serves them
+the "Sign in to confirm you're not a bot" interstitial (the watch page renders with the real title,
+but no media ever loads; seen on 6 of 7 cases in the first run that reached YouTube, 2026-10-16).
+The probe classifies that, publisher-side "Video unavailable", and a VOD fixture shorter than the
+sustain window (reported `FIXTURE`; ids rot into Shorts) as environment-blocked: `INCONCLUSIVE`
+(exit 0 plus a GitHub warning annotation) when nothing was measurable, `PASS (partial)` when some
+cases measured and passed, and `FAIL` only when a case that did reach YouTube media misbehaved. A
+red run therefore always means investigate; the residential runbook below stays the release gate.
 
 ### Run the live canary locally
 
 ```bash
 # build the BENCH XPI as above, then:
 node tests/e2e/probe-audio-playback.mjs      # add HEADLESS=0 to watch
+PROBE_SUSTAIN_MS=90000 node tests/e2e/probe-audio-playback.mjs   # release-gate run
+PROBE_CASES=dQw4w9WgXcQ node tests/e2e/probe-audio-playback.mjs  # one case only
 # broader live matrix (35+ harvested videos):
 node tests/e2e/probe-audio-matrix.mjs
+# per-client InnerTube audit (pure Node, no browser; reports playability, direct-URL yield, and a
+# sustained ranged download per persona with URLs never printed):
+node tests/e2e/probe-live-client-audit.mjs
 ```
+
+Sandboxed agent shells (macOS) cannot let geckodriver spawn Firefox: the shell process sandbox
+denies Firefox's own child-process sandbox extensions, headless graphics fail
+(`RenderCompositorSWGL failed mapping default framebuffer`), and Marionette never opens. Launch
+the browser outside the sandbox and attach geckodriver to it instead. The running browser must
+already carry the prefs the probe would otherwise set in session capabilities
+(`PROBE_CONNECT_EXISTING=1`, port override via `PROBE_MARIONETTE_PORT`):
+
+```bash
+PROFILE=~/yta-canary-profile
+mkdir -p "$PROFILE"
+cat > "$PROFILE/user.js" <<'EOF'
+user_pref("marionette.enabled", true);
+user_pref("marionette.port", 2828);
+user_pref("media.autoplay.default", 0);
+user_pref("media.autoplay.blocking_policy", 0);
+user_pref("extensions.webextensions.uuids", "{\"{580efa7d-66f9-474d-857a-8e2afc6b1181}\":\"11111111-2222-4333-8444-555555555555\"}");
+EOF
+# LaunchServices starts Firefox outside the sandbox; the env var is the running-browser
+# equivalent of geckodriver's --allow-system-access (privileged moz-extension: navigation):
+launchctl setenv MOZ_REMOTE_ALLOW_SYSTEM_ACCESS 1
+open -n -a "/Applications/Firefox.app" --args -marionette -profile "$PROFILE" -no-remote about:blank
+launchctl unsetenv MOZ_REMOTE_ALLOW_SYSTEM_ACCESS
+PROBE_CONNECT_EXISTING=1 PROBE_SUSTAIN_MS=90000 node tests/e2e/probe-audio-playback.mjs
+```
+
+The audit probe is the fast first read when a canary goes red: it separates "YouTube changed the
+player response" from "the media CDN now rejects this client's URLs" (2026-10-15: VISIONOS served
+bytes, ANDROID_VR media URLs returned HTTP 403 at byte 0).
 
 ## Dependency updates
 

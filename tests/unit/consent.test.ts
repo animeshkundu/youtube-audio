@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   applyConsentToSettings,
+  consentBadgeText,
   consentStorageChangeGrants,
   consentStorageKey,
   createConsentStateController,
   createContentConsentState,
+  DENIED_DATA_CONSENT,
   grantDataConsent,
   parseDataConsentMessage,
   resolveDataConsent,
@@ -101,6 +103,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: true,
     });
   });
 
@@ -115,6 +118,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 
@@ -125,6 +129,7 @@ describe('hybrid data consent', () => {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 
@@ -135,6 +140,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 
@@ -145,6 +151,7 @@ describe('hybrid data consent', () => {
       granted: true,
       sponsorBlockAllowed: true,
       source: 'custom',
+      pending: false,
     });
 
     stubBrowser({ version: '133.0' });
@@ -152,6 +159,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: true,
     });
   });
 
@@ -167,6 +175,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 
@@ -186,6 +195,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
 
     stubBrowser({
@@ -196,6 +206,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: false,
     });
 
     stubBrowser({ runtimeReject: true, stored: grantedRecord });
@@ -203,10 +214,16 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
 
     stubBrowser({ reject: true });
-    await expect(resolveDataConsent()).resolves.toMatchObject({ granted: false });
+    await expect(resolveDataConsent()).resolves.toEqual({
+      granted: false,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    });
   });
 
   it('persists acceptance and revocation as explicit versioned decisions', async () => {
@@ -272,10 +289,18 @@ describe('hybrid data consent', () => {
         granted: true,
         sponsorBlockAllowed: false,
         source: 'firefox',
+        pending: false,
       })
-    ).toEqual({ granted: true, sponsorBlockAllowed: false, source: 'firefox' });
+    ).toEqual({ granted: true, sponsorBlockAllowed: false, source: 'firefox', pending: false });
     expect(parseDataConsentMessage(null)).toBeNull();
     expect(parseDataConsentMessage({ granted: true, source: 'firefox' })).toBeNull();
+    expect(
+      parseDataConsentMessage({
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+      })
+    ).toBeNull();
     expect(
       parseDataConsentMessage({
         granted: false,
@@ -290,13 +315,67 @@ describe('hybrid data consent', () => {
         source: 'page',
       })
     ).toBeNull();
+    expect(
+      parseDataConsentMessage({
+        granted: true,
+        sponsorBlockAllowed: false,
+        source: 'firefox',
+        pending: true,
+      })
+    ).toBeNull();
+    expect(
+      parseDataConsentMessage({
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+        pending: 'yes',
+      })
+    ).toBeNull();
+  });
+
+  it('badges only an undecided custom consent state', () => {
+    expect(consentBadgeText(DENIED_DATA_CONSENT)).toBe('');
+    expect(
+      consentBadgeText({
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+        pending: true,
+      })
+    ).toBe('!');
+    expect(
+      consentBadgeText({
+        granted: false,
+        sponsorBlockAllowed: false,
+        source: 'custom',
+        pending: false,
+      })
+    ).toBe('');
+    expect(
+      consentBadgeText({
+        granted: true,
+        sponsorBlockAllowed: false,
+        source: 'firefox',
+        pending: false,
+      })
+    ).toBe('');
   });
 
   it('applies a broadcast and discards an older startup reply', () => {
     const publish = vi.fn();
     const state = createContentConsentState(publish);
-    const revoked = { granted: false, sponsorBlockAllowed: false, source: 'firefox' } as const;
-    const granted = { granted: true, sponsorBlockAllowed: false, source: 'firefox' } as const;
+    const revoked = {
+      granted: false,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
+    const granted = {
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
 
     state.applyPush(revoked);
     state.applyInitial(granted);
@@ -316,6 +395,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 
@@ -324,8 +404,18 @@ describe('hybrid data consent', () => {
     const first = new Promise<Awaited<ReturnType<typeof resolveDataConsent>>>((resolve) => {
       finishFirst = resolve;
     });
-    const revoked = { granted: false, sponsorBlockAllowed: false, source: 'firefox' } as const;
-    const granted = { granted: true, sponsorBlockAllowed: false, source: 'firefox' } as const;
+    const revoked = {
+      granted: false,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
+    const granted = {
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
     const resolve = vi.fn().mockReturnValueOnce(first).mockResolvedValueOnce(revoked);
     const publish = vi.fn();
     const controller = createConsentStateController(resolve, publish);
@@ -342,7 +432,12 @@ describe('hybrid data consent', () => {
   });
 
   it('re-resolves an addition without publishing a transient denial', async () => {
-    const granted = { granted: true, sponsorBlockAllowed: false, source: 'firefox' } as const;
+    const granted = {
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
     const publish = vi.fn();
     const controller = createConsentStateController(async () => granted, publish, granted);
 
@@ -353,8 +448,18 @@ describe('hybrid data consent', () => {
   });
 
   it('publishes denial before re-resolving a removal', async () => {
-    const granted = { granted: true, sponsorBlockAllowed: false, source: 'firefox' } as const;
-    const revoked = { granted: false, sponsorBlockAllowed: false, source: 'firefox' } as const;
+    const granted = {
+      granted: true,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
+    const revoked = {
+      granted: false,
+      sponsorBlockAllowed: false,
+      source: 'firefox',
+      pending: false,
+    } as const;
     const publish = vi.fn();
     const controller = createConsentStateController(async () => revoked, publish, granted);
 
@@ -368,6 +473,7 @@ describe('hybrid data consent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'custom',
+      pending: true,
     });
 
     expect(effective).toMatchObject({
@@ -375,6 +481,8 @@ describe('hybrid data consent', () => {
       audioOnlyEnabled: false,
       audioArtworkEnabled: false,
       backgroundPlayEnabled: false,
+      idleNagDefeatEnabled: false,
+      fallbackQualityCapEnabled: false,
       segmentSkipEnabled: false,
       loudnessNormalization: false,
       equalizerEnabled: false,
@@ -388,6 +496,7 @@ describe('hybrid data consent', () => {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
 
     expect(effective.enabled).toBe(true);

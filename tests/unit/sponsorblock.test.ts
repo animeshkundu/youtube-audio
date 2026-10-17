@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { hashVideoIdPrefix, selectSegments } from '../../src/shared/sponsorblock';
+import {
+  hashVideoIdPrefix,
+  resolveSegmentSkipTarget,
+  selectSegments,
+} from '../../src/shared/sponsorblock';
 
 describe('hashVideoIdPrefix', () => {
   it('returns the first four hex characters of a known SHA-256 vector', async () => {
@@ -80,5 +84,39 @@ describe('selectSegments', () => {
         ['sponsor']
       )
     ).toEqual([]);
+  });
+});
+
+describe('resolveSegmentSkipTarget', () => {
+  const segment = {
+    segment: [10, 20] as readonly [number, number],
+    category: 'sponsor' as const,
+    actionType: 'skip' as const,
+  };
+
+  it('returns the segment end while the playhead is inside the segment', () => {
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 10, duration: 100 })).toBe(20);
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 19.5, duration: 100 })).toBe(20);
+  });
+
+  it('does not seek before the segment start', () => {
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 9.9, duration: 100 })).toBeNull();
+  });
+
+  it('never re-seeks once the playhead is at or past the segment end (double-seek guard)', () => {
+    // Covers another skipper's seek, a manual seek, and one of our own completed skips.
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 20, duration: 100 })).toBeNull();
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 21, duration: 100 })).toBeNull();
+  });
+
+  it('clamps the target to a finite duration and falls back to the raw end otherwise', () => {
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 19, duration: 19.5 })).toBe(19.5);
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 19, duration: Number.NaN })).toBe(20);
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 19, duration: 0 })).toBe(20);
+  });
+
+  it('returns null when the clamped end is not ahead of the playhead', () => {
+    // Playhead already at the clamped end: the media is past the segment either way.
+    expect(resolveSegmentSkipTarget({ segment, currentTime: 19.5, duration: 19.5 })).toBeNull();
   });
 });

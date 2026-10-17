@@ -88,7 +88,12 @@ function fixturePlayerResponse(origin, videoId, opts = {}) {
   const loginRequired = !!opts.loginRequired;
   const unplayable = !!opts.unplayable;
   return {
-    responseContext: { serviceTrackingParams: [] },
+    responseContext: {
+      serviceTrackingParams: [],
+      ...(typeof opts.visitorData === 'string' && opts.visitorData
+        ? { visitorData: opts.visitorData }
+        : {}),
+    },
     playabilityStatus: loginRequired
       ? { status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm your age' }
       : unplayable
@@ -170,7 +175,26 @@ function fixtureSkipSegments(videoId) {
 }
 
 /** The fake YouTube watch page. Static except for requested deterministic regression modes. */
-function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
+/** A third-party host page framing a player (SPEC-015): the top document owns no video. */
+function frameHostHtml(embedVideoId) {
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><title>Fixture Frame Host</title></head>
+<body>
+  <h1>Fixture third-party host</h1>
+  <iframe
+    id="fixture-embed"
+    src="/embed/${encodeURIComponent(embedVideoId)}"
+    width="560"
+    height="315"
+    allow="autoplay; encrypted-media"
+    title="Fixture embedded player"
+  ></iframe>
+</body>
+</html>`;
+}
+
+function watchPageHtml({ coldConfig = false, elementSwap = false, nag = false } = {}) {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -251,10 +275,17 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
        recommendations" must hide ONLY the recs renderer, never either comments node, so the
        #fixture-secondary-comments node below is the load-bearing regression lock: a broad
        secondary-container display:none would hide it, the narrowed selector must not. -->
+  <!-- Thumbnail/avatar targets for the cosmetic hide-extras. Deliberately outside every
+       conditionally hidden container (no tile, no comments block) so a combined combo, e.g.
+       hide-recommendations on with hide-thumbnails off, still measures the element itself rather
+       than an inherited display:none. -->
+  <ytd-thumbnail id="fixture-thumbnail">Thumbnail</ytd-thumbnail>
   <ytd-reel-shelf-renderer id="fixture-shorts">Shorts shelf</ytd-reel-shelf-renderer>
   <ytd-watch-flexy>
     <div id="columns">
-      <div id="primary"><div id="primary-inner"><div id="below">
+      <div id="primary"><div id="primary-inner">
+        <ytd-watch-metadata><ytd-video-owner-renderer id="fixture-avatar"><a id="avatar"><yt-img-shadow>Channel picture</yt-img-shadow></a></ytd-video-owner-renderer></ytd-watch-metadata>
+        <div id="below">
         <ytd-comments id="fixture-comments">Comments</ytd-comments>
       </div></div></div>
       <div id="secondary"><div id="secondary-inner">
@@ -308,6 +339,21 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
         mp.setPlaybackQuality = function (q) {
           window.__ytaQualityCalls.push({ quality: q });
         };
+        // The real Music watch page reports its tiers this way (verified live 2026-10-16, incl.
+        // 'auto' last, which is a mode and not a tier). SPEC-017 must pick the lowest known label.
+        mp.getAvailableQualityLevels = function () {
+          return [
+            'hd2160',
+            'hd1440',
+            'hd1080',
+            'hd720',
+            'large',
+            'medium',
+            'small',
+            'tiny',
+            'auto',
+          ];
+        };
         mp.loadVideoById = function (arg) {
           var video = document.querySelector('video[data-fixture-video]');
           if (!video) return;
@@ -355,6 +401,36 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
       }
       var autonav = document.querySelector('.ytp-autonav-toggle-button');
       if (autonav) wireAutonav(autonav);
+      // YT Music song-mode simulation (SPEC-017): the real Music player page renders a
+      // ytmusic-av-toggle whose song-button flips the page to song playback on click while
+      // playback continues (verified live 2026-10-16). ytm=1 marks the page as Music for the
+      // extension (bench-only host switch); nosong=1 omits the toggle to prove the quality-cap
+      // fallback when no song counterpart exists.
+      if (/[?&]ytm=1/.test(location.search) && !/[?&]nosong=1/.test(location.search)) {
+        var avToggle = document.createElement('ytmusic-av-toggle');
+        avToggle.setAttribute('is-audio-playback-mode-selected', 'false');
+        avToggle.setAttribute('is-video-playback-mode-selected', 'true');
+        avToggle.setAttribute('playback-mode', 'OMV_PREFERRED');
+        var songButton = document.createElement('button');
+        songButton.className = 'song-button';
+        songButton.setAttribute('aria-pressed', 'false');
+        songButton.textContent = 'Song';
+        songButton.addEventListener('click', function () {
+          avToggle.setAttribute('is-audio-playback-mode-selected', 'true');
+          avToggle.setAttribute('is-video-playback-mode-selected', 'false');
+          avToggle.setAttribute('playback-mode', 'ATV_PREFERRED');
+          songButton.setAttribute('aria-pressed', 'true');
+          window.__fixtureSongMode = '1';
+        });
+        var videoButton = document.createElement('button');
+        videoButton.className = 'video-button';
+        videoButton.setAttribute('aria-pressed', 'true');
+        videoButton.textContent = 'Video';
+        avToggle.appendChild(songButton);
+        avToggle.appendChild(videoButton);
+        var player = document.getElementById('movie_player');
+        if (player && player.parentNode) player.parentNode.insertBefore(avToggle, player.nextSibling);
+      }
       // Late-autonav regression mode: remove the button and re-insert it AFTER the extension's fixed
       // retry schedule (past 3s), so only the disable-autoplay MutationObserver fallback can click it.
       if (/[?&]yta-late-autonav=1/.test(location.search) && autonav && autonav.parentNode) {
@@ -399,6 +475,42 @@ function watchPageHtml({ coldConfig = false, elementSwap = false } = {}) {
       document.documentElement.setAttribute('data-fixture-ready', '1');
     });
   </script>
+  ${
+    nag
+      ? `<script>
+    // Idle-nag simulation (SPEC-016): a stale activity clock the defeat must refresh, and a
+    // scripted "are you still there?" dialog (with a real click marker) the defeat must confirm.
+    // The 6s delay leaves room for the extension to arm and complete its hijack first.
+    // The media is paused BEFORE the dialog is announced, as on the real page: the defeat's
+    // resume is one-shot at dismissal, so a pause after the synchronous dismissal could never
+    // be observed.
+    window._lact = 1;
+    window.__fixtureNagOpened = false;
+    window.__fixtureNagConfirmed = false;
+    setTimeout(function () {
+      var video = document.querySelector('video[data-fixture-video]');
+      if (!video) return;
+      video.pause();
+      var container = document.createElement('ytd-popup-container');
+      var dialog = document.createElement('yt-confirm-dialog-renderer');
+      var button = document.createElement('tp-yt-paper-button');
+      button.id = 'confirm-button';
+      button.textContent = 'Yes';
+      button.addEventListener('click', function () {
+        window.__fixtureNagConfirmed = true;
+        container.remove();
+      });
+      dialog.appendChild(button);
+      container.appendChild(dialog);
+      document.body.appendChild(container);
+      window.__fixtureNagOpened = true;
+      document.dispatchEvent(
+        new CustomEvent('yt-popup-opened', { detail: { nodeName: 'YT-CONFIRM-DIALOG-RENDERER' } })
+      );
+    }, 6000);
+  </script>`
+      : ''
+  }
 </body>
 </html>`;
 }
@@ -566,33 +678,72 @@ export function createFixtureServer() {
     if (path === '/' || path === '/watch' || path === '/index.html') {
       const coldConfig = url.searchParams.get('coldConfig') === '1';
       const elementSwap = url.searchParams.get('elementSwap') === '1';
+      const nag = url.searchParams.get('nag') === '1';
       return sendText(
         res,
         200,
-        watchPageHtml({ coldConfig, elementSwap }),
+        watchPageHtml({ coldConfig, elementSwap, nag }),
         'text/html; charset=utf-8'
       );
     }
+    // Embedded player page (SPEC-015): the same player surface served under an /embed/<id> URL.
+    if (path.startsWith('/embed/')) {
+      return sendText(res, 200, watchPageHtml(), 'text/html; charset=utf-8');
+    }
+    // Third-party frame host (SPEC-015): a page that frames an embedded player.
+    if (path === '/frame-host') {
+      const embedId = url.searchParams.get('embed') || 'EMBED0001';
+      return sendText(res, 200, frameHostHtml(embedId), 'text/html; charset=utf-8');
+    }
     if (path === '/youtubei/v1/player') {
       let videoId = url.searchParams.get('v') || url.searchParams.get('videoId') || undefined;
-      if (!videoId && body) {
+      let clientName;
+      let clientVisitorData;
+      if (body) {
         try {
-          videoId = JSON.parse(body).videoId;
+          const parsed = JSON.parse(body);
+          videoId = videoId ?? parsed.videoId;
+          clientName = parsed?.context?.client?.clientName;
+          clientVisitorData = parsed?.context?.client?.visitorData;
         } catch {
           /* ignore malformed bodies */
         }
       }
+      // Recorded so cases can pin the walk order and the visitorData retry without reading the
+      // request body again (introspection only; never a media URL).
+      if (requestRecord) {
+        requestRecord.clientName = typeof clientName === 'string' ? clientName : null;
+        requestRecord.visitorData = typeof clientVisitorData === 'string' ? clientVisitorData : null;
+      }
       // Special video-id prefixes keep edge responses deterministic and hermetic.
       const live = typeof videoId === 'string' && videoId.startsWith('LIVE');
-      const loginRequired = typeof videoId === 'string' && videoId.startsWith('AUTH');
+      // ROTATE* videos reject the primary persona and accept the fallback: the hermetic proof of
+      // the credentialless media-client table walk (SPEC-014, ADR-0012).
+      const rotate = typeof videoId === 'string' && videoId.startsWith('ROTATE');
+      // VISITOR* videos reject an attempt without the fresh retry token and accept the retried
+      // request that carries `responseContext.visitorData`: the hermetic proof of the bounded
+      // per-client visitorData retry (SPEC-014).
+      const visitorRetry = typeof videoId === 'string' && videoId.startsWith('VISITOR');
+      const acceptedAfterRetry = visitorRetry && clientVisitorData === 'v2';
+      const loginRequired =
+        (typeof videoId === 'string' && videoId.startsWith('AUTH')) ||
+        (rotate && clientName === 'VISIONOS') ||
+        (visitorRetry && !acceptedAfterRetry);
       const unplayable =
         typeof videoId === 'string' &&
         (videoId.startsWith('KIDS') || videoId.startsWith('UNPLAYABLE'));
-      return sendJson(
-        res,
-        200,
-        fixturePlayerResponse(origin, videoId, { live, loginRequired, unplayable })
-      );
+      const response = fixturePlayerResponse(origin, videoId, {
+        live,
+        loginRequired,
+        unplayable,
+        visitorData: visitorRetry && !acceptedAfterRetry ? 'v2' : undefined,
+      });
+      if (typeof videoId === 'string' && videoId.startsWith('BIG')) {
+        // Over-budget fixture response (SPEC-004): far above MAX_PRUNABLE_RESPONSE_BYTES (8 MiB)
+        // so the background response filter must stream it through unparsed instead of buffering.
+        response.fixturePadding = 'x'.repeat(9 * 1024 * 1024);
+      }
+      return sendJson(res, 200, response);
     }
     if (path.startsWith('/api/skipSegments/')) {
       const videoId = url.searchParams.get('videoID') || undefined;

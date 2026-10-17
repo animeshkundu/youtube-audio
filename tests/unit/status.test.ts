@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  acceptsFrameReport,
   classifyHost,
   GET_STATUS_MESSAGE,
   isPlaybackStatus,
@@ -74,14 +75,40 @@ describe('parseVideoId', () => {
     expect(parseVideoId('::::')).toBeNull();
     expect(parseVideoId(undefined)).toBeNull();
   });
+
+  it('accepts the embedded-player path forms (SPEC-015)', () => {
+    expect(parseVideoId('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(parseVideoId('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1')).toBe(
+      'dQw4w9WgXcQ'
+    );
+    expect(parseVideoId('https://www.youtube.com/v/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+    expect(parseVideoId('https://www.youtube.com/embed/$$bad$$')).toBeNull();
+    expect(parseVideoId('https://www.youtube.com/embed')).toBeNull();
+    expect(parseVideoId('https://www.youtube.com/embed/')).toBeNull();
+    // The path forms are a URL-shape rule; host classification stays the caller's job.
+    expect(parseVideoId('https://example.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+  });
 });
 
 describe('isWatchPage', () => {
   it('is true only for a YouTube-family host with a valid video id', () => {
     expect(isWatchPage(WATCH)).toBe(true);
     expect(isWatchPage(MUSIC)).toBe(true);
+    expect(isWatchPage('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://www.youtube.com/v/dQw4w9WgXcQ')).toBe(true);
+    expect(isWatchPage('https://example.com/embed/dQw4w9WgXcQ')).toBe(false);
     expect(isWatchPage('https://www.youtube.com/feed/subscriptions')).toBe(false);
     expect(isWatchPage('https://example.com/watch?v=dQw4w9WgXcQ')).toBe(false);
+  });
+});
+
+describe('acceptsFrameReport', () => {
+  it('accepts only the top frame (SPEC-015)', () => {
+    expect(acceptsFrameReport(0)).toBe(true);
+    expect(acceptsFrameReport(1)).toBe(false);
+    expect(acceptsFrameReport(undefined)).toBe(false);
+    expect(acceptsFrameReport('0')).toBe(false);
   });
 });
 
@@ -95,7 +122,11 @@ describe('isPlaybackStatus / isPlaybackUiState', () => {
 
   it('narrows only well-formed resolved UI states', () => {
     expect(isPlaybackUiState({ kind: 'active' })).toBe(true);
-    expect(isPlaybackUiState({ kind: 'fallback', reason: 'live' })).toBe(true);
+    expect(isPlaybackUiState({ kind: 'fallback', reason: 'live', host: 'youtube' })).toBe(true);
+    expect(isPlaybackUiState({ kind: 'fallback', reason: 'live', host: 'music' })).toBe(true);
+    // SPEC-017: a fallback state must carry a valid host for the popup copy.
+    expect(isPlaybackUiState({ kind: 'fallback', reason: 'live' })).toBe(false);
+    expect(isPlaybackUiState({ kind: 'fallback', reason: 'live', host: 'nope' })).toBe(false);
     expect(isPlaybackUiState({ kind: 'nope' })).toBe(false);
     expect(isPlaybackUiState(null)).toBe(false);
     expect(isPlaybackUiState('active')).toBe(false);
@@ -139,10 +170,16 @@ describe('resolveUiState', () => {
     expect(resolveUiState(WATCH, entry({ status: 'active' }))).toEqual({ kind: 'active' });
   });
 
-  it('returns fallback with the reason for a fallback entry', () => {
+  it('returns fallback with the reason and host for a fallback entry', () => {
     expect(resolveUiState(WATCH, entry({ status: 'fallback', reason: 'live' }))).toEqual({
       kind: 'fallback',
       reason: 'live',
+      host: 'youtube',
+    });
+    expect(resolveUiState(MUSIC, entry({ status: 'fallback', reason: 'live' }))).toEqual({
+      kind: 'fallback',
+      reason: 'live',
+      host: 'music',
     });
     const noReason: TabStatusEntry = {
       status: 'fallback',
@@ -151,7 +188,11 @@ describe('resolveUiState', () => {
       generation: 1,
       ts: 1_000,
     };
-    expect(resolveUiState(WATCH, noReason)).toEqual({ kind: 'fallback', reason: null });
+    expect(resolveUiState(WATCH, noReason)).toEqual({
+      kind: 'fallback',
+      reason: null,
+      host: 'youtube',
+    });
   });
 
   it('returns disabled for a disabled entry', () => {

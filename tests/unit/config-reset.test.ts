@@ -7,7 +7,10 @@ import {
   resetSettings,
   setEnabled,
   setEqualizerBand,
+  setFallbackQualityCapEnabled,
   setForceQualityMax,
+  setIdleNagDefeatEnabled,
+  setQualityOfLifeSetting,
   setSegmentSkipCategory,
 } from '../../src/shared/config';
 
@@ -67,7 +70,133 @@ describe('resetSettings', () => {
   });
 });
 
+describe('idle-nag defeat setting', () => {
+  it('defaults on for installs that predate the field and preserves an explicit choice', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(true);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { idleNagDefeatEnabled: false } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(false);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { idleNagDefeatEnabled: 'yes' } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().idleNagDefeatEnabled).toBe(true);
+  });
+
+  it('persists the toggle and applies it optimistically', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setIdleNagDefeatEnabled(false);
+
+    expect(getSettings().idleNagDefeatEnabled).toBe(false);
+    expect(set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ idleNagDefeatEnabled: false }),
+    });
+  });
+});
+
+describe('fallback quality setting', () => {
+  it('defaults on for installs that predate the field and preserves an explicit choice', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(true);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { fallbackQualityCapEnabled: false } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(false);
+
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { fallbackQualityCapEnabled: 'yes' } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+    await initializeSettings();
+    expect(getSettings().fallbackQualityCapEnabled).toBe(true);
+  });
+
+  it('persists the toggle and applies it optimistically', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setFallbackQualityCapEnabled(false);
+
+    expect(getSettings().fallbackQualityCapEnabled).toBe(false);
+    expect(set).toHaveBeenCalledWith({
+      settings: expect.objectContaining({ fallbackQualityCapEnabled: false }),
+    });
+  });
+});
+
 describe('SponsorBlock opt-in migration', () => {
+  it('defaults new cosmetic toggles off for installs that predate them', async () => {
+    stubBrowser(vi.fn(async () => undefined));
+    await initializeSettings();
+    expect(getSettings().hideThumbnails).toBe(false);
+    expect(getSettings().hideAvatars).toBe(false);
+  });
+
+  it('normalizes malformed stored values back to off', async () => {
+    vi.stubGlobal('browser', {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({ settings: { hideThumbnails: 'yes', hideAvatars: 1 } })),
+          set: vi.fn(async () => undefined),
+        },
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+    });
+
+    await initializeSettings();
+
+    expect(getSettings().hideThumbnails).toBe(false);
+    expect(getSettings().hideAvatars).toBe(false);
+  });
+
+  it('persists the toggles through the quality-of-life mutator', async () => {
+    const set = vi.fn(async (_value: unknown) => undefined);
+    stubBrowser(set);
+
+    await setQualityOfLifeSetting('hideThumbnails', true);
+    await setQualityOfLifeSetting('hideAvatars', true);
+
+    expect(getSettings().hideThumbnails).toBe(true);
+    expect(getSettings().hideAvatars).toBe(true);
+    expect(set).toHaveBeenLastCalledWith({
+      settings: expect.objectContaining({ hideThumbnails: true, hideAvatars: true }),
+    });
+  });
+
   it('defaults segment skipping off for new installs', async () => {
     stubBrowser(vi.fn(async () => undefined));
 

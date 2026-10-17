@@ -7,6 +7,8 @@ export interface DistractionSettings {
   hideShorts: boolean;
   hideRecommendations: boolean;
   hideComments: boolean;
+  hideThumbnails: boolean;
+  hideAvatars: boolean;
 }
 
 const QUALITY_LABELS: Readonly<Record<Exclude<QualityCap, 'off'>, string>> = {
@@ -58,6 +60,33 @@ ytd-comments,
 ytd-comments-header-renderer,
 ytm-comment-section-renderer,
 ytm-comments-entry-point-header-renderer {
+  display: none !important;
+}`);
+  }
+  if (settings.hideThumbnails) {
+    // Cosmetic only. Thumbnail images are hidden with CSS and `i.ytimg.com` requests are never
+    // blocked at the network layer: blocking them would break channel art, the player poster, and
+    // the download flow. Desktop uses the semantic tile tags; the mobile classes are the real ones
+    // m.youtube.com ships inside its media items (large/compact thumbnail containers).
+    rules.push(`
+ytd-thumbnail,
+ytd-playlist-thumbnail,
+ytm-large-media-item .large-media-item-thumbnail-container,
+.video-thumbnail-container-large,
+.video-thumbnail-container-compact {
+  display: none !important;
+}`);
+  }
+  if (settings.hideAvatars) {
+    // Channel avatars on comment rows, the watch-page owner row, home-feed tiles, and the channel
+    // header. `ytd-comments #author-thumbnail` is the ImprovedTube-vetted comment-avatar target
+    // (docs/research/10-quality-of-life-ux.md); the rest are semantic tags used by common filter
+    // lists. Like every cosmetic rule here this hides elements only, never images at the network.
+    rules.push(`
+ytd-comments #author-thumbnail,
+ytd-video-owner-renderer #avatar,
+ytd-rich-grid-media #avatar,
+#channel-header-container yt-img-shadow#avatar {
   display: none !important;
 }`);
   }

@@ -6,14 +6,16 @@ import {
   isSafeDownloadFilename,
 } from '../src/shared/download';
 import {
+  DEFAULT_SETTINGS,
   initializeSettings,
   getSettings,
   subscribeSettings,
   watchSettings,
   type ExtensionSettings,
 } from '../src/shared/config';
-import { pruneAdsFromPlayerResponse } from '../src/shared/adblock';
+import { createResponseBudget, pruneAdsFromPlayerResponse } from '../src/shared/adblock';
 import {
+  consentBadgeText,
   consentStorageChangeGrants,
   consentStorageKey,
   createConsentStateController,
@@ -23,6 +25,7 @@ import {
   supportsBuiltInDataConsent,
   type DataConsentState,
 } from '../src/shared/consent';
+import { DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN } from '../src/shared/permissions';
 import {
   createDiagnosticsHub,
   errorFields,
@@ -40,6 +43,8 @@ import {
   type SponsorSegment,
 } from '../src/shared/sponsorblock';
 import {
+  acceptsFrameReport,
+  classifyHost,
   GET_STATUS_MESSAGE,
   markEntryStale,
   parseStatusUpdate,
@@ -51,8 +56,23 @@ import {
   type PlaybackUiState,
   type TabStatusEntry,
 } from '../src/shared/status';
+import {
+  createTabScopeStore,
+  GET_TAB_SCOPE_MESSAGE,
+  parseTabScopeSetMessage,
+  resolveTabAudioOnly,
+  SET_TAB_SCOPE_MESSAGE,
+  TAB_SCOPE_CHANGED_MESSAGE,
+  type TabAudioOnlyOverride,
+} from '../src/shared/tab-scope';
+import { withTimeout } from '../src/shared/timers';
+import { TEARDOWN_MESSAGE } from '../src/shared/teardown';
 
 declare const __BENCH__: boolean;
+
+// The `toggle-audio-only` commands entry declared in wxt.config.ts (SPEC-012 §5; ADR-0014). Keep the
+// two in lockstep; tests/unit/manifest-declaration.test.ts pins the manifest side.
+const TOGGLE_AUDIO_ONLY_COMMAND = 'toggle-audio-only';
 
 const YOUTUBE_REQUESTS = [
   '*://*.youtube.com/*',
@@ -81,10 +101,16 @@ const PLAYER_RESPONSE_REQUESTS = [
 
 let settings: ExtensionSettings;
 let diagnostics: DiagnosticsHub | undefined;
+/**
+ * In-memory per-tab audio-only overrides (SPEC-012 §5; ADR-0014). Never persisted: entries live
+ * only as long as their tab (`tabs.onRemoved` prunes) and this background context.
+ */
+const tabScope = createTabScopeStore();
 let dataConsent: DataConsentState = {
   granted: false,
   sponsorBlockAllowed: false,
   source: 'custom',
+  pending: false,
 };
 
 type OnboardingInstallDetails = Pick<browser.runtime._OnInstalledDetails, 'reason'>;
@@ -111,6 +137,39 @@ export function registerOnboardingInstallHandler(): void {
   try {
     browser.runtime.onInstalled.addListener((details) => {
       void handleOnboardingInstalled(details);
+    });
+  } catch {
+    // Keep initialization fail-closed if this runtime event is unavailable.
+  }
+}
+
+/**
+ * Best-effort teardown on unload (SPEC-021): a disabled or updated extension is unloaded before the
+ * pages holding it are, so this is the last moment it can ask every tab to take down what it
+ * installed (page-world patches, content-side DOM, and any active audio-only hijack). Only a
+ * persistent background gets a suspend that means "unloading": an MV3 event page suspends between
+ * events while the extension stays live, so MV3 is deliberately excluded and keeps the documented
+ * residual. Sends are fire-and-forget; a failed send is a tab that keeps its installed state until
+ * it reloads.
+ */
+export function registerSuspendTeardownHandler(): void {
+  try {
+    if (!getExtensionPlatform().persistentBackground) return;
+    browser.runtime.onSuspend.addListener(() => {
+      void browser.tabs
+        .query({})
+        .then((tabs) =>
+          Promise.all(
+            tabs.map((tab) =>
+              typeof tab.id === 'number'
+                ? browser.tabs
+                    .sendMessage(tab.id, { type: TEARDOWN_MESSAGE })
+                    .catch(() => undefined)
+                : undefined
+            )
+          )
+        )
+        .catch(() => undefined);
     });
   } catch {
     // Keep initialization fail-closed if this runtime event is unavailable.
@@ -145,22 +204,40 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
   try {
     if (!settings.enabled || !settings.adBlockEnabled || details.method !== 'POST') return;
     const filter = browser.webRequest.filterResponseData(details.requestId);
-    const chunks: Uint8Array[] = [];
+    const budget = createResponseBudget();
     let settled = false;
 
     filter.ondata = (event) => {
-      if (!settled) chunks.push(new Uint8Array(event.data.slice(0)));
+      if (settled) return;
+      const flush = budget.push(new Uint8Array(event.data.slice(0)));
+      if (!flush) return;
+      // The budget was crossed (a non-positive budget streams from the first chunk): everything
+      // held so far is written through verbatim and the rest of the body follows unparsed.
+      try {
+        for (const chunk of flush) filter.write(chunk);
+      } catch {
+        settled = true;
+        try {
+          filter.disconnect();
+        } catch {
+          // The channel may already be closed; never surface the response-filter failure.
+        }
+      }
     };
     filter.onstop = () => {
       if (settled) return;
       settled = true;
-      const original = joinChunks(chunks);
+      if (budget.streaming) {
+        // Over budget: the whole body was streamed through as it arrived, unparsed on purpose.
+        filter.close();
+        return;
+      }
+      const original = joinChunks(budget.bufferedChunks());
       try {
         const json = new TextDecoder('utf-8', { fatal: true }).decode(original);
         const pruned = pruneAdsFromPlayerResponse(json);
         const changed = pruned !== json;
         if (changed) diagnostics?.noteAdPruned();
-        diagnostics?.logLocal('adblock.pruned', { changed });
         filter.write(changed ? new TextEncoder().encode(pruned) : original);
       } catch (error) {
         diagnostics?.logLocal('error', { where: 'bg.adblock', ...errorFields(error) });
@@ -173,7 +250,7 @@ function filterPlayerResponse(details: browser.webRequest._OnBeforeRequestDetail
       if (settled) return;
       settled = true;
       try {
-        filter.write(joinChunks(chunks));
+        filter.write(joinChunks(budget.bufferedChunks()));
       } catch {
         // The channel may already be closed; never surface the response-filter failure.
       }
@@ -285,9 +362,46 @@ function parseDownloadRequest(
   };
 }
 
+/** Granted-optional-permission checks for the double gate (SPEC-013); fail closed. */
+async function sponsorPermissionGranted(): Promise<boolean> {
+  try {
+    return await browser.permissions.contains({ origins: [SPONSORBLOCK_ORIGIN] });
+  } catch {
+    return false;
+  }
+}
+
+async function downloadsPermissionGranted(): Promise<boolean> {
+  try {
+    return await browser.permissions.contains({ permissions: [DOWNLOADS_PERMISSION] });
+  } catch {
+    return false;
+  }
+}
+
+type BadgeAction = { setBadgeText?: (details: { text: string }) => Promise<unknown> | void };
+
+/**
+ * Reflects the undecided-consent badge (`!`) on the toolbar action (SPEC-013). Cosmetic and
+ * best-effort: a missing action API or a rejection never affects consent behavior.
+ */
+function syncConsentBadge(consent: DataConsentState): void {
+  const candidate = browser as unknown as { action?: BadgeAction; browserAction?: BadgeAction };
+  const action = candidate.action ?? candidate.browserAction;
+  if (typeof action?.setBadgeText !== 'function') return;
+  try {
+    void Promise.resolve(action.setBadgeText({ text: consentBadgeText(consent) })).catch(
+      () => undefined
+    );
+  } catch {
+    // Ignore: the badge is cosmetic.
+  }
+}
+
 async function downloadAudio(
   request: NonNullable<ReturnType<typeof parseDownloadRequest>>
 ): Promise<{ ok: boolean }> {
+  if (!(await downloadsPermissionGranted())) return { ok: false };
   let objectUrl: string | null = null;
   try {
     const media = await assembleAudioMedia(request.url);
@@ -350,15 +464,6 @@ function messageType(message: unknown): string | undefined {
   return typeof type === 'string' ? type : undefined;
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((resolve) => {
-      setTimeout(() => resolve(fallback), ms);
-    }),
-  ]);
-}
-
 async function getActiveTab(): Promise<browser.tabs.Tab | null> {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -390,12 +495,88 @@ async function broadcastIfActive(changedTabId: number): Promise<void> {
   }
 }
 
+/**
+ * Whether a tab URL belongs to the extension's supported YouTube families. Bench fixture hosts are
+ * normalized the same way the telemetry filter normalizes them, so the hermetic bench exercises the
+ * real rule instead of a bench-only bypass.
+ */
+function isSupportedTabUrl(url: string | undefined): boolean {
+  try {
+    const policyUrl = __BENCH__ && typeof url === 'string' ? asBenchYouTubeUrl(url) : url;
+    return classifyHost(policyUrl) !== 'not-youtube';
+  } catch {
+    return false;
+  }
+}
+
+/** Push a tab's scope to every frame of that tab; a tab without content scripts is a no-op. */
+function notifyTabScope(tabId: number, audioOnly: TabAudioOnlyOverride): void {
+  void browser.tabs
+    .sendMessage(tabId, { type: TAB_SCOPE_CHANGED_MESSAGE, audioOnly })
+    .catch(() => undefined);
+}
+
+/** Broadcast the scope to the popup, but only when the changed tab is the active one. */
+async function broadcastTabScopeIfActive(
+  changedTabId: number,
+  audioOnly: TabAudioOnlyOverride
+): Promise<void> {
+  try {
+    const tab = await getActiveTab();
+    if (!tab || typeof tab.id !== 'number' || tab.id !== changedTabId) return;
+    void browser.runtime
+      .sendMessage({ type: TAB_SCOPE_CHANGED_MESSAGE, audioOnly })
+      .catch(() => undefined);
+  } catch {
+    // Fail open: a broadcast failure must never affect the background or the page.
+  }
+}
+
+/** Apply a tab-scope override: store it, push to the tab's frames, and refresh an open popup. */
+function applyTabScope(tabId: number, audioOnly: TabAudioOnlyOverride): void {
+  if (audioOnly === null) tabScope.delete(tabId);
+  else tabScope.set(tabId, audioOnly);
+  notifyTabScope(tabId, audioOnly);
+  void broadcastTabScopeIfActive(tabId, audioOnly);
+}
+
+/** Toggle the active tab's audio-only override (the `toggle-audio-only` command path). */
+async function toggleActiveTabAudioOnly(): Promise<void> {
+  try {
+    const tab = await getActiveTab();
+    if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) return;
+    const current = resolveTabAudioOnly(settings.audioOnlyEnabled, tabScope.get(tab.id));
+    applyTabScope(tab.id, !current);
+  } catch {
+    // Fail open: a shortcut failure must never surface.
+  }
+}
+
+/** The active tab's override for the popup (`null` when it follows the global preference). */
+async function resolveActiveTabScope(): Promise<{ audioOnly: TabAudioOnlyOverride }> {
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== 'number') return { audioOnly: null };
+  return { audioOnly: tabScope.get(tab.id) };
+}
+
+/** Set the active tab's audio-only override; only extension pages reach this path. */
+async function setActiveTabAudioOnly(
+  audioOnly: boolean
+): Promise<{ audioOnly: TabAudioOnlyOverride }> {
+  const tab = await getActiveTab();
+  if (!tab || typeof tab.id !== 'number' || !isSupportedTabUrl(tab.url)) {
+    return { audioOnly: null };
+  }
+  applyTabScope(tab.id, audioOnly);
+  return { audioOnly };
+}
+
 /** Fold a top-frame content-script status report into the per-tab map. Fire-and-forget. */
 function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSender): void {
   const tabId = sender.tab?.id;
   // Accept only a genuine top-frame report tagged with a real tab id (sub-frames and extension
   // pages are ignored). Untrusted shapes are dropped by `parseStatusUpdate`.
-  if (typeof tabId !== 'number' || sender.frameId !== 0) return;
+  if (typeof tabId !== 'number' || !acceptsFrameReport(sender.frameId)) return;
   const update = parseStatusUpdate(message);
   if (!update) return;
   const current = tabStatus.get(tabId);
@@ -405,7 +586,8 @@ function handleStatusUpdate(message: unknown, sender: browser.runtime.MessageSen
   void broadcastIfActive(tabId);
 }
 
-function installStatusChannel(): void {
+/** Install the tab-keyed channel listeners: status staleness and per-tab scope pruning. */
+function installTabChannels(): void {
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     // A document reload (status 'loading', fires even when the url is unchanged) or a navigation to a
     // DIFFERENT video means the stored status describes the previous document — mark it stale so the
@@ -422,6 +604,8 @@ function installStatusChannel(): void {
   });
   browser.tabs.onRemoved.addListener((tabId) => {
     tabStatus.delete(tabId);
+    // The per-tab scope dies with its tab (ADR-0014); nothing is persisted to clean up.
+    tabScope.delete(tabId);
   });
 }
 
@@ -431,6 +615,11 @@ function installStatusChannel(): void {
 // (whose content DOM the headless harness cannot drive). See tests/e2e/bench/run-bench.mjs.
 const BENCH_STATUS_MAP_MESSAGE = 'yta:__bench-status-map';
 
+// BENCH-ONLY message type (dead-code-eliminated in production): set a tab-scope override for an
+// explicit tab id so the hermetic bench can drive the REAL apply path without the popup DOM, which
+// the headless harness cannot reach (see openBrowserActionPopup in tests/e2e/bench/run-bench.mjs).
+const BENCH_SET_TAB_SCOPE_MESSAGE = 'yta:__bench-set-tab-scope';
+
 async function benchStatusMapSnapshot(): Promise<{
   entries: Array<{
     tabId: number;
@@ -438,6 +627,7 @@ async function benchStatusMapSnapshot(): Promise<{
     entry: TabStatusEntry;
     resolved: PlaybackUiState;
   }>;
+  scopes: Array<{ tabId: number; audioOnly: boolean }>;
 }> {
   const entries = [];
   for (const [tabId, entry] of tabStatus) {
@@ -449,13 +639,14 @@ async function benchStatusMapSnapshot(): Promise<{
     }
     entries.push({ tabId, url, entry, resolved: resolveUiState(url, entry) });
   }
-  return { entries };
+  return { entries, scopes: tabScope.entries() };
 }
 
 export default defineBackground({
   persistent: { firefox: true },
   async main() {
     registerOnboardingInstallHandler();
+    registerSuspendTeardownHandler();
     try {
       getExtensionPlatform();
       void loadRescueConfig;
@@ -479,25 +670,89 @@ export default defineBackground({
               kind: 'connecting',
             });
           }
+          if (type === GET_TAB_SCOPE_MESSAGE) {
+            // A content script (any frame) reads its own tab's scope; the popup (no sender tab)
+            // reads the active tab's scope.
+            const senderTabId = sender.tab?.id;
+            if (typeof senderTabId === 'number') {
+              return Promise.resolve({ audioOnly: tabScope.get(senderTabId) });
+            }
+            return withTimeout(resolveActiveTabScope(), GET_STATUS_TIMEOUT_MS, {
+              audioOnly: null,
+            });
+          }
+          if (type === SET_TAB_SCOPE_MESSAGE) {
+            const scopeSet = parseTabScopeSetMessage(message);
+            if (!scopeSet) return undefined;
+            const senderTabId = sender.tab?.id;
+            if (typeof senderTabId === 'number') {
+              // A content script may set only its own tab's scope (the in-player quick control):
+              // the target is derived from the sender, never from the payload.
+              applyTabScope(senderTabId, scopeSet.audioOnly);
+              return Promise.resolve({ audioOnly: scopeSet.audioOnly });
+            }
+            // The popup (an extension page, no sender tab) sets the active tab; the background
+            // resolves that target itself rather than trusting a caller.
+            return withTimeout(setActiveTabAudioOnly(scopeSet.audioOnly), GET_STATUS_TIMEOUT_MS, {
+              audioOnly: null,
+            });
+          }
           if (type === GET_DATA_CONSENT_MESSAGE) return Promise.resolve(dataConsent);
           if (__BENCH__ && type === BENCH_STATUS_MAP_MESSAGE) {
             return benchStatusMapSnapshot();
+          }
+          if (__BENCH__ && type === BENCH_SET_TAB_SCOPE_MESSAGE) {
+            const candidate = message as { tabId?: unknown; audioOnly?: unknown };
+            if (typeof candidate.tabId !== 'number' || typeof candidate.audioOnly !== 'boolean') {
+              return undefined;
+            }
+            applyTabScope(candidate.tabId, candidate.audioOnly);
+            return Promise.resolve({ audioOnly: candidate.audioOnly });
           }
           const sponsorRequest = parseSponsorRequest(message);
           if (sponsorRequest) {
             if (!dataConsent.granted || !dataConsent.sponsorBlockAllowed)
               return Promise.resolve([]);
-            return fetchSponsorSegments(
-              sponsorRequest.videoId,
-              sponsorRequest.categories,
-              sponsorRequest.benchOrigin
+            // Double gate (SPEC-013): consent alone never authorizes third-party transmission.
+            return sponsorPermissionGranted().then((granted) =>
+              granted
+                ? fetchSponsorSegments(
+                    sponsorRequest.videoId,
+                    sponsorRequest.categories,
+                    sponsorRequest.benchOrigin
+                  )
+                : []
             );
           }
           const downloadRequest = parseDownloadRequest(message);
           return downloadRequest ? downloadAudio(downloadRequest) : undefined;
         }
       );
-      settings = await initializeSettings();
+      // Registered BEFORE the settings await below, for the same reason as the message listener
+      // above: a storage failure must never leave pages without network protection or a status
+      // channel. The handlers read `settings` per request and no-op while it is still unset, so
+      // early registration cannot act on unloaded values.
+      installTabChannels();
+      // `commands` is unavailable on Firefox for Android (its manifest entry is ignored there);
+      // guard the registration so an unsupported API can never abort the rest of startup.
+      browser.commands?.onCommand?.addListener((command) => {
+        if (command !== TOGGLE_AUDIO_ONLY_COMMAND) return;
+        void toggleActiveTabAudioOnly();
+      });
+      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
+        'blocking',
+      ]);
+      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
+        urls: PLAYER_RESPONSE_REQUESTS,
+        types: ['xmlhttprequest'],
+      });
+      try {
+        settings = await initializeSettings();
+      } catch (error) {
+        // Default settings on a storage failure: the extension must still protect and play.
+        diagnostics?.logLocal('error', { where: 'bg.init', ...errorFields(error) });
+        settings = { ...DEFAULT_SETTINGS };
+      }
       subscribeSettings((nextSettings) => {
         settings = nextSettings;
       });
@@ -506,6 +761,7 @@ export default defineBackground({
       let publishChain: Promise<unknown> = Promise.resolve();
       const publishConsent = (consent: DataConsentState) => {
         dataConsent = consent;
+        syncConsentBadge(consent);
         const message = { type: DATA_CONSENT_CHANGED_MESSAGE, consent };
         publishChain = publishChain
           .then(() => browser.tabs.query({}))
@@ -548,14 +804,6 @@ export default defineBackground({
       // the resolved state is broadcast to any content script that already received the
       // fail-closed default while this background was still initializing.
       reresolveConsent();
-      installStatusChannel();
-      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
-        'blocking',
-      ]);
-      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
-        urls: PLAYER_RESPONSE_REQUESTS,
-        types: ['xmlhttprequest'],
-      });
     } catch (error) {
       diagnostics?.logLocal('error', { where: 'bg.init', ...errorFields(error) });
       console.error('[YouTube Audio] Background initialization failed', error);

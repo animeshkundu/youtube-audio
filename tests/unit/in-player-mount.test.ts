@@ -10,6 +10,7 @@ import {
   installPlayerControls,
   nextStatusRunStart,
   reconcileInPlayerControls,
+  removeInPlayerControls,
   requestDataConsent,
 } from '../../entrypoints/content';
 
@@ -39,12 +40,51 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'visibilityState');
 });
 
+/** Manual animation-frame pump for observer tests (SPEC-018). */
+function stubManualFrames(): { frames: Map<number, FrameRequestCallback>; pump: () => void } {
+  const frames = new Map<number, FrameRequestCallback>();
+  let calls = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    calls += 1;
+    frames.set(calls, callback);
+    return calls;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (handle: number) => frames.delete(handle));
+  return {
+    frames,
+    // The reconciler's own DOM writes re-trigger the player observer, so drain bounded rounds.
+    pump: () => {
+      for (let round = 0; round < 5 && frames.size > 0; round += 1) {
+        const callbacks = Array.from(frames.values());
+        frames.clear();
+        for (const callback of callbacks) callback(16);
+      }
+    },
+  };
+}
+
+/** Storage stub that keeps the one-time audio-only coach quiet in observer tests. */
+function stubSeenCoachStorage(): void {
+  vi.stubGlobal('browser', {
+    storage: {
+      local: {
+        get: vi.fn(async () => ({ seenAudioOnlyCoach: true })),
+        set: vi.fn(async () => undefined),
+      },
+    },
+  });
+}
+
+/** Lets queued MutationObserver records (microtasks) deliver before assertions. */
+const settleObserverRecords = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe('requestDataConsent', () => {
   it('returns a validated background reply', async () => {
     const sendMessage = vi.fn(async () => ({
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     }));
     vi.stubGlobal('browser', { runtime: { sendMessage } });
 
@@ -52,6 +92,7 @@ describe('requestDataConsent', () => {
       granted: true,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
     expect(sendMessage).toHaveBeenCalledWith({ type: 'yta:get-data-consent' });
   });
@@ -66,6 +107,7 @@ describe('requestDataConsent', () => {
       granted: false,
       sponsorBlockAllowed: false,
       source: 'firefox',
+      pending: false,
     });
   });
 });
@@ -131,6 +173,51 @@ describe('in-player observer scheduling', () => {
     expect(requestFrame).toHaveBeenCalledTimes(2);
     frames.get(2)?.(32);
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('filters document churn: only player-replacing batches re-arm the lookup', async () => {
+    const { frames, pump } = stubManualFrames();
+    stubSeenCoachStorage();
+    createDesktopPlayer();
+
+    const cleanup = installPlayerControls('test-nonce');
+    pump();
+    await settleObserverRecords();
+    pump();
+    await settleObserverRecords();
+    frames.clear();
+
+    // Routine churn outside the player must not schedule any lookup (SPEC-018 scope filter).
+    document.body.append(document.createElement('div'));
+    await settleObserverRecords();
+    expect(frames.size).toBe(0);
+
+    // Detaching the player is the cheap connectivity check: exactly one reconnect frame.
+    document.querySelector('#movie_player')?.remove();
+    await settleObserverRecords();
+    expect(frames.size).toBe(1);
+    cleanup();
+  });
+
+  it('detects a player that appears after mount through the added-node filter', async () => {
+    const { frames, pump } = stubManualFrames();
+    stubSeenCoachStorage();
+    document.body.innerHTML = '';
+
+    const cleanup = installPlayerControls('test-nonce');
+    pump();
+    await settleObserverRecords();
+    pump();
+    await settleObserverRecords();
+    frames.clear();
+
+    createDesktopPlayer();
+    await settleObserverRecords();
+    expect(frames.size).toBe(1);
+
+    pump();
+    expect(document.querySelector('#yta-audio-only-toggle')).not.toBeNull();
+    cleanup();
   });
 
   it('disconnects both observers while hidden and reconnects them when visible', () => {
@@ -314,6 +401,56 @@ describe('reconcileInPlayerControls', () => {
     expect(first?.downloadButton.nextElementSibling).toBe(first?.audioOnlyButton);
   });
 
+  it('coexists with foreign control buttons: anchors before the gear, never touching them', () => {
+    // Enhancer for YouTube / Return YouTube Dislike shapes: their own buttons live in the right
+    // cluster, including one before the native gear.
+    document.body.innerHTML = `
+      <div id="movie_player">
+        <div class="ytp-left-controls"><button class="ytp-play-button">Play</button></div>
+        <div class="ytp-right-controls">
+          <button id="enhancer-settings-button">Enhancer</button>
+          <button class="ytp-settings-button">Settings</button>
+          <button id="ryd-dislike">Dislike</button>
+        </div>
+      </div>
+    `;
+    const player = document.querySelector<HTMLElement>('#movie_player')!;
+    const rightControls = document.querySelector<HTMLElement>('.ytp-right-controls')!;
+    const gear = document.querySelector<HTMLButtonElement>('.ytp-settings-button')!;
+    const options = {
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: true,
+      mobile: false,
+    };
+
+    const first = reconcileInPlayerControls(options);
+
+    // Ours sit immediately before the native gear; foreign buttons keep their own order.
+    expect(first?.downloadButton.nextElementSibling).toBe(first?.audioOnlyButton);
+    expect(first?.audioOnlyButton.nextElementSibling).toBe(gear);
+    expect(rightControls.children[0]?.id).toBe('enhancer-settings-button');
+    expect(document.getElementById('ryd-dislike')?.previousElementSibling).toBe(gear);
+
+    // A foreign button inserted between ours and the gear is tolerated with one bounded re-place.
+    const interloper = document.createElement('button');
+    interloper.id = 'enhancer-extra';
+    rightControls.insertBefore(interloper, gear);
+
+    reconcileInPlayerControls(options);
+
+    expect(first?.audioOnlyButton.nextElementSibling).toBe(gear);
+    expect(interloper.nextElementSibling).toBe(first?.downloadButton);
+
+    // Idempotent: a further reconcile performs no DOM move and never duplicates our controls.
+    const snapshot = rightControls.innerHTML;
+    reconcileInPlayerControls(options);
+    expect(rightControls.innerHTML).toBe(snapshot);
+    expect(document.querySelectorAll('#yta-audio-only-toggle')).toHaveLength(1);
+    expect(document.querySelectorAll('#yta-download-audio')).toHaveLength(1);
+    expect(document.getElementById('enhancer-extra')).toBe(interloper);
+  });
+
   it('removes the dead segment status pill and leaves extension controls interactive', () => {
     const { player } = createDesktopPlayer();
     const deadPill = document.createElement('button');
@@ -393,6 +530,48 @@ describe('reconcileInPlayerControls', () => {
     expect(offResult?.audioOnlyButton.getAttribute('aria-pressed')).toBe('false');
     expect(offResult?.audioOnlyButton.querySelector('.yta-audio-only-slash')).toBe(slash);
     expect(slash?.hasAttribute('hidden')).toBe(false);
+  });
+});
+
+describe('removeInPlayerControls', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  it('removes every extension-owned node and leaves the page alone', () => {
+    const { player } = createDesktopPlayer();
+    reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: true,
+      mobile: false,
+    });
+    const style = document.createElement('style');
+    style.id = 'yta-player-control-style';
+    const tooltip = document.createElement('div');
+    tooltip.id = 'yta-audio-only-tooltip';
+    const toast = document.createElement('div');
+    toast.id = 'yta-segment-toast';
+    const coach = document.createElement('div');
+    coach.id = 'yta-audio-only-coach';
+    document.body.append(style, tooltip, toast, coach);
+    const foreign = document.createElement('div');
+    foreign.id = 'not-ours';
+    document.body.append(foreign);
+
+    expect(document.querySelectorAll('[id^="yta-"]').length).toBeGreaterThan(0);
+    removeInPlayerControls();
+
+    expect(document.querySelectorAll('[id^="yta-"]')).toHaveLength(0);
+    expect(document.getElementById('not-ours')).toBe(foreign);
+    expect(document.querySelector('.ytp-settings-button')).not.toBeNull();
+  });
+
+  it('is a no-op when nothing was installed', () => {
+    expect(() => removeInPlayerControls()).not.toThrow();
+    expect(document.querySelectorAll('[id^="yta-"]')).toHaveLength(0);
   });
 });
 

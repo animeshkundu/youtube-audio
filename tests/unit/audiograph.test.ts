@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  applyGraphSettings,
   createAudioGraph,
   EQ_FREQUENCIES,
   getEqualizerParameters,
@@ -11,10 +12,19 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, 'window');
 });
 
-function installAudioContextMock(options: { throwOnSource?: boolean } = {}) {
+function installAudioContextMock(
+  options: { throwOnSource?: boolean; throwOnFilter?: boolean } = {}
+) {
   const filters: Array<{ gain: { value: number }; connect(node: unknown): unknown }> = [];
   const gain = { gain: { value: 1 }, connect: (node: unknown) => node };
-  const source = { connect: (node: unknown) => node, disconnect: (_node: unknown) => undefined };
+  let sourceDisconnects = 0;
+  const source = {
+    connect: (node: unknown) => node,
+    disconnect: () => {
+      sourceDisconnects += 1;
+    },
+  };
+  let contextsCreated = 0;
   const context = {
     destination: {},
     createMediaElementSource: () => {
@@ -22,6 +32,7 @@ function installAudioContextMock(options: { throwOnSource?: boolean } = {}) {
       return source;
     },
     createBiquadFilter: () => {
+      if (options.throwOnFilter) throw new Error('filter failed');
       const filter = {
         type: 'peaking',
         frequency: { value: 0 },
@@ -37,6 +48,7 @@ function installAudioContextMock(options: { throwOnSource?: boolean } = {}) {
   };
   class AudioContextMock {
     constructor() {
+      contextsCreated += 1;
       return context;
     }
   }
@@ -44,7 +56,13 @@ function installAudioContextMock(options: { throwOnSource?: boolean } = {}) {
     configurable: true,
     value: { AudioContext: AudioContextMock },
   });
-  return { context, filters, gain };
+  return {
+    context,
+    filters,
+    gain,
+    sourceDisconnectCount: () => sourceDisconnects,
+    contextsCreated: () => contextsCreated,
+  };
 }
 
 describe('loudnessDbToGain', () => {
@@ -58,6 +76,54 @@ describe('loudnessDbToGain', () => {
     expect(loudnessDbToGain(-30)).toBe(2);
     expect(loudnessDbToGain(30)).toBe(0.5);
     expect(loudnessDbToGain(Number.NaN)).toBe(1);
+  });
+});
+
+describe('applyGraphSettings', () => {
+  it('applies gain first, then the equalizer, and returns the applied gain', () => {
+    const calls: string[] = [];
+    const graph = {
+      setGain(value: number) {
+        calls.push(`gain:${value}`);
+      },
+      setEqualizer(enabled: boolean, bands: readonly number[]) {
+        calls.push(`eq:${enabled}:${bands.join(',')}`);
+      },
+    };
+
+    const gain = applyGraphSettings(
+      graph,
+      { loudnessNormalization: true, equalizerEnabled: true, equalizerBands: [1, 2, 3, 4, 5] },
+      -6.0206
+    );
+
+    expect(gain).toBeCloseTo(2, 4);
+    expect(calls).toEqual([`gain:${gain}`, 'eq:true:1,2,3,4,5']);
+  });
+
+  it('uses unity gain when normalization is off or the loudness dB is missing', () => {
+    const gains: number[] = [];
+    const graph = {
+      setGain(value: number) {
+        gains.push(value);
+      },
+      setEqualizer() {
+        // Not under test here.
+      },
+    };
+
+    applyGraphSettings(
+      graph,
+      { loudnessNormalization: false, equalizerEnabled: true, equalizerBands: [0, 0, 0, 0, 0] },
+      -6
+    );
+    applyGraphSettings(
+      graph,
+      { loudnessNormalization: true, equalizerEnabled: false, equalizerBands: [] },
+      undefined
+    );
+
+    expect(gains).toEqual([1, 1]);
   });
 });
 
@@ -103,5 +169,40 @@ describe('createAudioGraph', () => {
   it('fails open when Web Audio is unavailable', () => {
     Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
     expect(createAudioGraph({} as HTMLMediaElement)).toBeNull();
+  });
+
+  // The module keeps one page-lifetime AudioContext, so these lifecycle tests load a fresh module
+  // instance to exercise context creation independently of earlier tests in this file.
+  async function importFreshAudioGraph() {
+    vi.resetModules();
+    return await import('../../src/shared/audiograph');
+  }
+
+  it('captures each element once and shares one AudioContext across elements', async () => {
+    const fresh = await importFreshAudioGraph();
+    const mock = installAudioContextMock();
+    const first = fresh.createAudioGraph({ crossOrigin: null } as unknown as HTMLMediaElement);
+    const second = fresh.createAudioGraph({ crossOrigin: null } as unknown as HTMLMediaElement);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+    expect(mock.contextsCreated()).toBe(1);
+  });
+
+  it('registers a dry unity handle when the optional nodes fail to build', async () => {
+    const fresh = await importFreshAudioGraph();
+    const mock = installAudioContextMock({ throwOnFilter: true });
+    const media = { crossOrigin: null } as unknown as HTMLMediaElement;
+    const graph = fresh.createAudioGraph(media);
+    expect(graph).not.toBeNull();
+    expect(mock.filters).toHaveLength(0);
+    expect(mock.sourceDisconnectCount()).toBe(1);
+    graph?.setGain(1.5);
+    graph?.setEqualizer(true, [-12, 0, 0, 0, 12]);
+    graph?.dispose();
+    expect(graph?.getEqualizerGains()).toEqual([]);
+    expect(mock.gain.gain.value).toBe(1);
+    // The captured element is never re-captured: the degraded handle is reused from the registry.
+    expect(fresh.createAudioGraph(media)).toBe(graph);
   });
 });

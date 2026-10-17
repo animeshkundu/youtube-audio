@@ -9,6 +9,7 @@
  * error stack, which is scrubbed by `redactText` and length-bounded here), so no PII can be stored.
  */
 
+import { MEDIA_CLIENTS } from './innertube';
 import { redactText } from './redact';
 
 export type LogContext = 'bg' | 'content' | 'page';
@@ -18,6 +19,7 @@ export const LOG_CONTEXTS: readonly LogContext[] = ['bg', 'content', 'page'];
 export const LOG_CODES = [
   'playback.status',
   'player.props',
+  'media.client',
   'audio.graph',
   'segment.armed',
   'download.result',
@@ -136,6 +138,8 @@ const ERROR_NAMES = [
   'unknown',
 ] as const;
 const DURATION_BUCKETS = ['lt1m', 'lt10m', 'lt1h', 'gte1h', 'unknown'] as const;
+// Derived from the media-client table itself so adding a client cannot silently log it as 'other'.
+const MEDIA_CLIENT_IDS: readonly string[] = MEDIA_CLIENTS.map((client) => client.id);
 
 /** The fixed, closed schema. A code's data may only carry the listed keys and value shapes. */
 const LOG_SCHEMA: Record<LogCode, Record<string, Validator>> = {
@@ -149,6 +153,7 @@ const LOG_SCHEMA: Record<LogCode, Record<string, Validator>> = {
     playable: bool,
     duration: enumOf(DURATION_BUCKETS),
   },
+  'media.client': { client: enumOf(MEDIA_CLIENT_IDS), attempt: boundedInt(1, 8) },
   'audio.graph': { loudness: bool, eq: bool },
   'segment.armed': { count: boundedInt(0, 1000) },
   'download.result': { ok: bool, reason: enumOrHttp(DOWNLOAD_REASONS) },

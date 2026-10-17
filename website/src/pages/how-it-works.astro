@@ -80,7 +80,9 @@ import Doc from '../layouts/Doc.astro';
   <p>
     This is called <strong>failing open</strong>. A feature that is uncertain stops interfering instead of
     risking a broken player. The popup reports the current video's actual state, so a fallback is visible rather
-    than hidden behind an enabled setting.
+    than hidden behind an enabled setting. Fallback playback is also kept light: video plays at the lowest
+    available quality, and on YouTube Music the song version plays when one exists (the <strong>Low-quality
+    fallback</strong> setting, on by default).
   </p>
 
   <h2>Small optional layers, not a rebuilt player</h2>

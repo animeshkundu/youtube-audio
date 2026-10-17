@@ -31,3 +31,20 @@ describe('manifest data-collection declaration', () => {
     expect(config).not.toContain("'management'");
   });
 });
+
+describe('MV3 capability artifact declarations', () => {
+  it('declares webRequestFilterResponse only in the MV3 lane', () => {
+    // MV2 (the shipping target) filters responses without a permission; MV3 declares the explicit
+    // permission for its capability artifact, and it must never leak into the MV2 manifest.
+    expect(config).toMatch(/manifestVersion === 3 \? \['webRequestFilterResponse'\] : \[\]/);
+  });
+});
+
+describe('per-tab scope command declaration', () => {
+  it('declares toggle-audio-only on Alt+Shift+A', () => {
+    // The background registers a listener for exactly this command name (SPEC-012 §5; ADR-0014);
+    // a rename on either side would silently disable the shortcut, so pin both here.
+    expect(config).toContain("'toggle-audio-only'");
+    expect(config).toMatch(/default: 'Alt\+Shift\+A'/);
+  });
+});

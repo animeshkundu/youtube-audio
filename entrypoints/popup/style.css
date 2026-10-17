@@ -104,6 +104,21 @@ body {
   font: var(--type-display);
 }
 
+.popup-scope-tag {
+  margin-left: var(--space-2);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--text-secondary);
+  font: var(--type-desc);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .popup-hero-status {
   margin-top: var(--space-1);
   display: flex;
@@ -201,6 +216,10 @@ body {
 
 .popup-empty-state .primary-action {
   width: 100%;
+}
+
+.popup-consent-copy {
+  margin: 0 0 var(--space-2);
 }
 
 @keyframes popup-enter {

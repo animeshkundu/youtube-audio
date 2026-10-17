@@ -1,43 +1,70 @@
 import { useState } from 'preact/hooks';
 
-import { setAudioOnlyEnabled, setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
+import { setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
 import {
   adBlockEnabledSignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
+  fallbackQualityCapEnabledSignal,
+  forceQualityMaxSignal,
   ghostEnabledSignal,
 } from '../../src/shared/settings-signals';
 import type { PlaybackUiState } from '../../src/shared/status';
+import { resolveTabAudioOnly } from '../../src/shared/tab-scope';
 import { Brand, SettingRow, Switch } from '../ui/components';
+import { consentSignal } from './consent-state';
 import { playbackStatusSignal } from './playback-status';
+import { setActiveTabAudioOnly, tabAudioOnlyOverrideSignal } from './tab-scope';
 
 export type PopupActions = {
   setEnabled: typeof setEnabled;
-  setAudioOnlyEnabled: typeof setAudioOnlyEnabled;
   setBackgroundPlayEnabled: typeof setBackgroundPlayEnabled;
   openOptions: () => void;
   openYouTube: () => void;
+  /** SPEC-013: the consent card's action, deep-linking to the options Data & consent section. */
+  openConsentSettings: () => void;
+  /**
+   * Toggle audio-only for the active tab. This is the per-tab scope (SPEC-012 §5; ADR-0014), not
+   * the global preference: the hero is a quick control for the tab in front of the user, while the
+   * options page keeps editing the global default.
+   */
+  setTabAudioOnly: (enabled: boolean) => Promise<void>;
 };
 
-const defaultActions: PopupActions = {
+export const defaultActions: PopupActions = {
   setEnabled,
-  setAudioOnlyEnabled,
   setBackgroundPlayEnabled,
   openOptions: () => void browser.runtime.openOptionsPage(),
   openYouTube: () => void browser.tabs.create({ url: 'https://www.youtube.com/' }),
+  openConsentSettings: () =>
+    void browser.tabs.create({ url: browser.runtime.getURL('/options.html#data-consent') }),
+  setTabAudioOnly: setActiveTabAudioOnly,
 };
 
-function heroStatusCopy(status: Exclude<PlaybackUiState, { kind: 'not-youtube' }>): string {
+function heroStatusCopy(
+  status: Exclude<PlaybackUiState, { kind: 'not-youtube' }>,
+  fallbackQualityEngaged: boolean
+): string {
   switch (status.kind) {
     case 'active':
       return 'Audio-only on. Video muted, battery saved.';
     case 'connecting':
       return 'Checking this tab...';
     case 'fallback':
+      if (!fallbackQualityEngaged) {
+        return status.reason === 'live'
+          ? 'Live stream, playing normally.'
+          : "Audio-only isn't available on this video. Playing normally.";
+      }
+      // SPEC-017: fallback playback is deliberately capped, and Music prefers its song mode. The
+      // song wording is the intent, not a per-video outcome report (fail-open by design).
+      if (status.reason !== 'live' && status.host === 'music') {
+        return "Audio-only isn't available on this video. Playing the song to save data.";
+      }
       return status.reason === 'live'
-        ? 'Live stream, playing normally.'
-        : "Audio-only isn't available on this video. Playing normally.";
+        ? 'Live stream, playing at low quality to save data.'
+        : "Audio-only isn't available on this video. Playing at low quality to save data.";
     case 'disabled':
       return 'Audio-only off. Video plays normally.';
     case 'not-a-watch-page':
@@ -78,6 +105,22 @@ function PopupHeader({
   );
 }
 
+function ConsentCard({ onOpenConsent }: { onOpenConsent: () => void }) {
+  // SPEC-013 "no dead switch": while consent is not granted every playback control would be inert,
+  // so the popup renders this card instead.
+  return (
+    <section class="popup-empty-state popup-consent-state" aria-labelledby="popup-consent-title">
+      <h1 id="popup-consent-title">Consent needed</h1>
+      <p class="popup-consent-copy">
+        YouTube Audio can't play audio until you allow data transmission.
+      </p>
+      <button class="primary-action" type="button" onClick={onOpenConsent}>
+        Review data &amp; consent
+      </button>
+    </section>
+  );
+}
+
 function PlaybackHero({
   status,
   checked,
@@ -96,15 +139,22 @@ function PlaybackHero({
       : status;
   const active = displayStatus.kind === 'active';
   const statusId = 'audio-only-status';
+  // Whether a fallback would have engaged the SPEC-017 quality cap: the setting is on and the
+  // user's own maximum-quality choice is not fighting it.
+  const fallbackCapEngaged =
+    fallbackQualityCapEnabledSignal.value && forceQualityMaxSignal.value === 'off';
 
   return (
     <section class={`popup-hero${active ? ' is-active' : ''}`} aria-labelledby="popup-hero-title">
       <div class="popup-hero-row" onClick={() => onChange(!checked)}>
         <span class="popup-hero-copy">
-          <h1 id="popup-hero-title">Audio-only</h1>
+          <h1 id="popup-hero-title">
+            Audio-only
+            <span class="popup-scope-tag">This tab</span>
+          </h1>
           <span class="popup-hero-status" id={statusId}>
             {active && <span class="now-playing" aria-hidden="true" />}
-            <span>{heroStatusCopy(displayStatus)}</span>
+            <span>{heroStatusCopy(displayStatus, fallbackCapEngaged)}</span>
           </span>
         </span>
         <Switch label="Audio-only" checked={checked} describedBy={statusId} onChange={onChange} />
@@ -120,6 +170,26 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
     void operation().catch(() => setError("Couldn't apply that change. Try again."));
   };
   const playbackStatus = playbackStatusSignal.value;
+  const consent = consentSignal.value;
+
+  // Consent is resolved over a message round trip; until it lands, show only the header so a
+  // denied install never flashes controls that could not take effect.
+  if (consent === null) {
+    return (
+      <main class="popup-shell popup-shell-empty">
+        <PopupHeader onOpenOptions={actions.openOptions} compact />
+      </main>
+    );
+  }
+
+  if (!consent.granted) {
+    return (
+      <main class="popup-shell popup-shell-empty">
+        <PopupHeader onOpenOptions={actions.openOptions} compact />
+        <ConsentCard onOpenConsent={actions.openConsentSettings} />
+      </main>
+    );
+  }
 
   if (playbackStatus.kind === 'not-youtube') {
     return (
@@ -145,8 +215,11 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
       <div class="popup-content">
         <PlaybackHero
           status={playbackStatus}
-          checked={audioOnlyEnabledSignal.value}
-          onChange={(checked) => apply(() => actions.setAudioOnlyEnabled(checked))}
+          checked={resolveTabAudioOnly(
+            audioOnlyEnabledSignal.value,
+            tabAudioOnlyOverrideSignal.value
+          )}
+          onChange={(checked) => apply(() => actions.setTabAudioOnly(checked))}
         />
 
         <section class="popup-secondary-card" aria-label="Playback controls">

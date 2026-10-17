@@ -10,6 +10,11 @@ body:
         that worked yesterday. These reports are time-sensitive, so **console signals matter
         most**. The extension supports the **logged-out** experience only, so please confirm
         you are signed out before filing.
+
+        The built-in diagnostics report is the fastest thing to attach: **Settings > Help &
+        feedback > Copy diagnostics** (or Export), then paste it into the console field below.
+        It stays on your machine and is written PII-free by construction; review it before
+        sharing.
   - type: dropdown
     id: broken-feature
     attributes:

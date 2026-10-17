@@ -11,7 +11,7 @@ Signed-out use is the only supported mode. The add-on does not need or attach yo
 
 ## Why is a video still playing normally?
 
-Live and DVR streams, age-restricted videos, members-only uploads, and content made for kids are not switched to direct audio. A failed audio lookup also falls back. Check the popup for the current video's real state. See [The audio-only experience](/youtube-audio/guide/audio/).
+Live and DVR streams, age-restricted videos, members-only uploads, and content made for kids are not switched to direct audio. A failed audio lookup also falls back. Fallbacks play at the lowest available quality (and YouTube Music plays the song version when one exists) unless you turn **Low-quality fallback** off. Check the popup for the current video's real state. See [The audio-only experience](/youtube-audio/guide/audio/).
 
 ## How do I turn it off?
 

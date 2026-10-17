@@ -5,14 +5,15 @@ Read this first. It is authoritative and deliberately concise; it links out to t
 detailed sources rather than duplicating them.
 
 - Deep agent protocol: [`CLAUDE.md`](./CLAUDE.md)
-- The documentation "brain": [`docs/`](./docs/) (specs, ADRs, architecture, history, research)
+- The documentation "brain": [`docs/`](./docs/) (specs, ADRs, architecture, history, research, plans)
 - Contribution workflow and setup: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 
 ## What this project is
 
 **YouTube Audio** is a Firefox WebExtension that plays **YouTube and YouTube Music as
-audio only**: it fetches the audio stream through a credentialless `ANDROID_VR` InnerTube
-request and hijacks the page `<video>` source so playback continues without downloading
+audio only**: it fetches the audio stream through the credentialless media-client table
+(**VISIONOS 1.02** primary, **ANDROID_VR 1.65.10** fallback; ADR-0012) and hijacks the page
+`<video>` source so playback continues without downloading
 video. It also handles background play, ad/telemetry blocking, SponsorBlock-style segment
 skipping, quality-of-life tweaks, YouTube Music loudness normalization / EQ, audio
 download, and a PII-free local diagnostics log that users can view, copy, export locally, and clear.
@@ -111,17 +112,21 @@ youtube-audio/
 │   │                       #   SponsorBlock proxy and downloads (all credentialless)
 │   ├── content.ts          # Isolated content script (document_start): injects MAIN world,
 │   │                       #   owns the cross-world bridge and the QoL stylesheet
-│   ├── main-world.ts       # MAIN world: credentialless ANDROID_VR fetch, playability gate,
-│   │                       #   SPA generation, visibility override, PlayerHandle, Web Audio graph
+│   ├── main-world.ts       # MAIN world: credentialless media fetch (VISIONOS/ANDROID_VR),
+│   │                       #   playability gate, SPA generation, visibility override, PlayerHandle,
+│   │                       #   Web Audio graph
 │   ├── popup/              # Preact quick-control popup
 │   ├── options/            # Preact full settings page (Android-first quick controls + groups)
 │   └── ui/                 # Shared tokenized Preact control kit (tokens.css, components)
 ├── src/shared/             # Framework-free contracts + pure logic, unit-tested directly
-│   ├── innertube.ts        # ANDROID_VR request body builder + player-response/format selection
+│   ├── innertube.ts        # Credentialless client table (VISIONOS/ANDROID_VR) + format selection
 │   ├── player.ts           # PlayerHandle: the SOLE writer of the page <video>/<audio> src
+│   ├── reclaim.ts          # Media release/reclaim tracker + one-shot pause arm
 │   ├── platform.ts         # Manifest-version (MV2/MV3) capability flags for bg/webRequest adapters
 │   ├── adblock.ts          # Pure ad-descriptor pruner for player/next InnerTube responses
 │   ├── sponsorblock.ts     # Prefix-hash segment fetch + local filter/merge
+│   ├── status.ts           # Playback status vocabulary, frame-report rule, popup resolution
+│   ├── tab-scope.ts        # Per-tab audio-only override store + precedence (SPEC-012 §5)
 │   ├── telemetry.ts        # First-party telemetry allowlist policy (fail-open)
 │   ├── audiograph.ts       # Web Audio loudness normalization + 5-band EQ graph
 │   ├── download.ts         # Direct audio format selection + filename sanitization
@@ -130,6 +135,7 @@ youtube-audio/
 │   ├── scriptlets.ts       # Page-world scriptlet helpers used by rescue
 │   ├── spa.ts              # SPA navigation generation control (invalidates stale work)
 │   ├── config.ts           # Settings model, defaults, and storage keys
+│   ├── consent.ts          # Data-consent state, feature gating, storage-change parsing
 │   ├── logger.ts           # Pure PII-free-by-construction log primitives (closed per-code schema)
 │   ├── redact.ts           # Defensive PII scrub applied over the final report (safety net)
 │   ├── report.ts           # Assembles the human-readable, timestamp-free diagnostic report
@@ -137,7 +143,7 @@ youtube-audio/
 ├── tests/
 │   ├── unit/               # Vitest unit tests over real src/ modules (incl. ui/ Preact tests)
 │   └── e2e/                # Selenium probes + hermetic bench/, android/ Fenix driver
-├── docs/                   # Engineering brain in-repo (not the public site): specs/ (SPEC-001..012), ADRs, architecture, history, research
+├── docs/                   # Engineering brain in-repo (not the public site): specs/ (SPEC-001..015), ADRs, architecture, history, research, plans
 ├── website/                # Public site: bespoke Astro (marketing + guide), deployed to GitHub Pages by pages.yml
 ├── scripts/                # validate.sh, build-ext.sh, release.sh, setup.sh, lint.sh
 ├── .github/workflows/      # ci.yml, pages.yml, beta.yml, publish-amo.yml, mobile-e2e.yml, live-canary.yml
@@ -166,7 +172,8 @@ Do not break these without an ADR that supersedes the decision:
 - **Logged-out only.** The extension never needs the user's YouTube login and must not
   depend on it. Detect the logged-in / unsupported case and fall back to native playback.
 - **Credentialless core.** Every media and metadata fetch uses `credentials: "omit"`. The
-  `ANDROID_VR` InnerTube client (`src/shared/innertube.ts`) is the media-acquisition path.
+  credentialless media-client table (`src/shared/innertube.ts`; VISIONOS primary, ANDROID_VR
+  fallback, ADR-0012) is the media-acquisition path.
 - **MV2 primary, MV3 dual-build.** MV2 (`npm run build`) is what ships; MV3
   (`npm run build:mv3`) must keep building as a capability artifact. Both come from one
   source tree via [`wxt.config.ts`](./wxt.config.ts).

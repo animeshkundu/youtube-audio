@@ -21,6 +21,6 @@ Turn on **Background play** in the popup or options page to keep audio playing w
 
 ## When normal video stays on
 
-Audio-only deliberately steps aside for live and DVR streams, age-restricted videos, members-only uploads, and content made for kids. A failed audio lookup also returns control to normal YouTube. The popup reports the actual state of the current video, not just your preferred setting.
+Audio-only deliberately steps aside for live and DVR streams, age-restricted videos, members-only uploads, and content made for kids. A failed audio lookup also returns control to normal YouTube. In both cases fallback playback stays light: video plays at the lowest available quality, and on YouTube Music the song version plays when one exists (the **Low-quality fallback** setting, on by default). The popup reports the actual state of the current video, not just your preferred setting.
 
 This fallback is expected and keeps playback usable. Learn more in [How it works](/youtube-audio/how-it-works/), or continue with [blocking and skipping controls](/youtube-audio/guide/blocking/).

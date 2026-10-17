@@ -1,6 +1,6 @@
 ---
 title: A tidier YouTube
-summary: Hide Shorts, recommendations, or comments, cap quality, and switch off autoplay-next.
+summary: Hide Shorts, recommendations, comments, thumbnails, or channel pictures, cap quality, and switch off autoplay-next.
 order: 6
 group: Features
 ---
@@ -9,17 +9,19 @@ Audio-only can cut the ongoing video transfer when you only want to listen. The 
 
 ## Hide only what you choose
 
-Open the full options page and find **Cleaner YouTube**. Three independent switches let you:
+Open the full options page and find **Cleaner YouTube**. Five independent switches let you:
 
 - **Hide Shorts**, including Shorts shelves and cards.
 - **Hide recommendations**, which removes the related-video rail but leaves comments alone.
 - **Hide comments**, including the mobile entry point.
+- **Hide thumbnails**, which removes video preview images in feeds and beside the player.
+- **Hide channel pictures**, which removes avatars in comments and on video pages.
 
-All three are off by default. Changes take effect right away, and turning a switch off restores that part of the page. Because YouTube occasionally changes its page structure, a hiding rule may temporarily stop matching. It should not block playback.
+All five are off by default. Changes take effect right away, and turning a switch off restores that part of the page. Because YouTube occasionally changes its page structure, a hiding rule may temporarily stop matching. It should not block playback.
 
 ## Cap video quality
 
-Under **Playback**, set **Maximum video quality** from 144p to 1080p, or leave it on **Automatic**. The cap matters when normal video is playing, including when you turn audio-only off or a video falls back. It can help control data use, but YouTube still chooses among the qualities that are actually available.
+Under **Playback**, set **Maximum video quality** from 144p to 1080p, or leave it on **Automatic**. The cap matters when normal video is playing, including when you turn audio-only off; videos that fall back are handled by **Low-quality fallback** unless you set a maximum here. It can help control data use, but YouTube still chooses among the qualities that are actually available.
 
 ## Stop autoplay next
 
