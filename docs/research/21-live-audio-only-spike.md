@@ -52,12 +52,12 @@ bar without a large, invariant-touching media pipeline, and the current behaviou
 new pipeline) remain documented candidates for a later, separately specced effort with live
 primary-source verification and a PoToken answer.
 
-### Fallback messaging improvement
+### Fallback messaging
 
-The one shippable, zero-risk part of the spike: make the popup explain the live case instead of
-showing a bare `fallback`. This rides on the existing `live` fallback reason (SPEC-014) and adds no
-new permission, client, or network egress. Tracked here rather than as shipped code because the
-status wording lives in the popup's status vocabulary and should be reviewed with the UI owner.
+Already in place: the popup's hero-status copy special-cases the `live` fallback reason and reads
+"Live stream, playing normally." (or "playing at low quality to save data." when the SPEC-017 cap
+is engaged) instead of a bare "audio-only isn't available". No change needed for 1.1.0; recorded
+here so a future live effort knows the surface already exists.
 
 ## What would change the decision
 
