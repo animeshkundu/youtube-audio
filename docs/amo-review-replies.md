@@ -18,11 +18,11 @@ The five reviews, as published on the AMO listing (fetched 2026-10-16):
 
 ## 2734983 (1★, "Doesn't work")
 
-Thanks for the report, and sorry. 1.0.x went stale against YouTube-side changes: the client it used
-to fetch the audio stream started failing, and the breakage became total after the August 2026
-player change, so audio-only fell back to video (or nowhere). The update replaces the fixed client
-with a rotating client table and adds a live canary that fails loudly when YouTube changes again.
-If anything still misbehaves after the update, Settings > Help & feedback has a "Copy diagnostics"
+Thanks for the report, and sorry. The 1.0.x line had gone stale against YouTube-side changes, and by
+August the media fetch it used was failing outright (the audio URLs it asked for came back
+rejected), so audio-only fell back to video or nowhere. The update replaces the fixed client with a
+rotating client table and adds a live canary that fails loudly when YouTube changes again. If
+anything still misbehaves after the update, Settings > Help & feedback has a "Copy diagnostics"
 button whose report shows exactly where it stops.
 
 ## 2736000 (2★, "asking for too many Required permissions")
@@ -35,20 +35,21 @@ each permission is used for.
 
 ## 2737379 (1★, "doesn't work")
 
-Same story as the other 1.0.x reports, and sorry about it: the old media fetch stopped working when
-YouTube changed the player in August 2026. The update rebuilds media acquisition around a rotating
-client table, keeps the failure path "hand the page back to normal YouTube playback", and ships a
-canary that catches this class of breakage before a release. If it still fails after the update,
-please attach the diagnostics report from Settings > Help & feedback ("Copy diagnostics").
+Same story as the other 1.0.x reports, and sorry about it: the old media fetch went stale against
+YouTube's changes and by August was failing outright. The update rebuilds media acquisition around a
+rotating client table, keeps the failure path "hand the page back to normal YouTube playback", and
+ships a canary that catches this class of breakage before a release. If it still fails after the
+update, please attach the diagnostics report from Settings > Help & feedback ("Copy diagnostics").
 
 ## 2737712 (1★, "interfering with youtube ad blocking with ublock origin")
 
-Thanks, and sorry for the collision. 1.0.x rewrote player responses in ways that could fight another
-extension's patches. The update changes the policy to coexistence: a patch another extension
-already installed is adopted and chained with ours (only our own response gets pruned), and when a
-page cannot be safely pruned we leave it alone instead of fighting for it. If you still see
-interference after the update, a diagnostics report (Settings > Help & feedback) captures what
-happened.
+Thanks, and sorry for the trouble. The old version guarded its page-world fixes with a heuristic
+that could stand down whenever anything else looked like it was hooking YouTube's player data, which
+is not a safe way to share a page. The update replaces it with real coexistence: each patch chains
+with whatever was already installed (calls through, prunes only the value it produced, restores only
+what it still owns), and a page that cannot be handled safely is left alone instead of fought over.
+If you still see interference after the update, a diagnostics report (Settings > Help & feedback)
+captures what happened.
 
 ## 2761981 (1★, "does not work")
 
