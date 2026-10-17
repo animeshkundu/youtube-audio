@@ -65,6 +65,11 @@ possible audio-only hijack, plus content-side DOM), so two exits get defined beh
 - Matrix (`run-matrix.mjs`): the master-gate combo additionally fails on a present in-player control
   or any remaining extension node.
 - `npm run validate` green locally; CI carries the bench and matrix proof.
+- **Correction from the first CI run.** All six hermetic bench lanes failed `m1:disabled-untouched`:
+  the case asserted `ytaNodeCount`, but `runSession` never returned that field, so it evaluated
+  `undefined` and could not pass (the matrix master-gate check read the same missing field through
+  `?? 0` and was silently vacuous). `runSession` now exposes `ytaNodeCount: snap.ytaNodeCount`,
+  which both the case and the matrix check consume; the follow-up commit carries the fix.
 
 ## Safety
 

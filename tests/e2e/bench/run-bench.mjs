@@ -1333,6 +1333,9 @@ export async function runSession({
       audioOnlyToggleDisabled: snap.audioOnlyToggleDisabled,
       toggleInRightControlsBeforeGear: snap.toggleInRightControlsBeforeGear,
       segmentStatusExists: snap.segmentStatusExists,
+      // Total extension-owned nodes left in the page (every `[id^="yta-"]`); the master-gate and
+      // disabled-untouched cases assert it is 0.
+      ytaNodeCount: snap.ytaNodeCount,
       ytaArtwork: snap.ytaArtwork,
       ytaCoach: snap.ytaCoach,
       coachObserved,
