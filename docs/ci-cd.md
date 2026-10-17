@@ -170,6 +170,15 @@ AMO hosts the signed XPI and becomes the sole update authority for desktop and A
 Release asset and no self-hosted `updates.json`. The recommended human gate is a GitHub Environment
 `amo-production` with a required reviewer. See `RELEASE.md`.
 
+**Listing support fields (Developer Hub, not the manifest).** Firefox manifests have no
+`support_url`/`support_email` keys, so the support surfaces are listing fields set by hand when the
+listing is edited alongside the 1.1.0 submission: **Support site** →
+`https://github.com/animeshkundu/youtube-audio/issues/new/choose` (the issue chooser, whose YouTube
+breakage template asks for the local diagnostics export), **Support email** → the maintainer's
+monitored address. The in-package surfaces are `homepage_url` (the product site) and `developer.url`
+(the repository), emitted by `wxt.config.ts` into every build; `amo-metadata.json` carries the
+listing `homepage`.
+
 ## Mobile Hermetic E2E (gating)
 
 Every pull request runs the BENCH extension against the local fixture in Fenix `128.0`, `136.0`,

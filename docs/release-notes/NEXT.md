@@ -35,7 +35,7 @@ Everything above is one click away in the popup or options. The essentials are o
 ## Good to know
 
 - **Logged out, always.** The extension never needs, reads, or touches your YouTube account. Everything works while signed out, on purpose.
-- **Collects nothing.** No accounts, no analytics, no phone-home. The media it fetches is requested without your cookies, and nothing is ever collected, stored, or shared.
+- **No data business.** No accounts, no analytics, no phone-home. Requests for the media you play go to YouTube and its media servers, without your cookies, and nothing is stored or shared with anyone else. The optional SponsorBlock lookup sends only a 4-character hash to the SponsorBlock API, and nothing at all if you leave it off.
 - **Firefox desktop and Android**, Firefox 128 and up.
 - **Falls back gracefully, and lightly.** When a video cannot be played as audio-only (live streams, made-for-kids, age-restricted, or members-only), it keeps playing on normal YouTube at the lowest quality, and YouTube Music switches to the song version when there is one. No broken playback, ever.
 

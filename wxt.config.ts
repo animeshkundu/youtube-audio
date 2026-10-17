@@ -92,6 +92,14 @@ export default defineConfig({
   manifest: ({ manifestVersion }) => ({
     name: 'YouTube Audio',
     description: 'Listen to YouTube and YouTube Music without downloading video.',
+    // Firefox-supported support surfaces (there is no `support_url`/`support_email` manifest key;
+    // those are AMO listing fields, see docs/ci-cd.md). `homepage_url` and `developer.url` are what
+    // about:addons shows next to the extension.
+    homepage_url: 'https://animesh.kundus.in/youtube-audio',
+    developer: {
+      name: 'Animesh Kundu',
+      url: 'https://github.com/animeshkundu/youtube-audio',
+    },
     version,
     icons: ICONS,
     // The popup entrypoint contributes default_title (from its <title>) and

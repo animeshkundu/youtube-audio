@@ -1,0 +1,22 @@
+YouTube Audio
+Copyright (C) 2025-2026 Animesh Kundu
+
+YouTube Audio is free software under the GNU General Public License, version 3 only (see LICENSE).
+The shipped code is an independent implementation; no third-party source is vendored or copied
+wholesale. The sources below informed shipped behavior or protocol handling, and the per-subsystem
+handling is recorded in docs/provenance.md.
+
+- SponsorBlock (https://github.com/ajayyy/SponsorBlock), GPL-3.0 - the community segment-skip
+  protocol (category vocabulary and the k-anonymity hash-prefix lookup) and the skip/undo
+  interaction model.
+- uBlock Origin (https://github.com/gorhill/uBlock), GPL-3.0 - the player-response pruning
+  strategy, the page-world scriptlet coexistence approach, and the compact popup layout as a
+  design reference.
+- yt-dlp (https://github.com/yt-dlp/yt-dlp), The Unlicense - InnerTube client parameters (device
+  personas) used by the credentialless media path, and format-selection behavior.
+
+Consulted as references during research only, with no code incorporated: ImprovedTube
+(code-charity/youtube), Iridium (ParticleCore/Iridium), youtube-music (th-ch), better-lyrics
+(boidushya), Web Scrobbler (web-scrobbler), LuanRT/googlevideo, LuanRT/YouTube.js, and 1Password
+(proprietary; product and design study). Behavior derived from closed products was captured as
+specifications from observable behavior and public documentation before any implementation.
