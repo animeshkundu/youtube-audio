@@ -549,6 +549,43 @@ export default defineUnlistedScript(() => {
     }
   }
 
+  // PiP handling (fail-open): YouTube may swap or reparent the <video> element during PiP.
+  // Route any element replacement through the normal SPA rearm path so the hijack is re-armed
+  // on the correct element. Never touch src directly; PlayerHandle owns that. All handlers are
+  // try/catch so a PiP quirk can never break playback.
+  document.addEventListener('enterpictureinpicture', () => {
+    try {
+      log('pip.enter');
+      // Let the SPA observer detect any element swap on the next mutation check.
+      // Do NOT touch src, currentTime, or any media property here.
+    } catch {
+      // Fail open: PiP quirks must never break playback.
+    }
+  });
+  document.addEventListener('leavepictureinpicture', () => {
+    try {
+      log('pip.leave');
+      // Re-arm the current hijack if the element was swapped during PiP.
+      const operation = startPlaybackOperation();
+      restartSegmentSkipping();
+      qualityOfLifeCleanup();
+      qualityOfLifeCleanup = applyQualityOfLife(settings);
+      if (
+        settings.enabled &&
+        (settings.audioOnlyEnabled ||
+          settings.loudnessNormalization ||
+          settings.equalizerEnabled ||
+          settings.volumeBoostEnabled)
+      ) {
+        void activateEnhancements(operation);
+      } else {
+        emitStatus('disabled', operation);
+      }
+    } catch {
+      // Fail open: leave native playback in control.
+    }
+  });
+
   observeYouTubeSpa(() => {
     log('spa.rearm');
     const operation = startPlaybackOperation();
