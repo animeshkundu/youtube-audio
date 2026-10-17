@@ -57,10 +57,12 @@ const SPONSOR_SEGMENTS_MESSAGE = 'yta:sponsor-segments';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
 const DOWNLOAD_MESSAGE = 'yta:download-audio';
+const LOOP_REQUEST_EVENT = 'yta:loop-request';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const BUTTON_ID = 'yta-audio-only-toggle';
 const LEGACY_SEGMENT_BUTTON_ID = 'yta-segment-status';
 const DOWNLOAD_BUTTON_ID = 'yta-download-audio';
+const LOOP_BUTTON_ID = 'yta-loop-toggle';
 const PLAYER_STATUS_ID = 'yta-player-status';
 const PLAYER_TOOLTIP_ID = 'yta-audio-only-tooltip';
 const SEGMENT_TOAST_ID = 'yta-segment-toast';
@@ -355,14 +357,18 @@ interface InPlayerMountOptions {
   playerRoot: ParentNode;
   audioOnlyActive: boolean;
   downloadVisible: boolean;
+  loopVisible?: boolean;
+  loopActive?: boolean;
   mobile?: boolean;
   onAudioOnlyToggle?: (button: HTMLButtonElement) => void;
   onDownload?: (button: HTMLButtonElement) => void;
+  onLoopToggle?: (button: HTMLButtonElement, next: boolean) => void;
 }
 
 export interface InPlayerMountResult {
   audioOnlyButton: HTMLButtonElement;
   downloadButton: HTMLButtonElement;
+  loopButton: HTMLButtonElement | null;
   statusRegion: HTMLElement;
 }
 
@@ -432,6 +438,26 @@ export function reconcileInPlayerControls(
   }
   downloadButton.hidden = !options.downloadVisible;
 
+  let loopButton: HTMLButtonElement | null = null;
+  if (options.loopVisible) {
+    const loop = getOrCreatePlayerButton(documentRef, LOOP_BUTTON_ID, 'Toggle loop', LOOP_ICON_PATH);
+    loopButton = loop;
+    if (isMobile) loop.classList.add('yta-player-button--mobile');
+    else loop.classList.remove('yta-player-button--mobile');
+    if (loop.dataset.ytaBound !== 'true' && options.onLoopToggle) {
+      loop.dataset.ytaBound = 'true';
+      loop.addEventListener('click', () =>
+        options.onLoopToggle?.(loop, loop.getAttribute('aria-pressed') !== 'true')
+      );
+    }
+    loop.setAttribute('aria-label', 'Toggle loop');
+    loop.setAttribute('aria-pressed', String(options.loopActive === true));
+    loop.disabled = false;
+  } else {
+    // Keep the surface minimal: a hidden loop control leaves nothing behind in the player.
+    for (const stale of documentRef.querySelectorAll(`#${LOOP_BUTTON_ID}`)) stale.remove();
+  }
+
   let statusRegion = controls.querySelector<HTMLElement>(`#${PLAYER_STATUS_ID}`);
   if (!statusRegion) {
     statusRegion = documentRef.createElement('div');
@@ -443,13 +469,19 @@ export function reconcileInPlayerControls(
     controls.append(statusRegion);
   }
 
-  const orderedButtons = [downloadButton, audioOnlyButton];
+  const orderedButtons = loopButton
+    ? [downloadButton, loopButton, audioOnlyButton]
+    : [downloadButton, audioOnlyButton];
   // The insertion anchor must be a node we are NOT about to move into the fragment: the native gear,
   // else the first native control, else null (append at the end). Never statusRegion or one of our
   // own buttons — anchoring on a to-be-moved node makes `insertBefore` throw once that node is
   // detached into the fragment, and under the observer that throw turns into a
   // reconcile -> throw -> mutation hot loop whenever the settings gear is absent.
-  const managed = new Set<Node>([downloadButton, audioOnlyButton, statusRegion]);
+  const managed = new Set<Node>(
+    loopButton
+      ? [downloadButton, loopButton, audioOnlyButton, statusRegion]
+      : [downloadButton, audioOnlyButton, statusRegion]
+  );
   const anchor =
     gear?.parentElement === controls
       ? gear
@@ -470,7 +502,7 @@ export function reconcileInPlayerControls(
     focusedButton?.focus({ preventScroll: true });
   }
 
-  return { audioOnlyButton, downloadButton, statusRegion };
+  return { audioOnlyButton, downloadButton, loopButton, statusRegion };
 }
 
 export interface CoalescedFrameScheduler {
@@ -531,10 +563,15 @@ export function installPlayerControls(bridgeNonce: string): () => void {
       return;
     }
     installPlayerControlStyles();
+    const loopMedia = observedPlayer.querySelector<HTMLMediaElement>('video');
     const result = reconcileInPlayerControls({
       playerRoot: observedPlayer,
       audioOnlyActive: settings.enabled && settings.audioOnlyEnabled,
       downloadVisible: settings.enabled && settings.downloadEnabled,
+      // The loop control is meaningful only while our audio-only surface is active; keeping it off
+      // otherwise preserves the minimal in-player surface (SPEC-027).
+      loopVisible: settings.enabled && settings.audioOnlyEnabled,
+      loopActive: loopMedia?.loop === true,
       mobile: location.hostname === 'm.youtube.com',
       onAudioOnlyToggle: () => {
         // Quick controls act on this tab (SPEC-012 §5; ADR-0014): the background applies the
@@ -544,6 +581,27 @@ export function installPlayerControls(bridgeNonce: string): () => void {
       },
       onDownload: (button) => {
         void requestAudioDownload(bridgeNonce, button);
+      },
+      onLoopToggle: (button, next) => {
+        // Apply on the shared DOM element immediately for instant feedback, then tell the page world
+        // so PlayerHandle's attach-time snapshot stays authoritative across a re-attach. Every step
+        // is fail-open: a failure leaves loop unchanged and never interrupts playback.
+        try {
+          const media = observedPlayer?.querySelector<HTMLMediaElement>('video');
+          if (media) media.loop = next;
+        } catch {
+          // Fail open.
+        }
+        button.setAttribute('aria-pressed', String(next));
+        try {
+          document.dispatchEvent(
+            new CustomEvent(LOOP_REQUEST_EVENT, {
+              detail: JSON.stringify({ nonce: bridgeNonce, loop: next }),
+            })
+          );
+        } catch {
+          // Fail open.
+        }
       },
     });
     if (result) {
@@ -694,6 +752,9 @@ const AUDIO_ONLY_ICON_PATH =
   'M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z';
 const DOWNLOAD_ICON_PATH =
   'M11 4h2v9.17l3.59-3.58L18 11l-6 6-6-6 1.41-1.41L11 13.17V4ZM5 19h14v2H5v-2Z';
+// Material "repeat" glyph: two arrows chasing a loop, at the same 0-24 weight as the others.
+const LOOP_ICON_PATH =
+  'M7 7h10v3l4-4-4-4v3H5v6h2V7Zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4Z';
 
 function getOrCreatePlayerButton(
   documentRef: Document,
@@ -1469,6 +1530,7 @@ export function removeInPlayerControls(): void {
     BUTTON_ID,
     LEGACY_SEGMENT_BUTTON_ID,
     DOWNLOAD_BUTTON_ID,
+    LOOP_BUTTON_ID,
     PLAYER_STATUS_ID,
     PLAYER_TOOLTIP_ID,
     PLAYER_CONTROL_STYLE_ID,

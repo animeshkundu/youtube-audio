@@ -90,6 +90,25 @@ describe('validateLogEvent', () => {
     expect(validateLogEvent({ code: 'spa.rearm' })).toEqual({ code: 'spa.rearm', data: {} });
   });
 
+  it('accepts the volume-boost, media-error, and stall diagnostics vocabulary', () => {
+    expect(
+      validateLogEvent({ code: 'audio.graph', data: { loudness: true, eq: false, boost: true } })
+    ).toEqual({ code: 'audio.graph', data: { loudness: true, eq: false, boost: true } });
+    expect(validateLogEvent({ code: 'error', data: { where: 'page.media-error' } })).toEqual({
+      code: 'error',
+      data: { where: 'page.media-error' },
+    });
+    expect(
+      validateLogEvent({ code: 'playback.status', data: { status: 'fallback', reason: 'media-error' } })
+    ).toEqual({ code: 'playback.status', data: { status: 'fallback', reason: 'media-error' } });
+    expect(
+      validateLogEvent({
+        code: 'playback.status',
+        data: { status: 'fallback', reason: 'stall-exhausted' },
+      })
+    ).toEqual({ code: 'playback.status', data: { status: 'fallback', reason: 'stall-exhausted' } });
+  });
+
   it('accepts a bounded http-NNN reason token', () => {
     expect(
       validateLogEvent({

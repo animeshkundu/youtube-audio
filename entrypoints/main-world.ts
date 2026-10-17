@@ -53,6 +53,7 @@ const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
+const LOOP_REQUEST_EVENT = 'yta:loop-request';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
 // SPEC-017: one bounded retry when the player (or, on Music, the song toggle) has not mounted yet.
@@ -438,6 +439,24 @@ export default defineUnlistedScript(() => {
     void handleDownloadRequest(event);
   });
 
+  // In-player loop toggle (SPEC-027). The content script applies loop on the shared element for
+  // instant feedback; this keeps PlayerHandle's snapshot authoritative so a later re-attach keeps
+  // the user's choice. Untrusted page-world data: the nonce proves the sender, the value is
+  // strictly a boolean. Fail-open: a malformed event is ignored.
+  document.addEventListener(LOOP_REQUEST_EVENT, (event) => {
+    try {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail !== 'string' || !bridgeNonce) return;
+      const parsed: unknown = JSON.parse(detail);
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const candidate = parsed as { nonce?: unknown; loop?: unknown };
+      if (candidate.nonce !== bridgeNonce || typeof candidate.loop !== 'boolean') return;
+      player.setLoop(candidate.loop);
+    } catch {
+      // Fail open: leave loop untouched.
+    }
+  });
+
   // Thin adapter over the pure, unit-tested walk in src/shared/innertube.ts (SPEC-014,
   // ADR-0012). This function owns only the page-world specifics: the endpoint, the credentialless
   // POST, the ytcfg visitorData, and the bench-aware URL allowlist.
@@ -802,17 +821,24 @@ export default defineUnlistedScript(() => {
           });
         }
         emitStatus('active', operation);
-        // Bounded stall retry (fail-open): if the hijacked audio stalls, re-fetch and re-attach
-        // at most twice. After that, emit fallback and let YouTube's native player take over.
-        // Never retries on `ended` or `pause` (those are normal, not stalls).
+        // Bounded stall retry + media-error fail-open: if the hijacked audio stalls, re-fetch and
+        // re-attach at most twice; if the element raises a hard `error` (expired/rejected URL, decode
+        // failure), release immediately and let YouTube's native player take over. Never reacts to
+        // `ended` or `pause` (those are normal, not failures).
         stallRetryCount = 0;
         stallListenerCleanup();
         const media = mediaElement;
         const stallVideoId = operation.videoId;
         const gen = operationGeneration;
-        const onStalled = () => {
+        const onMediaFailure = (event: Event) => {
           try {
             if (gen !== player.generation || getVideoId() !== stallVideoId) return;
+            if (event.type === 'error') {
+              log('error', { where: 'page.media-error' });
+              emitStatus('fallback', operation, 'media-error');
+              stallListenerCleanup();
+              return;
+            }
             if (stallRetryCount >= 2) {
               log('error', { where: 'page.stall-exhausted' });
               emitStatus('fallback', operation, 'stall-exhausted');
@@ -820,7 +846,7 @@ export default defineUnlistedScript(() => {
               return;
             }
             stallRetryCount += 1;
-            log('error', { where: 'page.stall-retry', attempt: stallRetryCount });
+            log('error', { where: 'page.stall-retry' });
             const retryOperation = startPlaybackOperation();
             void activateEnhancements(retryOperation);
           } catch {
@@ -829,12 +855,14 @@ export default defineUnlistedScript(() => {
             stallListenerCleanup();
           }
         };
-        media.addEventListener('stalled', onStalled);
-        media.addEventListener('waiting', onStalled);
+        media.addEventListener('stalled', onMediaFailure);
+        media.addEventListener('waiting', onMediaFailure);
+        media.addEventListener('error', onMediaFailure);
         stallListenerCleanup = () => {
           try {
-            media.removeEventListener('stalled', onStalled);
-            media.removeEventListener('waiting', onStalled);
+            media.removeEventListener('stalled', onMediaFailure);
+            media.removeEventListener('waiting', onMediaFailure);
+            media.removeEventListener('error', onMediaFailure);
           } catch {
             // Fail open.
           }

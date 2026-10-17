@@ -531,6 +531,54 @@ describe('reconcileInPlayerControls', () => {
     expect(offResult?.audioOnlyButton.querySelector('.yta-audio-only-slash')).toBe(slash);
     expect(slash?.hasAttribute('hidden')).toBe(false);
   });
+
+  it('mounts a loop toggle only when requested, orders it before audio-only, and toggles it', () => {
+    const { player, rightControls, gear } = createDesktopPlayer();
+    const onLoopToggle = vi.fn();
+    const result = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      loopVisible: true,
+      loopActive: false,
+      onLoopToggle,
+      mobile: false,
+    });
+
+    const loop = result?.loopButton;
+    expect(loop).not.toBeNull();
+    expect(loop?.parentElement).toBe(rightControls);
+    expect(loop?.getAttribute('aria-label')).toBe('Toggle loop');
+    expect(loop?.getAttribute('aria-pressed')).toBe('false');
+    // Order before the gear: download (hidden) -> loop -> audio-only -> gear.
+    expect(loop?.nextElementSibling).toBe(result?.audioOnlyButton);
+    expect(result?.audioOnlyButton.nextElementSibling).toBe(gear);
+
+    loop?.click();
+    expect(onLoopToggle).toHaveBeenCalledWith(loop, true);
+  });
+
+  it('reflects an active loop and removes the control when it is no longer requested', () => {
+    const { player } = createDesktopPlayer();
+    const on = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      loopVisible: true,
+      loopActive: true,
+      mobile: false,
+    });
+    expect(on?.loopButton?.getAttribute('aria-pressed')).toBe('true');
+
+    const off = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      mobile: false,
+    });
+    expect(off?.loopButton).toBeNull();
+    expect(document.querySelectorAll('#yta-loop-toggle')).toHaveLength(0);
+  });
 });
 
 describe('removeInPlayerControls', () => {
@@ -546,6 +594,7 @@ describe('removeInPlayerControls', () => {
       playerRoot: player,
       audioOnlyActive: true,
       downloadVisible: true,
+      loopVisible: true,
       mobile: false,
     });
     const style = document.createElement('style');

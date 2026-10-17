@@ -142,6 +142,23 @@ export class PlayerHandle {
     this.restore('disable');
   }
 
+  /**
+   * Reflect an in-player loop toggle onto the live element AND the attach-time snapshot, so a later
+   * re-attach (SPA navigation, settings push) restores the user's choice instead of the value that
+   * happened to be captured at attach time. Fail-open: a missing snapshot/element is a silent no-op
+   * and never throws into the caller's click handler (SPEC-027).
+   */
+  setLoop(loop: boolean): void {
+    if (this.snapshot) this.snapshot.loop = loop;
+    if (this.mediaElement) {
+      try {
+        this.mediaElement.loop = loop;
+      } catch {
+        // Fail open: the native element keeps its current loop state.
+      }
+    }
+  }
+
   private installDormantGuard(): void {
     if (this.originalDescriptor) return;
     const descriptor = Object.getOwnPropertyDescriptor(this.mediaPrototype, 'src');

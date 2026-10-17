@@ -15,6 +15,7 @@ class FakeMedia {
   muted = false;
   paused = false;
   readyState = 1;
+  loop = false;
   play = vi.fn(() => Promise.resolve());
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
@@ -87,6 +88,59 @@ describe('PlayerHandle', () => {
     // Uses the intent (real pre-toggle-off state), not the element's mid-reload transient.
     expect(media.currentTime).toBe(45);
     expect(media.play).not.toHaveBeenCalled();
+  });
+
+  it('preserves the native loop flag across a src swap', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const generation = handle.navigate();
+    const media = new FakeMedia();
+    media.loop = true;
+
+    expect(
+      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+    ).toBe(true);
+    // The snapshot captured loop=true and restorePlaybackState re-applied it after the swap.
+    expect(media.loop).toBe(true);
+  });
+
+  it('setLoop updates the live element and the snapshot so the next attach keeps the choice', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const generation = handle.navigate();
+    const media = new FakeMedia();
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+
+    handle.setLoop(true);
+    expect(media.loop).toBe(true);
+
+    // A same-video re-attach (SPA/settings push) must inherit the updated snapshot, not the value
+    // captured at the original attach.
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', handle.navigate());
+    expect(media.loop).toBe(true);
+
+    handle.setLoop(false);
+    expect(media.loop).toBe(false);
+  });
+
+  it('setLoop is a fail-open no-op when no element is attached', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    expect(() => handle.setLoop(true)).not.toThrow();
+  });
+
+  it('adopts a later user speed change on the next attach instead of the attach-time rate', () => {
+    const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
+    const generation = handle.navigate();
+    const media = new FakeMedia();
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+
+    // Deliver the registered ratechange listener as Firefox would after a user speed change.
+    const rateHandler = (media.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([type]) => type === 'ratechange'
+    )?.[1] as (() => void) | undefined;
+    media.playbackRate = 1.75;
+    rateHandler?.();
+
+    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', handle.navigate());
+    expect(media.playbackRate).toBe(1.75);
   });
 
   it('does not restore the snapshot src before applying the page src when the circuit opens', () => {
