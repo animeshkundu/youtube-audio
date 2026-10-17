@@ -87,8 +87,9 @@ labels.
 
 - `npm run validate` green locally (typecheck, lint, format, unit tests + coverage, MV2 build,
   `web-ext lint` with the new manifest fields, MV3 build).
-- The bench fix rides CI: the six hermetic bench lanes and six matrix lanes re-run on push, which is
-  the first real validation of the `ytaNodeCount` assertions.
+- The bench fix rides CI: the final `c239c3a` run validated the `ytaNodeCount` assertions on all six
+  hermetic bench lanes and all six matrix lanes, green, along with the full validate job, the MV3
+  build, and Mobile Hermetic E2E.
 - The AMO metadata edit is validated as JSON and depends on `web-ext sign --amo-metadata` at publish
   time.
 

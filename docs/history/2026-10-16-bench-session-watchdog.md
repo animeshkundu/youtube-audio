@@ -46,6 +46,9 @@ hung session and the process exits through the existing error path, so no cleanu
 - `node --check`, ESLint, and a module import check on both bench runners.
 - The bench itself cannot launch Firefox inside the sandboxed agent shell, so CI carries the real
   proof: the push that lands this change re-runs all six bench lanes and all six matrix lanes.
+- Result: CI run `39004460996` on `c239c3a` is green on all 16 jobs (six hermetic bench lanes, six
+  settings matrix lanes, validate, MV3 build, consent survival, consent seeding) and Mobile
+  Hermetic E2E is green; the Firefox 133 lane completed normally with the watchdog in place.
 - If the Firefox 133 stall recurs, the failure detail now names the session step that wedged.
 
 ## Follow-ups
