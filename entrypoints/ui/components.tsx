@@ -325,8 +325,8 @@ export function Onboarding({
         </span>
         <h1 id="onboarding-title">You're all set.</h1>
         <p id="onboarding-summary" class="onboarding-summary">
-          Audio-only, background play, and ad blocking are on.
-          <strong>Nothing to set up.</strong>
+          Audio-only and background play are on. Want ads blocked too? One tap in Privacy &amp;
+          Blocking turns it on. <strong>Nothing to set up.</strong>
         </p>
         <p id="onboarding-teaching" class="onboarding-teaching">
           While a video plays, tap{' '}

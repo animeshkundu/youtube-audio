@@ -27,7 +27,7 @@ M2b removes known client-side YouTube ad descriptors from InnerTube player respo
 
 `src/shared/adblock.ts` exports a pure string-to-string function. It parses JSON, recursively deletes the four allowlisted ad keys from objects and arrays, and serializes the result. Malformed input and every unexpected error return the exact original string.
 
-The persistent MV2 background registers `webRequest.onBeforeRequest` for the existing YouTube patterns and, in bench builds, local fixture hosts. For matching POST responses it opens `filterResponseData` and buffers the body for pruning under a hard budget (`MAX_PRUNABLE_RESPONSE_BYTES`, 8 MiB, `src/shared/adblock.ts`). Once a response crosses that budget the filter flushes everything it held and streams the remaining chunks through verbatim, so an over-budget body is deliberately delivered unparsed with its ad descriptors intact: bounded background memory and intact playback matter more than pruning a pathological response. Under budget it writes either the pruned UTF-8 JSON or the original bytes. The filter is inert unless global protection and ad blocking are enabled. All failure paths attempt to write what was held unchanged and close the filter. The success path never logs per response; only unexpected filter failures produce one bounded diagnostics error entry.
+The persistent MV2 background registers `webRequest.onBeforeRequest` for the existing YouTube patterns and, in bench builds, local fixture hosts. Registration is permission-synced (ADR-0018): the listeners attach only when the optional `webRequest` + `webRequestBlocking` grants are present, re-sync on grant/revoke, and a revoke flips `adBlockEnabled` off so copy never over-claims. For matching POST responses it opens `filterResponseData` and buffers the body for pruning under a hard budget (`MAX_PRUNABLE_RESPONSE_BYTES`, 8 MiB, `src/shared/adblock.ts`). Once a response crosses that budget the filter flushes everything it held and streams the remaining chunks through verbatim, so an over-budget body is deliberately delivered unparsed with its ad descriptors intact: bounded background memory and intact playback matter more than pruning a pathological response. Under budget it writes either the pruned UTF-8 JSON or the original bytes. The filter is inert unless global protection and ad blocking are enabled. All failure paths attempt to write what was held unchanged and close the filter. The success path never logs per response; only unexpected filter failures produce one bounded diagnostics error entry.
 
 ### Bundled baseline and scriptlets
 
@@ -39,7 +39,7 @@ Coexistence is additive chaining, not a skip: each operation wraps whatever impl
 
 ### Settings and UI
 
-`adBlockEnabled` defaults to `true`, is normalized for older stored settings, and has a dedicated signal and setter. Content forwards the boolean in the existing nonce-protected settings message. MAIN world applies or removes the bundled scriptlet baseline when settings change. Popup and options expose instant-apply controls.
+`adBlockEnabled` defaults to `false` (ADR-0018: ad blocking is an explicit opt-in), is normalized for older stored settings, and has a dedicated signal and setter. Content forwards the boolean in the existing nonce-protected settings message. MAIN world applies or removes the bundled scriptlet baseline when settings change. Popup and options expose instant-apply controls. Existing users who enabled blocking keep it: the stored value is authoritative, only fresh installs see the new default.
 
 ## Error Handling
 
@@ -58,4 +58,4 @@ No code or configuration is fetched remotely. The rescue schema cannot name arbi
 
 ## Rollout and Rollback
 
-Ad blocking defaults on but can be disabled immediately and independently. Global disable also makes it inert. A malformed or changed YouTube response passes through unchanged. Remote rescue-config remains deferred to post-S5.
+Ad blocking defaults off (ADR-0018: explicit opt-in) but can be enabled immediately and independently. Global disable also makes it inert. A malformed or changed YouTube response passes through unchanged. Remote rescue-config remains deferred to post-S5.

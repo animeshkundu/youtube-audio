@@ -10,7 +10,7 @@ const benefits = [
   { icon: 'battery', label: 'Longer battery' },
   { icon: 'bolt', label: 'Less mobile data' },
   { icon: 'moon', label: 'Plays in the background' },
-  { icon: 'shield', label: 'No ads, no tracking' },
+  { icon: 'shield', label: 'Blocking when you ask for it' },
 ];
 
 const cards = [
@@ -82,7 +82,7 @@ const promises = [
         <div class="hero__popup">
           <WindowFrame
             src="/screenshots/popup-panel-active.png"
-            alt="The YouTube Audio popup showing audio-only active for the current video, background play on, and ads and trackers blocked."
+            alt="The YouTube Audio popup showing audio-only active for the current video and background play on."
             label="Audio on · this video"
             glow="coral"
             eager={true}
@@ -125,8 +125,9 @@ const promises = [
           <span class="eyebrow">Simple by default</span>
           <h2 class="frow__title">On the moment you install it</h2>
           <p class="frow__body">
-            Audio-only, background play, and ad blocking are on out of the box. There is nothing to set up and
-            nothing to sign into. Segment skipping is available when you choose to turn it on. Open a video and the
+            Audio-only and background play are on out of the box. There is nothing to set up and
+            nothing to sign into. Ad blocking waits for you: one tap in Privacy &amp; Blocking turns
+            it on. Segment skipping is available when you choose to turn it on. Open a video and the
             picture drops away, the sound keeps going, and your laptop
             stops decoding video it will never show.
           </p>
@@ -138,7 +139,7 @@ const promises = [
         <Fragment slot="media">
           <WindowFrame
             src="/screenshots/onboarding.png"
-            alt="The onboarding screen: You're all set. Audio-only, background play, and ad blocking are on. Nothing to set up."
+            alt="The onboarding screen: You're all set. Audio-only and background play are on. Ad blocking waits for your tap. Nothing to set up."
             label="Welcome"
             glow="teal"
           />
@@ -148,9 +149,9 @@ const promises = [
       <FeatureRow reversed>
         <Fragment slot="copy">
           <span class="eyebrow">Quiet by design</span>
-          <h2 class="frow__title">No ads, no tracking</h2>
+          <h2 class="frow__title">Blocking on your terms</h2>
           <p class="frow__body">
-            Ads and tracking pings get blocked before they leave your browser, quietly, without you asking. Ghost
+            Tracking pings get blocked before they leave your browser and ad slots before they play, quietly, once you ask. Ghost
             mode drops YouTube's telemetry, and the ad blocker strips ad slots out of the player response so the
             native player has nothing to play.
           </p>
@@ -162,7 +163,7 @@ const promises = [
         <Fragment slot="media">
           <WindowFrame
             src="/screenshots/options-privacy.png"
-            alt="The Privacy and Blocking settings: block ads, Ghost mode, and aggressive telemetry blocking."
+            alt="The Privacy and Blocking settings: block ads, Ghost mode, and watch-time stats blocking."
             label="Privacy &amp; blocking"
             glow="coral"
           />

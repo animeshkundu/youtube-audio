@@ -1,7 +1,8 @@
 # Specification: Hybrid Data-Transmission Consent
 
-> **Status:** Shipped. Revised for 1.1.0: the optional-permission model (`sponsor.ajay.app` and
-> `downloads` optional, `tabs` dropped) and the consent-required popup state with a toolbar badge.
+> **Status:** Shipped. Revised for 1.1.0: the optional-permission model (`sponsor.ajay.app`,
+> `downloads`, and the network-filter pair `webRequest` + `webRequestBlocking` optional, `tabs`
+> dropped) and the consent-required popup state with a toolbar badge.
 
 ## Overview
 
@@ -18,8 +19,8 @@ The 1.1.0 revision narrows the install-time permission set and makes every surfa
 - Explain the exact transmitted website content, destinations, purposes, credentialless handling, and consequences of accepting or declining.
 - Give SponsorBlock its own off-by-default choice.
 - Provide a persistent options-page control to review and revoke consent; revocation immediately stops extension-initiated transmission.
-- Keep the required permission set minimal: drop `tabs`, and make `sponsor.ajay.app` and `downloads` optional grants requested only from the gesture that turns the dependent feature on.
-- Enforce the double gate everywhere: SponsorBlock transmission requires both the stored SponsorBlock consent and the granted `sponsor.ajay.app` host permission; audio download requires both the setting and the granted `downloads` permission.
+- Keep the required permission set minimal: drop `tabs`, and make `sponsor.ajay.app`, `downloads`, and the network-filter pair (`webRequest` + `webRequestBlocking`, ADR-0018) optional grants requested only from the gesture that turns the dependent feature on.
+- Enforce the double gate everywhere: SponsorBlock transmission requires both the stored SponsorBlock consent and the granted `sponsor.ajay.app` host permission; audio download requires both the setting and the granted `downloads` permission; ad/telemetry filtering requires both the setting and the granted network-filter permissions.
 - Never render a dead control: while required consent is not granted, the popup shows a consent-required state with a deep-link action instead of playback controls.
 - Signal an undecided custom-consent state with a toolbar badge until the user makes an explicit decision, and clear it otherwise.
 - Surface a missing optional permission on the affected options row with a one-gesture re-grant; features fail open until then.
@@ -85,12 +86,13 @@ Production manifests request the minimal required set:
 - `tabs` is dropped. Status classification reads the active tab’s URL only for origins the extension already holds host permissions for; a tab without one resolves to the not-YouTube state.
 - `downloads` is optional (MV2 and MV3 `optional_permissions`). The options row is hidden entirely where `browser.downloads` is absent, which is the case on Firefox for Android.
 - `sponsor.ajay.app` is optional: MV2 `optional_permissions`, MV3 `optional_host_permissions`.
+- `webRequest` + `webRequestBlocking` are optional (ADR-0018): MV2 `optional_permissions` (MV3 artifact keeps building). They power ad/telemetry filtering and are requested only when the user turns blocking on; a fresh install never prompts for them.
 
-Both grants are requested from the gesture that enables the dependent feature, because Firefox only honors `permissions.request` inside a user-action handler: turning segment skipping on requests the host permission before the SponsorBlock consent record and setting are persisted, and turning downloads on requests the API permission before the setting is stored. A denied or failed request leaves the feature off and shows an inline message; nothing half-applies.
+All three grants are requested from the gesture that enables the dependent feature, because Firefox only honors `permissions.request` inside a user-action handler: turning segment skipping on requests the host permission before the SponsorBlock consent record and setting are persisted, turning downloads on requests the API permission before the setting is stored, and turning ad blocking on requests both network permissions before the setting is stored. A denied or failed request leaves the feature off and shows an inline message; nothing half-applies.
 
-Granted permissions persist across upgrades. When a feature is on without its permission (right after upgrading from a build where the permission was required, or after revoking it in the Add-ons Manager), the affected row shows a notice with a single “Grant access” gesture and the feature fails open until re-granted: the background SponsorBlock proxy resolves to no segments, and download requests report their ordinary failure.
+Granted permissions persist across upgrades. When a feature is on without its permission (right after upgrading from a build where the permission was required, or after revoking it in the Add-ons Manager), the affected row shows a notice with a single “Grant access” gesture and the feature fails open until re-granted: the background SponsorBlock proxy resolves to no segments, download requests report their ordinary failure, and the network-filter listeners stay detached (a background revoke additionally flips `adBlockEnabled` off so copy never over-claims).
 
-The background enforces the double gate at request time: consent alone never authorizes transmission. BENCH builds keep both permissions required so hermetic cases run without browser-chrome prompts; that divergence is build-only, like the bench match patterns.
+The background enforces the double gate at request time: consent alone never authorizes transmission. BENCH builds keep all three grants required so hermetic cases run without browser-chrome prompts; that divergence is build-only, like the bench match patterns.
 
 ### Options control
 

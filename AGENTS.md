@@ -183,6 +183,10 @@ Do not break these without an ADR that supersedes the decision:
   YouTube match patterns and never widen them to `*://*/*`. The credentialless fetch-origin
   permissions for `*://*.googlevideo.com/*` and `https://sponsor.ajay.app/*` are separate,
   intended, and required. SponsorBlock traffic requires both data consent and explicit opt-in.
+- **Ad blocking is opt-in; network filters are optional.** `adBlockEnabled` defaults to false
+  and the `webRequest` + `webRequestBlocking` grants live in `optional_permissions`, requested
+  from the gesture that turns blocking on (ADR-0018). Fresh installs prompt for `storage` +
+  YouTube hosts only. Bench builds keep the grants required so hermetic runs need no prompts.
 - **Fail open to native YouTube.** Live streams, YouTube Kids, age-restricted / auth-required
   videos, and any fetch/parse/DOM/media failure must leave or restore normal YouTube
   playback. A feature failure is never a broken page.

@@ -52,7 +52,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   fallbackQualityCapEnabled: true,
   ghostEnabled: true,
   aggressiveTelemetry: false,
-  adBlockEnabled: true,
+  adBlockEnabled: false,
   segmentSkipEnabled: false,
   segmentSkipCategories: ['sponsor', 'music_offtopic'],
   forceQualityMax: 'off',
