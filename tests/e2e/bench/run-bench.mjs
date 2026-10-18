@@ -1526,9 +1526,13 @@ async function main() {
       cp
     );
 
-    // --- enabled (default settings) -------------------------------------------
+    // --- enabled (default settings + ad blocking) ---------------------------
+    // The enabled session is the full-protection treatment: it seeds adBlockEnabled on
+    // explicitly (ADR-0018 made the shipped default off), so the m2b prune cases keep testing
+    // the filter while the default-off contract is pinned by unit tests + the manifest test.
     const enabled = await runSession({
       withAddon: true,
+      seedSettings: { adBlockEnabled: true },
       sponsorBlockAllowed: true,
       probePlayerFromPage: true,
       probeCoach: true,
