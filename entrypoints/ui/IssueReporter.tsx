@@ -33,6 +33,8 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
   const [report, setReport] = useState<ReportBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<Status>(IDLE);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const previewRef = useRef<HTMLTextAreaElement>(null);
 
   const load = () => {
@@ -86,10 +88,22 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
   };
 
   const clear = () => {
-    void actions.clearLogs().then(() => {
-      setStatus(IDLE);
-      load();
-    });
+    if (!confirmingClear) {
+      setConfirmingClear(true);
+      return;
+    }
+    setConfirmingClear(false);
+    setClearing(true);
+    void actions
+      .clearLogs()
+      .then(() => {
+        setStatus(IDLE);
+        load();
+      })
+      .catch(() => {
+        setStatus({ kind: 'error', message: 'Could not clear the diagnostics log. Try again.' });
+      })
+      .finally(() => setClearing(false));
   };
 
   return (
@@ -128,8 +142,14 @@ export function IssueReporter({ actions = defaultReporterActions }: { actions?: 
           <button type="button" class="reporter-btn" onClick={load}>
             Refresh
           </button>
-          <button type="button" class="reporter-btn is-danger" onClick={clear}>
-            Clear logs
+          <button
+            type="button"
+            class="reporter-btn is-danger"
+            onClick={clear}
+            aria-busy={clearing}
+            disabled={clearing || !hasReport}
+          >
+            {confirmingClear ? 'Confirm clear' : 'Clear logs'}
           </button>
         </div>
         {status.kind !== 'idle' && (

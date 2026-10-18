@@ -290,6 +290,8 @@ function snapshotScript() {
     videoCurrentTime: v ? v.currentTime : null,
     videoPaused: v ? v.paused : null,
     videoReadyState: v ? v.readyState : null,
+    videoPlaybackRate: v ? v.playbackRate : null,
+    videoLoop: v ? v.loop : null,
     nativeReclaimCalls: Array.isArray(window.__ytaNativeReclaimCalls)
       ? window.__ytaNativeReclaimCalls.slice()
       : [],
@@ -304,6 +306,9 @@ function snapshotScript() {
     audioOnlyToggleDisabled:
       audioOnlyToggle instanceof HTMLButtonElement ? audioOnlyToggle.disabled : null,
     toggleInRightControlsBeforeGear,
+    loopButtonPresent: !!document.getElementById('yta-loop-toggle'),
+    loopButtonAriaPressed:
+      document.getElementById('yta-loop-toggle')?.getAttribute('aria-pressed') || null,
     segmentStatusExists: !!document.getElementById('yta-segment-status'),
     ytaArtwork: document.documentElement.dataset.ytaArtwork || null,
     ytaCoach: document.documentElement.dataset.ytaCoach || null,
@@ -370,6 +375,8 @@ function withSessionWatchdog(session, timeoutMs = SESSION_WATCHDOG_MS) {
  *           probeToggleOffReclaim?: boolean, probeRapidRetoggle?: boolean, probeTeardown?: boolean,
  *           frameHost?: boolean, probeEmbedFrame?: boolean, probeTabScope?: boolean,
  *           probeIdleNag?: 'confirmed' | 'untouched', probeFallbackQuality?: boolean,
+ *           probeStallWaiting?: boolean, probeStallBounded?: boolean,
+ *           readLog?: () => Array<{ method: string, path: string }>,
  *           origin: string, resetLog: () => void }} opts
  */
 export function runSession(opts) {
@@ -399,6 +406,9 @@ async function runSessionUnwatched({
   probeToggleOffReclaim,
   probeRapidRetoggle,
   probeTeardown,
+  probeStallWaiting,
+  probeStallBounded,
+  readLog,
   frameHost,
   probeEmbedFrame,
   probeTabScope,
@@ -533,6 +543,59 @@ async function runSessionUnwatched({
           const snap = await driver.executeScript(snapshotScript);
           return snap.ytaArtwork ? snap : null;
         }, 4000);
+      }
+    }
+
+    // SPEC-022 stall probes (A1): dispatch synthetic media events on the hijacked element and
+    // measure player-walk growth. `waiting` (routine buffering) must never re-walk; repeated
+    // `stalled` retries at most twice per video, then falls back.
+    let stallProbe = null;
+    if ((probeStallWaiting || probeStallBounded) && withAddon && !frameHost && terminalSnap?.status === 'active') {
+      const playerPosts = () =>
+        (typeof readLog === 'function' ? readLog() : []).filter(
+          (r) => r.method === 'POST' && r.path === '/youtubei/v1/player'
+        ).length;
+      const fireMediaEvent = (type) =>
+        driver.executeScript(function (eventType) {
+          const video = document.querySelector('video');
+          if (!video) return false;
+          video.dispatchEvent(new Event(eventType));
+          return true;
+        }, type);
+      if (probeStallWaiting) {
+        const baseline = playerPosts();
+        for (let i = 0; i < 3; i += 1) {
+          await fireMediaEvent('waiting');
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        const after = await driver.executeScript(snapshotScript);
+        stallProbe = {
+          mode: 'waiting',
+          baseline,
+          final: playerPosts(),
+          finalStatus: after.status,
+          finalSrc: after.videoSrc,
+        };
+      }
+      if (probeStallBounded) {
+        const baseline = playerPosts();
+        for (let i = 0; i < 3; i += 1) {
+          await fireMediaEvent('stalled');
+          // Let the async re-walk finish (and re-arm listeners) before the next stall so each
+          // dispatch consumes one budget unit instead of racing a single in-flight retry.
+          await waitFor(async () => (playerPosts() > baseline + i ? true : null), 8000).catch(
+            () => null
+          );
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        const after = await driver.executeScript(snapshotScript);
+        stallProbe = {
+          mode: 'bounded',
+          baseline,
+          final: playerPosts(),
+          finalStatus: after.status,
+          finalSrc: after.videoSrc,
+        };
       }
     }
 
@@ -798,13 +861,17 @@ async function runSessionUnwatched({
         if (!video) return;
         video.pause();
         video.currentTime = currentTime;
+        // Exercise the native-speed path: a user speed change while hijacked must be captured so a
+        // re-attach (or reclaim) inherits it rather than restarting at the attach-time rate.
+        video.playbackRate = 1.5;
       }, target);
       const frozen =
         (await waitFor(async () => {
           const state = await driver.executeScript(snapshotScript);
           return state.status === 'active' &&
             state.videoPaused === true &&
-            Math.abs(state.videoCurrentTime - target) < 0.1
+            Math.abs(state.videoCurrentTime - target) < 0.1 &&
+            Math.abs(state.videoPlaybackRate - 1.5) < 0.01
             ? state
             : null;
         }, 4000, 50)) || (await driver.executeScript(snapshotScript));
@@ -1389,6 +1456,7 @@ async function runSessionUnwatched({
       toggleOffReclaim,
       rapidRetoggle,
       teardown,
+      stallProbe,
       embedFrame,
       tabScope,
       idleNag,
@@ -1458,9 +1526,13 @@ async function main() {
       cp
     );
 
-    // --- enabled (default settings) -------------------------------------------
+    // --- enabled (default settings + ad blocking) ---------------------------
+    // The enabled session is the full-protection treatment: it seeds adBlockEnabled on
+    // explicitly (ADR-0018 made the shipped default off), so the m2b prune cases keep testing
+    // the filter while the default-off contract is pinned by unit tests + the manifest test.
     const enabled = await runSession({
       withAddon: true,
+      seedSettings: { adBlockEnabled: true },
       sponsorBlockAllowed: true,
       probePlayerFromPage: true,
       probeCoach: true,
@@ -2345,13 +2417,57 @@ async function main() {
       }
     );
 
+    // Signature-cipher decode (SPEC-030, Phase B): the CIPHER* fixture serves ONLY signatureCipher
+    // audio formats and a matching base.js, so this case is deterministically red unless the
+    // extension fetches base.js, decodes the signature (abcdef -> dcba), and hijacks the signed URL.
+    const cipherRun = await runSession({
+      withAddon: true,
+      videoId: 'CIPHER0001',
+      expectedTerminalStatus: 'active',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    const baseJsRequests = fixture
+      .getRequests()
+      .filter(
+        (request) => request.path.startsWith('/s/player/') && request.path.endsWith('base.js')
+      );
+    record(
+      'm8:signature-cipher-is-decoded-and-hijacked',
+      cipherRun.status === 'active' &&
+        typeof cipherRun.videoSrc === 'string' &&
+        cipherRun.videoSrc.includes('/videoplayback') &&
+        cipherRun.videoSrc.includes('sig=dcba') &&
+        baseJsRequests.length >= 1,
+      {
+        status: cipherRun.status,
+        videoSrc: cipherRun.videoSrc,
+        baseJsRequests: baseJsRequests.length,
+      }
+    );
+
+    // Members-only (SPEC-030 fail-open): the logged-out player returns UNPLAYABLE, so the extension
+    // must leave native playback untouched rather than half-hijack.
+    const membersRun = await runSession({
+      withAddon: true,
+      videoId: 'MEMBERS0001',
+      expectedTerminalStatus: 'fallback',
+      origin,
+      resetLog: () => fixture.reset(),
+    });
+    record(
+      'm8:members-only-fails-open-to-native',
+      membersRun.status !== 'active' &&
+        !(typeof membersRun.videoSrc === 'string' && membersRun.videoSrc.includes('/videoplayback')),
+      { status: membersRun.status, videoSrc: membersRun.videoSrc }
+    );
+
     const spaRun = await runSession({
       withAddon: true,
       probeSpaRearm: true,
       origin,
       resetLog: () => fixture.reset(),
-    });
-    record(
+    });    record(
       'm1:spa-navigation-rearms-second-hijack',
       spaRun.spaRearm?.first?.status === 'active' &&
         spaRun.spaRearm.first.videoSrc?.includes('videoId=FIXTURE0001') &&
@@ -2484,6 +2600,43 @@ async function main() {
         player: overBudget.player,
         elapsedMs: overBudgetElapsedMs,
       }
+    );
+    // SPEC-022 stall probes (A1): synthetic media events on the hijacked element measure
+    // player-walk growth. `waiting` (routine buffering) must never re-walk; repeated `stalled`
+    // retries at most twice per video, then falls back instead of looping forever.
+    const stallWaitingRun = await runSession({
+      withAddon: true,
+      probeStallWaiting: true,
+      origin,
+      resetLog: () => fixture.reset(),
+      readLog: () => fixture.getRequests(),
+    });
+    const stallWaitingProbe = stallWaitingRun.stallProbe;
+    record(
+      'm-stall:waiting-does-not-re-walk',
+      !!stallWaitingProbe &&
+        stallWaitingProbe.final === stallWaitingProbe.baseline &&
+        stallWaitingProbe.finalStatus === 'active',
+      stallWaitingProbe
+    );
+    const stallBoundedRun = await runSession({
+      withAddon: true,
+      probeStallBounded: true,
+      origin,
+      resetLog: () => fixture.reset(),
+      readLog: () => fixture.getRequests(),
+    });
+    const stallBoundedProbe = stallBoundedRun.stallProbe;
+    const stallGrowth =
+      stallBoundedProbe != null ? stallBoundedProbe.final - stallBoundedProbe.baseline : null;
+    record(
+      'm-stall:stalled-retry-bounded',
+      !!stallBoundedProbe &&
+        typeof stallGrowth === 'number' &&
+        stallGrowth >= 1 &&
+        stallGrowth <= 2 &&
+        ['active', 'fallback'].includes(stallBoundedProbe.finalStatus),
+      stallBoundedProbe
     );
     // Dedicated segment-skip session: audio-only OFF so no hijack reset races the skip's
     // one-shot seek on the (preload=auto, seekable) fixture WAV timeline.
@@ -2632,7 +2785,7 @@ async function main() {
     record(
       'm5:download-enabled-initiates-selected-audio',
       downloadEnabled.downloadButtonVisible === true &&
-        downloadData?.filename === 'Fixture Watch Page.m4a' &&
+        downloadData?.filename === 'Fixture Artist - Fixture Watch Page.m4a' &&
         typeof downloadData?.url === 'string' &&
         downloadData.url.includes('/videoplayback?itag=140'),
       { visible: downloadEnabled.downloadButtonVisible, download: downloadData }

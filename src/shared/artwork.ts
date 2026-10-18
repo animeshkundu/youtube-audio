@@ -183,11 +183,22 @@ function isSafeArtworkUrl(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false;
   try {
     const url = new URL(value);
+    if (
+      __BENCH__ &&
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost')
+    ) {
+      return true;
+    }
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    // Thumbnails are served from YouTube/Google image CDNs only. Restricting the host closes the
+    // exfiltration path where a hostile player response could point artwork at an attacker host.
     return (
-      url.protocol === 'https:' ||
-      (__BENCH__ &&
-        url.protocol === 'http:' &&
-        (url.hostname === '127.0.0.1' || url.hostname === 'localhost'))
+      host === 'i.ytimg.com' ||
+      host.endsWith('.ytimg.com') ||
+      host.endsWith('.ggpht.com') ||
+      host.endsWith('.googleusercontent.com')
     );
   } catch {
     return false;

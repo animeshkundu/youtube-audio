@@ -18,6 +18,10 @@ function actions(): OptionsActions {
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     setIdleNagDefeatEnabled: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
+    setFallbackQualityCapEnabled: vi.fn(async () => undefined),
+    setVolumeBoostEnabled: vi.fn(async () => undefined),
+    setVolumeBoostAmount: vi.fn(async () => undefined),
+    resetSettings: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),
     setSegmentSkipCategory: vi.fn(async () => undefined),
@@ -30,7 +34,7 @@ function actions(): OptionsActions {
     resolveDataConsent: vi.fn(async () => ({
       granted: true,
       sponsorBlockAllowed: false,
-      source: 'custom',
+      source: 'custom' as const,
       pending: false,
     })),
     revokeDataConsent: vi.fn(async () => undefined),
@@ -42,6 +46,8 @@ function actions(): OptionsActions {
     sponsorPermissionGranted: vi.fn(async () => true),
     requestDownloadsPermission: vi.fn(async () => true),
     downloadsPermissionGranted: vi.fn(async () => true),
+    requestNetworkPermission: vi.fn(async () => true),
+    networkPermissionGranted: vi.fn(async () => true),
     downloadsAvailable: vi.fn(() => true),
   };
 }

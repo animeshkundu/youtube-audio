@@ -26,10 +26,19 @@ import {
   isLiveStream,
   pickBestAudioFormat,
   pickBestAudioUrl,
+  pickBestCipheredAudioFormat,
+  TVHTML5_CLIENT,
   walkMediaClients,
   type MediaClientWalkOutcome,
   type PlayerResponse,
 } from '../src/shared/innertube';
+import {
+  buildSignedAudioUrl,
+  extractCipherOperations,
+  extractPlayerJsUrl,
+  extractSignatureTimestamp,
+  type CipherOperation,
+} from '../src/shared/cipher';
 import { installValuePatch } from '../src/shared/own-patch';
 import { PlayerHandle } from '../src/shared/player';
 import { getQualityLabel, isQualityCap } from '../src/shared/quality-of-life';
@@ -53,6 +62,7 @@ const SPONSOR_REQUEST_EVENT = 'yta:sponsor-request';
 const SPONSOR_RESPONSE_EVENT = 'yta:sponsor-response';
 const DOWNLOAD_REQUEST_EVENT = 'yta:download-request';
 const DOWNLOAD_RESPONSE_EVENT = 'yta:download-response';
+const LOOP_REQUEST_EVENT = 'yta:loop-request';
 const SEGMENT_SKIPPED_EVENT = 'yta:segment-skipped';
 const VIDEO_WAIT_MS = 8_000;
 // SPEC-017: one bounded retry when the player (or, on Music, the song toggle) has not mounted yet.
@@ -153,6 +163,8 @@ export default defineUnlistedScript(() => {
     loudnessNormalization: false,
     equalizerEnabled: false,
     equalizerBands: [],
+    volumeBoostEnabled: false,
+    volumeBoostAmount: 1,
     downloadEnabled: false,
   };
   // SPEC-017: keep the data cost of a native fallback low. The Music path prefers the site's own
@@ -197,6 +209,9 @@ export default defineUnlistedScript(() => {
   let scriptletCleanup: () => void = () => undefined;
   let segmentSkipCleanup: () => void = () => undefined;
   let qualityOfLifeCleanup: () => void = () => undefined;
+  let stallRetryCount = 0;
+  let stallBudgetVideoId: string | null = null;
+  let stallListenerCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
   let lastSkipKey = '';
@@ -387,13 +402,13 @@ export default defineUnlistedScript(() => {
     if (!restartMedia && groups.graph) {
       const graph = audioGraphHandle;
       if (graph) {
-        if (!next.loudnessNormalization && !next.equalizerEnabled) {
+        if (!next.loudnessNormalization && !next.equalizerEnabled && !next.volumeBoostEnabled) {
           disposeAudioGraph();
         } else {
           const gain = applyGraphSettings(graph, next, liveLoudnessDb);
           publishAudioGraphBench(gain, graph);
         }
-      } else if (next.loudnessNormalization || next.equalizerEnabled) {
+      } else if (next.loudnessNormalization || next.equalizerEnabled || next.volumeBoostEnabled) {
         // A feature turned on with no live graph: the full path arms one from a fresh response.
         restartMedia = true;
       }
@@ -402,11 +417,22 @@ export default defineUnlistedScript(() => {
 
     const operation = startPlaybackOperation();
     disposeAudioGraph();
+    // A settings-driven media restart is a fresh user intent: reset the per-video stall budget
+    // so a prior stall episode on the same video cannot suppress retries for the new attempt.
+    stallRetryCount = 0;
+    stallBudgetVideoId = operation.videoId;
     if (!next.enabled) {
+      stallListenerCleanup();
+      stallListenerCleanup = () => undefined;
       emitStatus('disabled', operation);
       return;
     }
-    if (next.audioOnlyEnabled || next.loudnessNormalization || next.equalizerEnabled) {
+    if (
+      next.audioOnlyEnabled ||
+      next.loudnessNormalization ||
+      next.equalizerEnabled ||
+      next.volumeBoostEnabled
+    ) {
       void activateEnhancements(operation);
     } else {
       emitStatus('disabled', operation);
@@ -427,9 +453,90 @@ export default defineUnlistedScript(() => {
     void handleDownloadRequest(event);
   });
 
+  // In-player loop toggle (SPEC-027). The content script applies loop on the shared element for
+  // instant feedback; this keeps PlayerHandle's snapshot authoritative so a later re-attach keeps
+  // the user's choice. Untrusted page-world data: the nonce proves the sender, the value is
+  // strictly a boolean. Fail-open: a malformed event is ignored.
+  document.addEventListener(LOOP_REQUEST_EVENT, (event) => {
+    try {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail !== 'string' || !bridgeNonce) return;
+      const parsed: unknown = JSON.parse(detail);
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const candidate = parsed as { nonce?: unknown; loop?: unknown };
+      if (candidate.nonce !== bridgeNonce || typeof candidate.loop !== 'boolean') return;
+      player.setLoop(candidate.loop);
+    } catch {
+      // Fail open: leave loop untouched.
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Phase B (SPEC-030): signature-cipher support for the ciphered TVHTML5 embedded client.
+  // The player script and its parsed transform are cached per page load. Every step fails open: a
+  // missing script, an unrecognised bundle, or a network error simply makes the ciphered client
+  // unusable, and the walk continues / falls back to native playback.
+  // ---------------------------------------------------------------------------------------------
+  const TVHTML5_EMBED_URL = 'https://www.youtube.com';
+  interface CipherProgram {
+    operations: CipherOperation[];
+    signatureTimestamp: number | null;
+  }
+  let cipherProgram: CipherProgram | null = null;
+  let cipherProgramPromise: Promise<CipherProgram | null> | null = null;
+
+  async function resolveBaseJsUrl(): Promise<string | null> {
+    // The page's own ytcfg already names the exact player script it loaded; prefer it over a fetch.
+    const fromConfig = extractPlayerJsUrl(getConfigString('PLAYER_JS_URL') ?? '');
+    if (fromConfig) {
+      try {
+        return new URL(fromConfig, location.origin).toString();
+      } catch {
+        // Fall through to the HTML scan.
+      }
+    }
+    try {
+      const response = await fetch(location.href, { credentials: 'omit' });
+      if (!response.ok) return null;
+      const path = extractPlayerJsUrl(await response.text());
+      return path ? new URL(path, location.origin).toString() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function ensureCipherProgram(): Promise<CipherProgram | null> {
+    if (cipherProgram) return Promise.resolve(cipherProgram);
+    if (cipherProgramPromise) return cipherProgramPromise;
+    cipherProgramPromise = (async () => {
+      try {
+        const url = await resolveBaseJsUrl();
+        if (!url) return null;
+        const response = await fetch(url, { credentials: 'omit' });
+        if (!response.ok) return null;
+        const baseJs = await response.text();
+        const operations = extractCipherOperations(baseJs);
+        if (!operations) return null;
+        cipherProgram = { operations, signatureTimestamp: extractSignatureTimestamp(baseJs) };
+        return cipherProgram;
+      } catch {
+        return null;
+      } finally {
+        cipherProgramPromise = null;
+      }
+    })();
+    return cipherProgramPromise;
+  }
+
+  async function resolveCipheredUrl(cipher: string): Promise<string | null> {
+    const program = await ensureCipherProgram();
+    if (!program) return null;
+    return buildSignedAudioUrl(cipher, program.operations);
+  }
+
   // Thin adapter over the pure, unit-tested walk in src/shared/innertube.ts (SPEC-014,
   // ADR-0012). This function owns only the page-world specifics: the endpoint, the credentialless
-  // POST, the ytcfg visitorData, and the bench-aware URL allowlist.
+  // POST, the ytcfg visitorData, the bench-aware URL allowlist, and the ciphered-client resolver.
   function fetchPlayerResponse(
     videoId: string,
     apiKey: string,
@@ -442,14 +549,28 @@ export default defineUnlistedScript(() => {
       requireDirectAudio,
       isStale,
       pageVisitorData: getConfigString('VISITOR_DATA') ?? null,
-      fetchPlayer: (client, visitorData) =>
-        fetch(endpoint, {
+      fetchPlayer: async (client, visitorData) => {
+        // The ciphered embedded client needs the player's signatureTimestamp and an embed origin in
+        // the body. If the player script cannot be parsed we throw, which cleanly skips this client.
+        const isEmbedded = client.clientName === TVHTML5_CLIENT.clientName;
+        let options: { signatureTimestamp?: number; embedUrl?: string } = {};
+        if (isEmbedded) {
+          const program = await ensureCipherProgram();
+          const signatureTimestamp = program?.signatureTimestamp ?? null;
+          if (!signatureTimestamp) throw new Error('cipher-unavailable');
+          options = { signatureTimestamp, embedUrl: TVHTML5_EMBED_URL };
+        }
+        return fetch(endpoint, {
           method: 'POST',
           credentials: 'omit',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPlayerRequest(client, videoId, visitorData ?? undefined)),
-        }),
+          body: JSON.stringify(
+            buildPlayerRequest(client, videoId, visitorData ?? undefined, options)
+          ),
+        });
+      },
       isAllowedUrl: (url) => isAllowedAudioUrl(url, benchOrigin),
+      resolveCipheredUrl,
     });
   }
 
@@ -519,29 +640,91 @@ export default defineUnlistedScript(() => {
         return;
       }
       const playerResponse = outcome.response;
-      const format = pickBestAudioFormat(playerResponse, true);
-      const url = format?.url;
+      const directFormat = pickBestAudioFormat(playerResponse, true);
+      const cipheredFormat = outcome.resolvedAudioUrl
+        ? pickBestCipheredAudioFormat(playerResponse, true)
+        : null;
+      const format = directFormat ?? cipheredFormat;
+      const url = outcome.resolvedAudioUrl ?? directFormat?.url;
       const title = (playerResponse as PlayerResponse).videoDetails?.title;
+      const author = (playerResponse as PlayerResponse).videoDetails?.author;
       const benchOrigin = __BENCH__ ? location.origin : undefined;
       if (!url || !isAllowedAudioUrl(url, benchOrigin) || typeof title !== 'string') {
         respond({ ok: false, reason: 'no-direct-audio' });
         return;
       }
-      respond({ ok: true, url, filename: buildAudioFilename(title, format.itag) });
+      respond({
+        ok: true,
+        url,
+        filename: buildAudioFilename(
+          title,
+          format?.itag,
+          typeof author === 'string' ? author : undefined
+        ),
+      });
     } catch {
       respond({ ok: false, reason: 'request-failed' });
     }
   }
 
+  // PiP handling (fail-open): YouTube may swap or reparent the <video> element during PiP.
+  // Route any element replacement through the normal SPA rearm path so the hijack is re-armed
+  // on the correct element. Never touch src directly; PlayerHandle owns that. All handlers are
+  // try/catch so a PiP quirk can never break playback.
+  document.addEventListener('enterpictureinpicture', () => {
+    try {
+      log('pip.enter');
+      // Let the SPA observer detect any element swap on the next mutation check.
+      // Do NOT touch src, currentTime, or any media property here.
+    } catch {
+      // Fail open: PiP quirks must never break playback.
+    }
+  });
+  document.addEventListener('leavepictureinpicture', () => {
+    try {
+      log('pip.leave');
+      // Re-arm the current hijack if the element was swapped during PiP.
+      const operation = startPlaybackOperation();
+      restartSegmentSkipping();
+      qualityOfLifeCleanup();
+      qualityOfLifeCleanup = applyQualityOfLife(settings);
+      if (
+        settings.enabled &&
+        (settings.audioOnlyEnabled ||
+          settings.loudnessNormalization ||
+          settings.equalizerEnabled ||
+          settings.volumeBoostEnabled)
+      ) {
+        void activateEnhancements(operation);
+      } else {
+        emitStatus('disabled', operation);
+      }
+    } catch {
+      // Fail open: leave native playback in control.
+    }
+  });
+
   observeYouTubeSpa(() => {
     log('spa.rearm');
+    stallListenerCleanup();
+    stallListenerCleanup = () => undefined;
     const operation = startPlaybackOperation();
+    // Same-video element swaps (player-change) must not replenish the stall budget: only a
+    // different video (or a fresh settings intent) resets it, so a persistently stalling video
+    // cannot loop re-walks across re-arms.
+    if (operation.videoId !== stallBudgetVideoId) {
+      stallRetryCount = 0;
+      stallBudgetVideoId = operation.videoId;
+    }
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
     if (
       settings.enabled &&
-      (settings.audioOnlyEnabled || settings.loudnessNormalization || settings.equalizerEnabled)
+      (settings.audioOnlyEnabled ||
+        settings.loudnessNormalization ||
+        settings.equalizerEnabled ||
+        settings.volumeBoostEnabled)
     ) {
       void activateEnhancements(operation);
     } else {
@@ -698,7 +881,9 @@ export default defineUnlistedScript(() => {
         emitStatus('fallback', operation, 'live');
         return;
       }
-      const audioUrl = pickBestAudioUrl(playerResponse);
+      const audioUrl =
+        (outcome.kind === 'ok' ? outcome.resolvedAudioUrl : undefined) ??
+        pickBestAudioUrl(playerResponse);
       if (!audioUrl || !isAllowedAudioUrl(audioUrl, __BENCH__ ? location.origin : undefined)) {
         emitStatus('fallback', operation, 'no-direct-audio');
         return;
@@ -739,6 +924,63 @@ export default defineUnlistedScript(() => {
           });
         }
         emitStatus('active', operation);
+        // Bounded stall retry + media-error fail-open: if the hijacked audio raises `stalled`
+        // (no data for ~3s) or a hard `error` (expired/rejected URL, decode failure), retry the
+        // fetch at most twice PER VIDEO, then release and let YouTube's native player take over.
+        // `waiting` is deliberately NOT a retry trigger: it fires during normal buffering
+        // (seeks, quality switches, slow start), so retrying on it would re-fetch and re-attach
+        // on routine playback. Never reacts to `ended` or `pause` (those are normal, not failures).
+        // The budget resets only when a different video is hijacked (or on a fresh settings/SPA
+        // intent above): a successful re-attach of the SAME video does not replenish it, so a
+        // persistently stalling stream cannot loop re-walks forever.
+        if (stallBudgetVideoId !== videoId) {
+          stallBudgetVideoId = videoId;
+          stallRetryCount = 0;
+        }
+        stallListenerCleanup();
+        const media = mediaElement;
+        const stallVideoId = operation.videoId;
+        const gen = operationGeneration;
+        const onMediaFailure = (event: Event) => {
+          try {
+            if (gen !== player.generation || getVideoId() !== stallVideoId) return;
+            if (event.type === 'error') {
+              log('error', { where: 'page.media-error' });
+              emitStatus('fallback', operation, 'media-error');
+              stallListenerCleanup();
+              return;
+            }
+            if (stallRetryCount >= 2) {
+              log('error', { where: 'page.stall-exhausted' });
+              emitStatus('fallback', operation, 'stall-exhausted');
+              stallListenerCleanup();
+              return;
+            }
+            stallRetryCount += 1;
+            log('error', { where: 'page.stall-retry' });
+            // Detach the old element's listeners before the async re-walk so a burst of
+            // `stalled` events cannot stack concurrent activations; the new attach arms fresh
+            // listeners for the new operation.
+            stallListenerCleanup();
+            const retryOperation = startPlaybackOperation();
+            void activateEnhancements(retryOperation);
+          } catch {
+            // Fail open: leave native playback in control.
+            emitStatus('fallback', operation, 'stall-error');
+            stallListenerCleanup();
+          }
+        };
+        media.addEventListener('stalled', onMediaFailure);
+        media.addEventListener('error', onMediaFailure);
+        stallListenerCleanup = () => {
+          try {
+            media.removeEventListener('stalled', onMediaFailure);
+            media.removeEventListener('error', onMediaFailure);
+          } catch {
+            // Fail open.
+          }
+          stallListenerCleanup = () => undefined;
+        };
       } else {
         emitStatus('fallback', operation, 'media-attach-failed');
       }
@@ -759,7 +1001,12 @@ export default defineUnlistedScript(() => {
   }
 
   function armAudioGraph(media: HTMLMediaElement, loudnessDb: number | undefined): void {
-    if (!settings.loudnessNormalization && !settings.equalizerEnabled) return;
+    if (
+      !settings.loudnessNormalization &&
+      !settings.equalizerEnabled &&
+      !settings.volumeBoostEnabled
+    )
+      return;
     const graph = createAudioGraph(media);
     if (!graph) return;
     const gain = applyGraphSettings(graph, settings, loudnessDb);
@@ -769,6 +1016,7 @@ export default defineUnlistedScript(() => {
     log('audio.graph', {
       loudness: settings.loudnessNormalization,
       eq: settings.equalizerEnabled,
+      boost: settings.volumeBoostEnabled,
     });
     publishAudioGraphBench(gain, graph);
   }
@@ -1113,6 +1361,11 @@ function parseSettings(value: unknown): PageSettingsSnapshot | null {
     !candidate.equalizerBands.every(
       (gain) => typeof gain === 'number' && Number.isFinite(gain) && gain >= -12 && gain <= 12
     ) ||
+    typeof candidate.volumeBoostEnabled !== 'boolean' ||
+    typeof candidate.volumeBoostAmount !== 'number' ||
+    !Number.isFinite(candidate.volumeBoostAmount) ||
+    candidate.volumeBoostAmount < 1 ||
+    candidate.volumeBoostAmount > 3 ||
     typeof candidate.downloadEnabled !== 'boolean'
   ) {
     return null;
@@ -1132,6 +1385,8 @@ function parseSettings(value: unknown): PageSettingsSnapshot | null {
     loudnessNormalization: candidate.loudnessNormalization,
     equalizerEnabled: candidate.equalizerEnabled,
     equalizerBands: candidate.equalizerBands,
+    volumeBoostEnabled: candidate.volumeBoostEnabled,
+    volumeBoostAmount: candidate.volumeBoostAmount,
     downloadEnabled: candidate.downloadEnabled,
   };
 }

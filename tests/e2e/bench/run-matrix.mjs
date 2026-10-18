@@ -59,6 +59,7 @@ const TOGGLES = [
   'hideAvatars',
   'loudnessNormalization',
   'equalizerEnabled',
+  'volumeBoostEnabled',
   'downloadEnabled',
 ];
 
@@ -85,6 +86,8 @@ const BASE = Object.freeze({
   loudnessNormalization: false,
   equalizerEnabled: false,
   equalizerBands: [0, 0, 0, 0, 0],
+  volumeBoostEnabled: false,
+  volumeBoostAmount: 1,
   downloadEnabled: false,
 });
 
@@ -168,12 +171,13 @@ function checkFeature(feature, s, r, log) {
   }
 }
 
-/** Audio graph arms iff loudness OR EQ is on (they share the graph). When armed, the applied
- * GainNode value must equal the loudness-derived gain (loudness on) or unity (loudness off). */
+/** Audio graph arms iff loudness OR EQ OR boost is on (they share the graph). When armed, the
+ * applied GainNode value must equal the clamped product of the loudness-derived gain and the boost
+ * multiplier. */
 function checkAudioGraph(s, r) {
-  const armed = s.loudnessNormalization || s.equalizerEnabled;
-  if (!armed) return r.audioGraph === null ? null : 'audio graph should be idle (loudness+EQ off)';
-  if (r.audioGraph === null) return 'audio graph should be armed (loudness/EQ)';
+  const armed = s.loudnessNormalization || s.equalizerEnabled || s.volumeBoostEnabled;
+  if (!armed) return r.audioGraph === null ? null : 'audio graph should be idle (loudness+EQ+boost off)';
+  if (r.audioGraph === null) return 'audio graph should be armed (loudness/EQ/boost)';
   let gain = null;
   try {
     gain = JSON.parse(r.audioGraph).gain;
@@ -181,10 +185,12 @@ function checkAudioGraph(s, r) {
     /* leave null */
   }
   if (typeof gain !== 'number') return `audio graph armed but exposed no gain (${r.audioGraph})`;
-  const expected = s.loudnessNormalization ? EXPECTED_LOUDNESS_GAIN : 1;
+  const loudnessGain = s.loudnessNormalization ? EXPECTED_LOUDNESS_GAIN : 1;
+  const boost = s.volumeBoostEnabled ? Math.min(3, Math.max(1, s.volumeBoostAmount ?? 1)) : 1;
+  const expected = Math.min(2, Math.max(0.5, loudnessGain * boost));
   return Math.abs(gain - expected) < 0.01
     ? null
-    : `loudness ${s.loudnessNormalization ? 'on' : 'off'}: applied gain ${gain} != expected ${expected}`;
+    : `applied gain ${gain} != expected ${expected} (loudness=${s.loudnessNormalization}, boost=${boost})`;
 }
 
 /** forceQualityMax: assert the label is requested. Audio-only has no video track, so skip the
@@ -530,6 +536,10 @@ async function main() {
         failures.push(`eq off: filter gains should all be 0, got ${JSON.stringify(eqGains)}`);
       record('feature:equalizer-off-zeroes-band-gains', failures, { eqGains });
     }
+    // Volume boost: gain must be the clamped product of the loudness gain and the boost multiplier,
+    // and the graph must arm with boost alone (no loudness/EQ).
+    await runCombo('boost:alone-2x', settings({ volumeBoostEnabled: true, volumeBoostAmount: 2, audioOnlyEnabled: true }), ctx);
+    await runCombo('boost:loudness+2x-clamped', settings({ loudnessNormalization: true, volumeBoostEnabled: true, volumeBoostAmount: 2 }), ctx);
     await runCombo('pair:audioOnly+background', settings({ audioOnlyEnabled: true, backgroundPlayEnabled: true }), ctx);
     await runCombo('pair:ghost+aggressiveTelemetry', settings({ ghostEnabled: true, aggressiveTelemetry: true }), ctx);
     await runCombo('pair:all-distractions', settings({ hideShorts: true, hideRecommendations: true, hideComments: true, hideThumbnails: true, hideAvatars: true }), ctx);

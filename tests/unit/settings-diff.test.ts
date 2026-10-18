@@ -24,6 +24,8 @@ function snapshot(overrides: Partial<PageSettingsSnapshot> = {}): PageSettingsSn
     loudnessNormalization: true,
     equalizerEnabled: false,
     equalizerBands: [0, 0, 0, 0, 0],
+    volumeBoostEnabled: false,
+    volumeBoostAmount: 1,
     downloadEnabled: false,
     ...overrides,
   };

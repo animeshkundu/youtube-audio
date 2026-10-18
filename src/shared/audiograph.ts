@@ -12,6 +12,8 @@ export interface EqualizerParameters {
 export interface AudioGraphHandle {
   setGain(value: number): void;
   setEqualizer(enabled: boolean, bands: EqualizerBands): void;
+  /** Apply a volume boost (1.0 = unity, up to 3.0). When disabled, gain is unity. */
+  setBoost(enabled: boolean, amount: number): void;
   /** The effective per-band biquad gains currently applied (for bench verification). */
   getEqualizerGains(): number[];
   dispose(): void;
@@ -21,6 +23,7 @@ interface GraphRecord {
   context: AudioContext;
   gain: GainNode | null;
   filters: readonly BiquadFilterNode[];
+  compressor: DynamicsCompressorNode | null;
   handle: AudioGraphHandle;
 }
 
@@ -39,17 +42,26 @@ export function loudnessDbToGain(loudnessDb: number): number {
  * the applied loudness gain so callers can publish it.
  */
 export function applyGraphSettings(
-  graph: Pick<AudioGraphHandle, 'setGain' | 'setEqualizer'>,
+  graph: Pick<AudioGraphHandle, 'setGain' | 'setEqualizer' | 'setBoost'>,
   settings: {
     loudnessNormalization: boolean;
     equalizerEnabled: boolean;
     equalizerBands: EqualizerBands;
+    volumeBoostEnabled: boolean;
+    volumeBoostAmount: number;
   },
   loudnessDb: number | undefined
 ): number {
-  const gain = settings.loudnessNormalization ? loudnessDbToGain(loudnessDb ?? Number.NaN) : 1;
+  const loudnessGain = settings.loudnessNormalization
+    ? loudnessDbToGain(loudnessDb ?? Number.NaN)
+    : 1;
+  const boostMultiplier = settings.volumeBoostEnabled
+    ? Math.min(3, Math.max(1, settings.volumeBoostAmount))
+    : 1;
+  const gain = Math.min(2, Math.max(0.5, loudnessGain * boostMultiplier));
   graph.setGain(gain);
   graph.setEqualizer(settings.equalizerEnabled, settings.equalizerBands);
+  graph.setBoost(settings.volumeBoostEnabled, settings.volumeBoostAmount);
   return gain;
 }
 
@@ -88,6 +100,7 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
   source.connect(context.destination);
   let filters: BiquadFilterNode[] = [];
   let gain: GainNode | null = null;
+  let compressor: DynamicsCompressorNode | null = null;
   try {
     filters = getEqualizerParameters(FLAT_EQUALIZER).map((parameters) => {
       const filter = context.createBiquadFilter();
@@ -99,11 +112,32 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
     });
     const createdGain = context.createGain();
     gain = createdGain;
+    // Compressor acts as a limiter for volume boost: always present in the chain but
+    // only active (threshold/ratio applied) when boost is enabled. When disabled, the
+    // compressor is bypassed (threshold 0, ratio 1) so it's effectively a passthrough.
+    // Fail-open: if the compressor cannot be created, the graph degrades to gain -> destination.
+    let createdCompressor: DynamicsCompressorNode | null = null;
+    try {
+      createdCompressor = context.createDynamicsCompressor();
+      createdCompressor.threshold.value = 0;
+      createdCompressor.knee.value = 0;
+      createdCompressor.ratio.value = 1;
+      createdCompressor.attack.value = 0.003;
+      createdCompressor.release.value = 0.25;
+    } catch {
+      createdCompressor = null;
+    }
+    compressor = createdCompressor;
     for (let index = 0; index < filters.length - 1; index += 1) {
       filters[index]?.connect(filters[index + 1]!);
     }
     filters.at(-1)?.connect(createdGain);
-    createdGain.connect(context.destination);
+    if (createdCompressor) {
+      createdGain.connect(createdCompressor);
+      createdCompressor.connect(context.destination);
+    } else {
+      createdGain.connect(context.destination);
+    }
     source.connect(filters[0]!);
     source.disconnect(context.destination);
   } catch {
@@ -111,6 +145,7 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
     // stays audible at unity and no orphaned nodes keep feeding the destination.
     filters = [];
     gain = null;
+    compressor = null;
     try {
       source.disconnect();
     } catch {
@@ -129,6 +164,22 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
         filter.gain.value = enabled ? (parameters[index]?.gain ?? 0) : 0;
       });
     },
+    setBoost(enabled, amount) {
+      if (!compressor) return;
+      if (enabled && Number.isFinite(amount) && amount > 1) {
+        compressor.threshold.value = -24;
+        compressor.knee.value = 0;
+        compressor.ratio.value = 4;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+      } else {
+        compressor.threshold.value = 0;
+        compressor.knee.value = 0;
+        compressor.ratio.value = 1;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+      }
+    },
     getEqualizerGains() {
       return filters.map((filter) => filter.gain.value);
     },
@@ -139,9 +190,14 @@ export function createAudioGraph(media: HTMLMediaElement): AudioGraphHandle | nu
       filters.forEach((filter) => {
         filter.gain.value = 0;
       });
+      if (compressor) {
+        compressor.threshold.value = 0;
+        compressor.knee.value = 0;
+        compressor.ratio.value = 1;
+      }
     },
   };
-  graphs.set(media, { context, gain, filters, handle });
+  graphs.set(media, { context, gain, filters, compressor, handle });
   void context.resume().catch(() => undefined);
   return handle;
 }

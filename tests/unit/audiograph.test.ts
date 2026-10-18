@@ -13,10 +13,18 @@ afterEach(() => {
 });
 
 function installAudioContextMock(
-  options: { throwOnSource?: boolean; throwOnFilter?: boolean } = {}
+  options: { throwOnSource?: boolean; throwOnFilter?: boolean; throwOnCompressor?: boolean } = {}
 ) {
   const filters: Array<{ gain: { value: number }; connect(node: unknown): unknown }> = [];
   const gain = { gain: { value: 1 }, connect: (node: unknown) => node };
+  const compressor = {
+    threshold: { value: 0 },
+    knee: { value: 0 },
+    ratio: { value: 1 },
+    attack: { value: 0 },
+    release: { value: 0 },
+    connect: (node: unknown) => node,
+  };
   let sourceDisconnects = 0;
   const source = {
     connect: (node: unknown) => node,
@@ -44,6 +52,10 @@ function installAudioContextMock(
       return filter;
     },
     createGain: () => gain,
+    createDynamicsCompressor: () => {
+      if (options.throwOnCompressor) throw new Error('compressor failed');
+      return compressor;
+    },
     resume: () => Promise.resolve(),
   };
   class AudioContextMock {
@@ -60,6 +72,7 @@ function installAudioContextMock(
     context,
     filters,
     gain,
+    compressor,
     sourceDisconnectCount: () => sourceDisconnects,
     contextsCreated: () => contextsCreated,
   };
@@ -89,11 +102,20 @@ describe('applyGraphSettings', () => {
       setEqualizer(enabled: boolean, bands: readonly number[]) {
         calls.push(`eq:${enabled}:${bands.join(',')}`);
       },
+      setBoost(_enabled: boolean, _amount: number) {
+        // Not under test here.
+      },
     };
 
     const gain = applyGraphSettings(
       graph,
-      { loudnessNormalization: true, equalizerEnabled: true, equalizerBands: [1, 2, 3, 4, 5] },
+      {
+        loudnessNormalization: true,
+        equalizerEnabled: true,
+        equalizerBands: [1, 2, 3, 4, 5],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       -6.0206
     );
 
@@ -110,20 +132,81 @@ describe('applyGraphSettings', () => {
       setEqualizer() {
         // Not under test here.
       },
+      setBoost() {
+        // Not under test here.
+      },
     };
 
     applyGraphSettings(
       graph,
-      { loudnessNormalization: false, equalizerEnabled: true, equalizerBands: [0, 0, 0, 0, 0] },
+      {
+        loudnessNormalization: false,
+        equalizerEnabled: true,
+        equalizerBands: [0, 0, 0, 0, 0],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       -6
     );
     applyGraphSettings(
       graph,
-      { loudnessNormalization: true, equalizerEnabled: false, equalizerBands: [] },
+      {
+        loudnessNormalization: true,
+        equalizerEnabled: false,
+        equalizerBands: [],
+        volumeBoostEnabled: false,
+        volumeBoostAmount: 1,
+      },
       undefined
     );
 
     expect(gains).toEqual([1, 1]);
+  });
+
+  it('folds a clamped boost multiplier into the gain and forwards boost to the limiter', () => {
+    const calls: Array<{ gain: number; boost: [boolean, number] }> = [];
+    const graph = {
+      lastGain: 0,
+      setGain(value: number) {
+        this.lastGain = value;
+      },
+      setEqualizer() {
+        // Not under test here.
+      },
+      setBoost(enabled: boolean, amount: number) {
+        calls.push({ gain: this.lastGain, boost: [enabled, amount] });
+      },
+    };
+
+    // loudness -6.0206 -> gain 2, boost 5 -> clamped 3, product clamped back to 2.
+    const boosted = applyGraphSettings(
+      graph,
+      {
+        loudnessNormalization: true,
+        equalizerEnabled: false,
+        equalizerBands: [],
+        volumeBoostEnabled: true,
+        volumeBoostAmount: 5,
+      },
+      -6.0206
+    );
+    expect(boosted).toBe(2);
+    expect(calls.at(-1)).toEqual({ gain: 2, boost: [true, 5] });
+
+    // boost 0.5 -> clamped to 1 (no attenuation), unity loudness -> gain 1.
+    const floor = applyGraphSettings(
+      graph,
+      {
+        loudnessNormalization: false,
+        equalizerEnabled: false,
+        equalizerBands: [],
+        volumeBoostEnabled: true,
+        volumeBoostAmount: 0.5,
+      },
+      undefined
+    );
+    expect(floor).toBe(1);
+    expect(calls.at(-1)).toEqual({ gain: 1, boost: [true, 0.5] });
   });
 });
 
@@ -169,6 +252,43 @@ describe('createAudioGraph', () => {
   it('fails open when Web Audio is unavailable', () => {
     Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
     expect(createAudioGraph({} as HTMLMediaElement)).toBeNull();
+  });
+
+  it('always builds a limiter and activates it only when boost exceeds unity', async () => {
+    vi.resetModules();
+    const fresh = await import('../../src/shared/audiograph');
+    const { compressor } = installAudioContextMock();
+    const media = { crossOrigin: null } as unknown as HTMLMediaElement;
+    const graph = fresh.createAudioGraph(media);
+
+    // Built in passthrough mode by default.
+    expect(compressor.ratio.value).toBe(1);
+    expect(compressor.threshold.value).toBe(0);
+
+    graph?.setBoost(true, 2);
+    expect(compressor.threshold.value).toBe(-24);
+    expect(compressor.ratio.value).toBe(4);
+
+    // Boost at or below unity is not a limiter condition: back to passthrough.
+    graph?.setBoost(true, 1);
+    expect(compressor.ratio.value).toBe(1);
+
+    graph?.setBoost(true, 2);
+    expect(compressor.ratio.value).toBe(4);
+    graph?.dispose();
+    expect(compressor.ratio.value).toBe(1);
+    expect(compressor.threshold.value).toBe(0);
+  });
+
+  it('degrades to gain -> destination and no-ops setBoost when the limiter cannot be created', async () => {
+    vi.resetModules();
+    const fresh = await import('../../src/shared/audiograph');
+    const mock = installAudioContextMock({ throwOnCompressor: true });
+    const graph = fresh.createAudioGraph({ crossOrigin: null } as unknown as HTMLMediaElement);
+    expect(graph).not.toBeNull();
+    expect(mock.filters).toHaveLength(5);
+    expect(() => graph?.setBoost(true, 3)).not.toThrow();
+    expect(() => graph?.dispose()).not.toThrow();
   });
 
   // The module keeps one page-lifetime AudioContext, so these lifecycle tests load a fresh module

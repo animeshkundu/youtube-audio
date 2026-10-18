@@ -102,6 +102,12 @@ describe('IssueReporter', () => {
     const container = await mountReporter(reporterActions);
     click(container.querySelector('.reporter-btn.is-danger'));
     await settle();
+    // Two-step confirm: the first click arms, the second click clears.
+    expect(container.querySelector('.reporter-btn.is-danger')?.textContent).toContain(
+      'Confirm clear'
+    );
+    click(container.querySelector('.reporter-btn.is-danger'));
+    await settle();
     expect(reporterActions.clearLogs).toHaveBeenCalledOnce();
     expect(reporterActions.loadReport).toHaveBeenCalledTimes(2);
   });

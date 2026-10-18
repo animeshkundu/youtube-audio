@@ -21,6 +21,18 @@ describe('audio download helpers', () => {
     expect(buildAudioFilename('Artist \\ Track', 251)).toBe('Artist - Track.webm');
   });
 
+  it('prepends the author as "Author - Title" and stays backward compatible', () => {
+    expect(buildAudioFilename('Track', 140, 'Artist')).toBe('Artist - Track.m4a');
+    // An empty/whitespace author falls back to the title-only name.
+    expect(buildAudioFilename('Track', 140, '   ')).toBe('Track.m4a');
+    expect(buildAudioFilename('Track', 140)).toBe('Track.m4a');
+    // The combined name is still sanitized and length-bounded end to end.
+    const long = buildAudioFilename('T'.repeat(300), 251, 'A'.repeat(300));
+    expect(long).toHaveLength(180);
+    expect(long.startsWith('AAA')).toBe(true);
+    expect(isSafeDownloadFilename(long)).toBe(true);
+  });
+
   it('bounds canonical filenames and rejects unsafe names', () => {
     const filename = buildAudioFilename('x'.repeat(300), 140);
     expect(filename).toHaveLength(180);

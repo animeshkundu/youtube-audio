@@ -9,11 +9,13 @@ import { consentSignal } from '../../../entrypoints/popup/consent-state';
 import { playbackStatusSignal } from '../../../entrypoints/popup/playback-status';
 import { tabAudioOnlyOverrideSignal } from '../../../entrypoints/popup/tab-scope';
 import {
+  adBlockEnabledSignal,
   audioOnlyEnabledSignal,
   backgroundPlayEnabledSignal,
   enabledSignal,
   fallbackQualityCapEnabledSignal,
   forceQualityMaxSignal,
+  ghostEnabledSignal,
   loudnessNormalizationSignal,
 } from '../../../src/shared/settings-signals';
 
@@ -25,6 +27,7 @@ function actions(): PopupActions {
     openYouTube: vi.fn(),
     openConsentSettings: vi.fn(),
     setTabAudioOnly: vi.fn(async () => undefined),
+    openBlockingSettings: vi.fn(),
   };
 }
 
@@ -67,6 +70,8 @@ afterEach(() => {
   loudnessNormalizationSignal.value = true;
   fallbackQualityCapEnabledSignal.value = true;
   forceQualityMaxSignal.value = 'off';
+  adBlockEnabledSignal.value = false;
+  ghostEnabledSignal.value = true;
   tabAudioOnlyOverrideSignal.value = null;
 });
 
@@ -79,7 +84,7 @@ describe('Popup', () => {
     const hero = container.querySelector('.popup-hero');
     const audioOnlySwitch = container.querySelector('[role="switch"][aria-label="Audio-only"]');
 
-    expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).toContain('Audio-only on. No video loaded, data saved.');
     expect(hero?.classList.contains('is-active')).toBe(true);
     expect(hero?.querySelector('.now-playing')).not.toBeNull();
     expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('true');
@@ -105,7 +110,7 @@ describe('Popup', () => {
 
     expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
     expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
-    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).not.toContain('Audio-only on. No video loaded, data saved.');
     expect(hero?.classList.contains('is-active')).toBe(false);
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
@@ -121,7 +126,7 @@ describe('Popup', () => {
     const hero = container.querySelector('.popup-hero');
 
     expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
-    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).not.toContain('Audio-only on. No video loaded, data saved.');
     expect(hero?.classList.contains('is-active')).toBe(false);
     expect(hero?.querySelector('.now-playing')).toBeNull();
   });
@@ -138,7 +143,7 @@ describe('Popup', () => {
       playbackStatusSignal.value = { kind: 'active' };
     });
 
-    expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).toContain('Audio-only on. No video loaded, data saved.');
     expect(hero?.querySelector('.now-playing')).not.toBeNull();
   });
 
@@ -265,7 +270,7 @@ describe('Popup', () => {
 
     expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('false');
     expect(hero?.textContent).toContain('Audio-only off. Video plays normally.');
-    expect(hero?.textContent).not.toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).not.toContain('Audio-only on. No video loaded, data saved.');
     expect(hero?.textContent).toContain('This tab');
   });
 
@@ -280,7 +285,7 @@ describe('Popup', () => {
 
     expect(audioOnlySwitch?.getAttribute('aria-checked')).toBe('true');
     expect(hero?.classList.contains('is-active')).toBe(true);
-    expect(hero?.textContent).toContain('Audio-only on. Video muted, battery saved.');
+    expect(hero?.textContent).toContain('Audio-only on. No video loaded, data saved.');
   });
 
   it('instant-applies popup controls (audio-only to the tab) and opens full settings', () => {
@@ -313,7 +318,7 @@ describe('Popup', () => {
 
       const container = mount(<Popup actions={popupActions} />);
 
-      expect(container.textContent).toContain('Consent needed');
+      expect(container.textContent).toContain('Almost there');
       expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
       expect(container.querySelector('.popup-hero')).toBeNull();
       expect(container.querySelector('.popup-pause-action')).toBeNull();
@@ -332,7 +337,7 @@ describe('Popup', () => {
 
     expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
     expect(container.querySelector('.popup-hero')).toBeNull();
-    expect(container.textContent).not.toContain('Consent needed');
+    expect(container.textContent).not.toContain('Almost there');
   });
 
   it('the default consent action deep-links to the options Data & consent section', () => {
@@ -347,5 +352,37 @@ describe('Popup', () => {
     expect(create).toHaveBeenCalledWith({
       url: 'moz-extension://test/options.html#data-consent',
     });
+  });
+
+  it('routes the protection line to Privacy & Blocking when ad blocking is not active', () => {
+    // jsdom has no browser.permissions, so the grant check resolves false: setting-only state
+    // can never over-claim here.
+    adBlockEnabledSignal.value = false;
+    ghostEnabledSignal.value = true;
+    playbackStatusSignal.value = { kind: 'active' };
+    const popupActions = actions();
+
+    const container = mount(<Popup actions={popupActions} />);
+    const line = container.querySelector('.popup-protection-line');
+
+    expect(line?.textContent).toContain('Ads play normally. Turn on ad blocking.');
+    expect(line?.textContent).toContain('Ghost needs access.');
+    click(line);
+    expect(popupActions.openBlockingSettings).toHaveBeenCalledOnce();
+    expect(popupActions.openOptions).not.toHaveBeenCalled();
+  });
+
+  it('claims Ghost only when the network grant backs it', () => {
+    adBlockEnabledSignal.value = true;
+    ghostEnabledSignal.value = true;
+    playbackStatusSignal.value = { kind: 'active' };
+
+    const container = mount(<Popup actions={actions()} />);
+    const line = container.querySelector('.popup-protection-line');
+
+    // No browser.permissions in jsdom: nothing may claim to block.
+    expect(line?.textContent).toContain('Ads play normally. Turn on ad blocking.');
+    expect(line?.textContent).toContain('Ghost needs access.');
+    expect(line?.textContent).not.toContain('Ghost on.');
   });
 });

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   hashVideoIdPrefix,
+  isSponsorCategory,
   resolveSegmentSkipTarget,
   selectSegments,
+  SPONSOR_CATEGORIES,
 } from '../../src/shared/sponsorblock';
 
 describe('hashVideoIdPrefix', () => {
@@ -84,6 +86,48 @@ describe('selectSegments', () => {
         ['sponsor']
       )
     ).toEqual([]);
+  });
+});
+
+describe('extended category vocabulary (SPEC-024)', () => {
+  it('recognizes exactly the eleven SponsorBlock categories', () => {
+    expect([...SPONSOR_CATEGORIES]).toEqual([
+      'sponsor',
+      'selfpromo',
+      'interaction',
+      'intro',
+      'outro',
+      'preview',
+      'music_offtopic',
+      'filler',
+      'exclusive_access',
+      'poi_highlight',
+      'hook',
+    ]);
+    for (const category of SPONSOR_CATEGORIES) expect(isSponsorCategory(category)).toBe(true);
+    expect(isSponsorCategory('chapter')).toBe(false);
+    expect(isSponsorCategory(42)).toBe(false);
+  });
+
+  it('filters and merges segments across the extended categories', () => {
+    const response = [
+      {
+        videoID: 'wanted',
+        segments: [
+          { segment: [0, 5], category: 'intro', actionType: 'skip' },
+          { segment: [10, 12], category: 'selfpromo', actionType: 'skip' },
+          { segment: [20, 22], category: 'hook', actionType: 'skip' },
+          { segment: [30, 32], category: 'chapter', actionType: 'skip' },
+        ],
+      },
+    ];
+    // Only enabled categories survive; an unrecognized category is dropped.
+    expect(selectSegments(response, 'wanted', ['intro', 'hook'])).toEqual([
+      { segment: [0, 5], category: 'intro', actionType: 'skip' },
+      { segment: [20, 22], category: 'hook', actionType: 'skip' },
+    ]);
+    // Every category enables the recognized ones and still drops the unknown.
+    expect(selectSegments(response, 'wanted', [...SPONSOR_CATEGORIES])).toHaveLength(3);
   });
 });
 

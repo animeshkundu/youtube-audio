@@ -109,14 +109,12 @@ export default defineConfig({
       ? { browser_action: { default_icon: ACTION_ICON } }
       : { action: { default_icon: ACTION_ICON } }),
     permissions: [
-      'webRequest',
-      'webRequestBlocking',
       'storage',
       // Bench builds require the optional grants so hermetic cases run without browser-chrome
       // prompts; production requests them from the gesture that turns the dependent feature on
-      // (SPEC-013, ADR-0010 revision). `tabs` is deliberately absent: classification reads URLs
-      // only for origins already covered by host permissions.
-      ...(BENCH ? [DOWNLOADS_PERMISSION] : []),
+      // (SPEC-013, ADR-0010 revision, ADR-0018). `tabs` is deliberately absent: classification
+      // reads URLs only for origins already covered by host permissions.
+      ...(BENCH ? [DOWNLOADS_PERMISSION, 'webRequest', 'webRequestBlocking'] : []),
       // MV3-only: without it the MV3 artifact cannot prune player responses at all. MV2 gets the
       // filter through webRequestBlocking; the MV3 artifact remains a capability build (the
       // blocking adapter is still a TODO) and this permission does not change that.
@@ -129,14 +127,23 @@ export default defineConfig({
           ]
         : []),
     ],
-    // Optional in production: MV2 declares both grants through optional_permissions; MV3 splits
-    // origins into optional_host_permissions.
+    // Optional in production: MV2 declares all gesture-gated grants through optional_permissions;
+    // MV3 splits origins into optional_host_permissions. `webRequest` + `webRequestBlocking`
+    // power ad/telemetry blocking and are requested only when the user turns blocking on
+    // (ADR-0018), so a fresh install prompts for `storage` + YouTube hosts only.
     ...(BENCH
       ? {}
       : manifestVersion === 2
-        ? { optional_permissions: [DOWNLOADS_PERMISSION, SPONSORBLOCK_ORIGIN] }
+        ? {
+            optional_permissions: [
+              DOWNLOADS_PERMISSION,
+              SPONSORBLOCK_ORIGIN,
+              'webRequest',
+              'webRequestBlocking',
+            ],
+          }
         : {
-            optional_permissions: [DOWNLOADS_PERMISSION],
+            optional_permissions: [DOWNLOADS_PERMISSION, 'webRequest', 'webRequestBlocking'],
             optional_host_permissions: [SPONSORBLOCK_ORIGIN],
           }),
     host_permissions:
@@ -147,6 +154,20 @@ export default defineConfig({
             ...(BENCH ? [SPONSORBLOCK_ORIGIN, ...BENCH_MATCHES] : []),
           ]
         : undefined,
+    // MV3-only: the content script loads main-world.js through a page-context `<script src>`
+    // (see wxt `injectScript`: MV3 uses `src`, MV2 inline-injects fetched text), so the file must
+    // be web-accessible or the MAIN-world fetch/hijack never runs in the MV3 artifact. Bench
+    // builds widen the matches to the local fixture hosts, matching the content-script scope.
+    ...(manifestVersion === 3
+      ? {
+          web_accessible_resources: [
+            {
+              resources: ['main-world.js'],
+              matches: [...YOUTUBE_MATCHES, ...(BENCH ? BENCH_MATCHES : [])],
+            },
+          ],
+        }
+      : {}),
     browser_specific_settings: {
       gecko: {
         id: FIREFOX_EXTENSION_ID,

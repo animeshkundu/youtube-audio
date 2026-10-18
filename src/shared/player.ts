@@ -14,6 +14,7 @@ interface PlaybackSnapshot {
   volume: number;
   muted: boolean;
   paused: boolean;
+  loop: boolean;
 }
 
 /** Why an active hijack was torn down, so the reclaim coordinator can pick the right recovery. */
@@ -47,6 +48,8 @@ export class PlayerHandle {
     set: (this: HTMLMediaElement, value: string) => void;
   } | null = null;
   private readonly restoreListeners = new Set<() => void>();
+  /** Tracked ratechange listener so restore() can remove it and avoid leaking listeners. */
+  private ratechangeListener: { element: HTMLMediaElement; listener: () => void } | null = null;
   private releaseHandler:
     | ((record: PlayerReleaseRecord, reason: PlayerReleaseReason) => void)
     | undefined;
@@ -115,7 +118,16 @@ export class PlayerHandle {
         volume: finiteOr(mediaElement.volume, 1),
         muted: mediaElement.muted,
         paused: intent?.paused ?? mediaElement.paused,
+        loop: mediaElement.loop,
       };
+      // Keep the snapshot's playbackRate in sync with user speed changes so a later re-attach
+      // (SPA navigation, settings push) inherits the chosen rate instead of the attach-time value.
+      // Tracked on the instance so restore() can remove it and avoid leaking listeners.
+      const syncRate = () => {
+        if (this.snapshot) this.snapshot.playbackRate = finiteOr(mediaElement.playbackRate, 1);
+      };
+      mediaElement.addEventListener('ratechange', syncRate);
+      this.ratechangeListener = { element: mediaElement, listener: syncRate };
       this.installDormantGuard();
       this.writeSource(mediaElement, audioUrl);
       this.restorePlaybackState(mediaElement, this.snapshot, generation);
@@ -128,6 +140,23 @@ export class PlayerHandle {
 
   disable(): void {
     this.restore('disable');
+  }
+
+  /**
+   * Reflect an in-player loop toggle onto the live element AND the attach-time snapshot, so a later
+   * re-attach (SPA navigation, settings push) restores the user's choice instead of the value that
+   * happened to be captured at attach time. Fail-open: a missing snapshot/element is a silent no-op
+   * and never throws into the caller's click handler (SPEC-027).
+   */
+  setLoop(loop: boolean): void {
+    if (this.snapshot) this.snapshot.loop = loop;
+    if (this.mediaElement) {
+      try {
+        this.mediaElement.loop = loop;
+      } catch {
+        // Fail open: the native element keeps its current loop state.
+      }
+    }
   }
 
   private installDormantGuard(): void {
@@ -184,6 +213,7 @@ export class PlayerHandle {
         mediaElement.playbackRate = snapshot.playbackRate;
         mediaElement.volume = snapshot.volume;
         mediaElement.muted = snapshot.muted;
+        mediaElement.loop = snapshot.loop;
         if (!snapshot.paused) void mediaElement.play().catch(() => undefined);
       } catch {
         this.openCircuit();
@@ -219,6 +249,14 @@ export class PlayerHandle {
             paused: mediaElement.paused,
           }
         : null;
+    // Remove the tracked ratechange listener so it does not leak across hijacks.
+    if (this.ratechangeListener) {
+      this.ratechangeListener.element.removeEventListener(
+        'ratechange',
+        this.ratechangeListener.listener
+      );
+      this.ratechangeListener = null;
+    }
     this.mediaElement = null;
     this.audioUrl = null;
     this.snapshot = null;
@@ -271,10 +309,15 @@ function finiteOr(value: number, fallback: number): number {
 function isSafeMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url, location.href);
-    if (parsed.protocol === 'https:') return true;
+    if (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname === 'googlevideo.com' || parsed.hostname.endsWith('.googlevideo.com'))
+    ) {
+      return true;
+    }
     // The hermetic bench serves fixture media over http://127.0.0.1 / http://localhost. This
     // branch is compiled out of production (`__BENCH__` is `false`), so a real build only ever
-    // hijacks an https media url.
+    // hijacks a googlevideo media url.
     return __BENCH__ && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
   } catch {
     return false;

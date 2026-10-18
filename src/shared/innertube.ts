@@ -35,6 +35,52 @@ export const ANDROID_VR_CLIENT = Object.freeze({
   gl: 'US',
 });
 
+export const IOS_CLIENT = Object.freeze({
+  clientName: 'IOS',
+  clientVersion: '21.26.4',
+  deviceMake: 'Apple',
+  deviceModel: 'iPhone16,2',
+  osName: 'iPhone',
+  osVersion: '18.3.2.22D82',
+  userAgent: 'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+  hl: 'en',
+  gl: 'US',
+});
+
+export const ANDROID_CLIENT = Object.freeze({
+  clientName: 'ANDROID',
+  clientVersion: '21.26.364',
+  osName: 'Android',
+  osVersion: '11',
+  androidSdkVersion: 30,
+  userAgent: 'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+  hl: 'en',
+  gl: 'US',
+});
+
+export const MWEB_CLIENT = Object.freeze({
+  clientName: 'MWEB',
+  clientVersion: '2.20260708.05.00',
+  userAgent:
+    'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)',
+  hl: 'en',
+  gl: 'US',
+});
+
+/**
+ * Last-resort client (SPEC-030, Phase B). The embedded TV client can serve age-restricted videos
+ * without a login, but returns `signatureCipher` strings rather than ready `url`s, so it is only
+ * usable with the `base.js` cipher decoder (`src/shared/cipher.ts`) and a `signatureTimestamp` in
+ * the request. It sits LAST in the table: it costs an extra `base.js` fetch, so it is reached only
+ * when every unciphered client failed (where we would otherwise fail open anyway).
+ */
+export const TVHTML5_CLIENT = Object.freeze({
+  clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+  clientVersion: '2.0',
+  hl: 'en',
+  gl: 'US',
+});
+
 export interface MediaClientPersona {
   clientName: string;
   clientVersion: string;
@@ -48,17 +94,21 @@ export interface MediaClientPersona {
   gl: string;
 }
 
-export type MediaClientId = 'visionos' | 'android-vr';
+export type MediaClientId = 'visionos' | 'android-vr' | 'ios' | 'android' | 'mweb' | 'tvhtml5';
 
 export interface MediaClientDescriptor {
   readonly id: MediaClientId;
   readonly client: MediaClientPersona;
 }
 
-/** Ordered attempt table. The order is the feature: primary first, fallback second. */
+/** Ordered attempt table. The order is the feature: primary first, fallbacks after. */
 export const MEDIA_CLIENTS: readonly MediaClientDescriptor[] = Object.freeze([
   { id: 'visionos', client: VISIONOS_CLIENT },
   { id: 'android-vr', client: ANDROID_VR_CLIENT },
+  { id: 'ios', client: IOS_CLIENT },
+  { id: 'android', client: ANDROID_CLIENT },
+  { id: 'mweb', client: MWEB_CLIENT },
+  { id: 'tvhtml5', client: TVHTML5_CLIENT },
 ]);
 
 export type PlayerClient = MediaClientPersona & {
@@ -68,10 +118,14 @@ export type PlayerClient = MediaClientPersona & {
 export interface PlayerRequestBody {
   context: {
     client: PlayerClient;
+    thirdParty?: { embedUrl: string };
   };
   videoId: string;
   contentCheckOk: true;
   racyCheckOk: true;
+  playbackContext?: {
+    contentPlaybackContext: { signatureTimestamp: number };
+  };
 }
 
 /** Shapes of the fields the extension reads from a credentialless `/youtubei/v1/player` response. */
@@ -108,6 +162,7 @@ export interface PlayerResponse {
       mimeType?: string;
       bitrate?: number;
       url?: string;
+      signatureCipher?: string;
       contentLength?: string;
     }>;
   };
@@ -196,22 +251,73 @@ export function pickBestAudioUrl(playerResponse: unknown): string | null {
 }
 
 /**
+ * Pick the best audio format that carries a `signatureCipher` instead of a ready `url` (the
+ * TVHTML5 embedded client's shape). Mirrors {@link pickBestAudioFormat}'s preference order so the
+ * caller can resolve the cipher with the `base.js` decoder and get the same quality choice.
+ */
+export function pickBestCipheredAudioFormat(
+  playerResponse: unknown,
+  preferCompatible = false
+): AudioFormat | null {
+  if (typeof playerResponse !== 'object' || playerResponse === null) return null;
+  const formats = (playerResponse as PlayerResponse).streamingData?.adaptiveFormats;
+  if (!Array.isArray(formats)) return null;
+  const ciphered = formats.filter(
+    (format) =>
+      typeof format.signatureCipher === 'string' &&
+      format.signatureCipher.length > 0 &&
+      typeof format.mimeType === 'string' &&
+      format.mimeType.startsWith('audio/')
+  );
+  const preference = preferCompatible
+    ? (itag: number | undefined) => (itag === 140 ? 2 : itag === 251 ? 1 : 0)
+    : (itag: number | undefined) => (itag === 251 ? 2 : itag === 140 ? 1 : 0);
+  ciphered.sort(
+    (left, right) =>
+      preference(right.itag) - preference(left.itag) || (right.bitrate ?? 0) - (left.bitrate ?? 0)
+  );
+  return ciphered[0] ?? null;
+}
+
+/** The `signatureCipher` of the best ciphered audio format, for the walk's cipher resolver. */
+export function pickBestAudioCipher(
+  playerResponse: unknown,
+  preferCompatible = false
+): string | null {
+  return pickBestCipheredAudioFormat(playerResponse, preferCompatible)?.signatureCipher ?? null;
+}
+
+/**
  * Builds a credentialless player body for one persona. The caller must send this with
- * `credentials: "omit"`. The optional `visitorData` is the only per-attempt variable.
+ * `credentials: "omit"`. The optional `visitorData` is the only per-attempt variable. The optional
+ * `signatureTimestamp`/`embedUrl` are required only by the ciphered TVHTML5 embedded client
+ * (SPEC-030); omitting them leaves the body identical to every other client's.
  */
 export function buildPlayerRequest(
   client: MediaClientPersona,
   videoId: string,
-  visitorData?: string
+  visitorData?: string,
+  options: { signatureTimestamp?: number; embedUrl?: string } = {}
 ): PlayerRequestBody {
   const persona: PlayerClient = visitorData ? { ...client, visitorData } : { ...client };
-
-  return {
-    context: { client: persona },
+  const body: PlayerRequestBody = {
+    context: {
+      client: persona,
+      ...(options.embedUrl ? { thirdParty: { embedUrl: options.embedUrl } } : {}),
+    },
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
   };
+  if (
+    typeof options.signatureTimestamp === 'number' &&
+    Number.isFinite(options.signatureTimestamp)
+  ) {
+    body.playbackContext = {
+      contentPlaybackContext: { signatureTimestamp: options.signatureTimestamp },
+    };
+  }
+  return body;
 }
 
 /** Compatibility wrapper for the pinned ANDROID_VR persona (probes and legacy callers). */
@@ -261,6 +367,13 @@ export interface MediaClientWalkDeps {
   ) => Promise<MediaClientFetchResult>;
   /** Allowlist check for the accepted direct audio URL. */
   readonly isAllowedUrl: (url: string) => boolean;
+  /**
+   * Optional resolver for a `signatureCipher` (TVHTML5 embedded client, SPEC-030). When provided
+   * and a playable response has no ready audio `url` but does carry a `signatureCipher`, the walk
+   * asks this to decode it into an attachable URL. It must fail open (return `null`) rather than
+   * throw; a `null` result continues the walk.
+   */
+  readonly resolveCipheredUrl?: (cipher: string) => Promise<string | null>;
 }
 
 /** Outcome of one bounded walk over the media-client table (SPEC-014). */
@@ -280,20 +393,38 @@ export type MediaClientWalkOutcome =
       clientId: MediaClientId;
       attempt: number;
       reason: string;
+      /**
+       * The URL the walk resolved for this response when it differed from a ready `url` (a decoded
+       * `signatureCipher`). Undefined means the caller should read the URL from the response as
+       * usual.
+       */
+      resolvedAudioUrl?: string;
     };
 
 /**
- * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012): VISIONOS first,
- * ANDROID_VR second, at most two HTTP attempts per client (the initial request plus one retry
- * carrying fresh `visitorData` harvested from the previous response). A live response is terminal:
- * liveness is a property of the broadcast, not of the client, so no other client can change it.
- * Acceptance requires a playable response whose best audio URL passes the injected allowlist;
- * anything else (unplayable, or playable without an attachable URL) continues the walk.
- * `lastPlayable` is retained so the caller can still arm loudness/EQ before falling back.
+ * The entire bounded walk over {@link MEDIA_CLIENTS} (SPEC-014, ADR-0012, SPEC-030): VISIONOS
+ * first, then ANDROID_VR, IOS, ANDROID, MWEB (unciphered clients, Phase A), then the ciphered
+ * TVHTML5 embedded client (Phase B) as the last resort, at most two HTTP attempts per client (the
+ * initial request plus one retry carrying fresh `visitorData` harvested from the previous
+ * response). A live response is terminal: liveness is a property of the broadcast, not of the
+ * client, so no other client can change it. Acceptance requires a playable response whose best
+ * audio URL passes the injected allowlist (a `signatureCipher` may be resolved via the optional
+ * `resolveCipheredUrl`); anything else continues the walk. `lastPlayable` is retained so the caller
+ * can still arm loudness/EQ before falling back.
  */
 export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<MediaClientWalkOutcome> {
-  const { requireDirectAudio, isStale, pageVisitorData, fetchPlayer, isAllowedUrl } = deps;
-  let lastReason = 'request-failed';
+  const {
+    requireDirectAudio,
+    isStale,
+    pageVisitorData,
+    fetchPlayer,
+    isAllowedUrl,
+    resolveCipheredUrl,
+  } = deps;
+  // The final `reason` is the last reason derived from a SERVER response (http-NNN, playability
+  // status, or no-direct-audio). A later transport failure or an unusable-client pre-flight error
+  // must not clobber a more informative server reason with a generic 'request-failed'.
+  let lastResponseReason: string | null = null;
   let lastPlayable: unknown | null = null;
   let lastParsed: unknown | null = null;
   let attempt = 0;
@@ -307,25 +438,23 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
       try {
         response = await fetchPlayer(mediaClient.client, visitorData);
       } catch {
-        lastReason = 'request-failed';
         break;
       }
       if (isStale()) return { kind: 'stale' };
       if (!response.ok) {
-        lastReason = `http-${response.status}`;
+        lastResponseReason = `http-${response.status}`;
         break;
       }
       let playerResponse: unknown;
       try {
         playerResponse = await response.json();
       } catch {
-        lastReason = 'request-failed';
         break;
       }
       const playability = getPlayability(playerResponse);
       lastParsed = playerResponse;
       if (!playability.isPlayable) {
-        lastReason = playability.status ?? 'unplayable';
+        lastResponseReason = playability.status ?? 'unplayable';
       } else {
         lastPlayable = playerResponse;
         if (isLiveStream(playerResponse)) {
@@ -339,18 +468,33 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
         }
         // Acceptance requires a URL this extension can actually attach. A playable response whose
         // best URL is absent or not allowlisted must not stop the walk: the next client may serve
-        // one.
+        // one. A ciphered response (TVHTML5) is resolved on demand; a failed decode continues the
+        // walk rather than stopping it.
         const candidateAudioUrl = pickBestAudioUrl(playerResponse);
-        if (!requireDirectAudio || (candidateAudioUrl && isAllowedUrl(candidateAudioUrl))) {
+        let effectiveUrl = candidateAudioUrl;
+        if (requireDirectAudio && !effectiveUrl && resolveCipheredUrl) {
+          const cipher = pickBestAudioCipher(playerResponse);
+          if (cipher) {
+            try {
+              effectiveUrl = await resolveCipheredUrl(cipher);
+            } catch {
+              effectiveUrl = null;
+            }
+            if (isStale()) return { kind: 'stale' };
+          }
+        }
+        const resolvedAudioUrl = candidateAudioUrl ? undefined : (effectiveUrl ?? undefined);
+        if (!requireDirectAudio || (effectiveUrl && isAllowedUrl(effectiveUrl))) {
           return {
             kind: 'ok',
             response: playerResponse,
             clientId: mediaClient.id,
             attempt,
             reason: 'ok',
+            ...(resolvedAudioUrl ? { resolvedAudioUrl } : {}),
           };
         }
-        lastReason = 'no-direct-audio';
+        lastResponseReason = 'no-direct-audio';
       }
       const fresh = retryVisitorData(playerResponse, visitorData);
       if (fresh) {
@@ -360,5 +504,10 @@ export async function walkMediaClients(deps: MediaClientWalkDeps): Promise<Media
       break;
     }
   }
-  return { kind: 'failed', reason: lastReason, lastParsed, lastPlayable };
+  return {
+    kind: 'failed',
+    reason: lastResponseReason ?? 'request-failed',
+    lastParsed,
+    lastPlayable,
+  };
 }

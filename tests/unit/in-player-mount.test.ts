@@ -531,6 +531,92 @@ describe('reconcileInPlayerControls', () => {
     expect(offResult?.audioOnlyButton.querySelector('.yta-audio-only-slash')).toBe(slash);
     expect(slash?.hasAttribute('hidden')).toBe(false);
   });
+
+  it('mounts a loop toggle only when requested, orders it before audio-only, and toggles it', () => {
+    const { player, rightControls, gear } = createDesktopPlayer();
+    const onLoopToggle = vi.fn();
+    const result = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      loopVisible: true,
+      loopActive: false,
+      onLoopToggle,
+      mobile: false,
+    });
+
+    const loop = result?.loopButton;
+    expect(loop).not.toBeNull();
+    expect(loop?.parentElement).toBe(rightControls);
+    expect(loop?.getAttribute('aria-label')).toBe('Toggle loop');
+    expect(loop?.getAttribute('aria-pressed')).toBe('false');
+    // Order before the gear: download (hidden) -> loop -> audio-only -> gear.
+    expect(loop?.nextElementSibling).toBe(result?.audioOnlyButton);
+    expect(result?.audioOnlyButton.nextElementSibling).toBe(gear);
+
+    loop?.click();
+    expect(onLoopToggle).toHaveBeenCalledWith(loop, true);
+  });
+
+  it('reflects an active loop and removes the control when it is no longer requested', () => {
+    const { player } = createDesktopPlayer();
+    const on = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      loopVisible: true,
+      loopActive: true,
+      mobile: false,
+    });
+    expect(on?.loopButton?.getAttribute('aria-pressed')).toBe('true');
+
+    const off = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: false,
+      mobile: false,
+    });
+    expect(off?.loopButton).toBeNull();
+    expect(document.querySelectorAll('#yta-loop-toggle')).toHaveLength(0);
+  });
+
+  it('mounts into the mobile control bar and marks the buttons as mobile', () => {
+    document.body.innerHTML = `
+      <div id="player-container-id">
+        <div class="player-controls-bottom">
+          <div class="player-controls-right">
+            <button class="player-controls-content">Native</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const player = document.querySelector<HTMLElement>('#player-container-id')!;
+    const bar = document.querySelector<HTMLElement>('.player-controls-right')!;
+
+    const result = reconcileInPlayerControls({
+      playerRoot: player,
+      audioOnlyActive: true,
+      downloadVisible: true,
+      mobile: true,
+    });
+
+    expect(result?.audioOnlyButton.parentElement).toBe(bar);
+    expect(result?.downloadButton.parentElement).toBe(bar);
+    expect(result?.statusRegion.parentElement).toBe(bar);
+    expect(result?.audioOnlyButton.classList.contains('yta-player-button--mobile')).toBe(true);
+    expect(result?.downloadButton.classList.contains('yta-player-button--mobile')).toBe(true);
+    // No gear on mobile: our buttons anchor before the native control and settle idempotently.
+    expect(result?.audioOnlyButton.nextElementSibling?.className).toBe('player-controls-content');
+    expect(() =>
+      reconcileInPlayerControls({
+        playerRoot: player,
+        audioOnlyActive: true,
+        downloadVisible: true,
+        mobile: true,
+      })
+    ).not.toThrow();
+    expect(document.querySelectorAll('#yta-audio-only-toggle')).toHaveLength(1);
+  });
 });
 
 describe('removeInPlayerControls', () => {
@@ -546,6 +632,7 @@ describe('removeInPlayerControls', () => {
       playerRoot: player,
       audioOnlyActive: true,
       downloadVisible: true,
+      loopVisible: true,
       mobile: false,
     });
     const style = document.createElement('style');

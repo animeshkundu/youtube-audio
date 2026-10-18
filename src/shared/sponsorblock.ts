@@ -1,4 +1,16 @@
-export const SPONSOR_CATEGORIES = ['sponsor', 'music_offtopic'] as const;
+export const SPONSOR_CATEGORIES = [
+  'sponsor',
+  'selfpromo',
+  'interaction',
+  'intro',
+  'outro',
+  'preview',
+  'music_offtopic',
+  'filler',
+  'exclusive_access',
+  'poi_highlight',
+  'hook',
+] as const;
 
 export type SponsorCategory = (typeof SPONSOR_CATEGORIES)[number];
 

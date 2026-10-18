@@ -31,6 +31,12 @@ Everything above is one click away in the popup or options. The essentials are o
 - **Nothing extra at install.** The SponsorBlock lookup and the file-download ability now ask for their access at the moment you switch each one on, and only then. Say no, and everything else keeps working.
 - **Honest while a choice is pending.** Until you accept the data notice, the popup points you straight to it instead of showing switches that could not do anything yet.
 - **Cleans up when switched off.** Disabling or updating the extension takes its tweaks back out of pages that are already open and hands playback back to YouTube.
+- **Plays more videos.** We added several more ways to fetch just the audio, tried in order, so more videos play audio-only, including ones the old single source could not serve. If none work, YouTube carries on as normal.
+- **A louder option.** A new volume boost in Music amplifies quiet tracks past the normal ceiling, with a gentle limiter so it does not clip. Off until you ask for it.
+- **Every SponsorBlock category.** Skip re-intros, outros, self-promos, interaction reminders, and more, alongside sponsors and off-topic music. The two you know stay on by default; the rest live behind "All categories".
+- **Downloads that name themselves.** Saved files come out as "Artist - Title" so your library is readable at a glance.
+- **Adjustable speed that sticks.** Change playback speed and it holds across the audio swap instead of resetting, and a loop button in the player repeats the track when you want it to.
+- **Steadier in the corners.** Picture-in-Picture, stalled streams, and rejected media URLs now recover quietly instead of interrupting playback.
 
 ## Good to know
 

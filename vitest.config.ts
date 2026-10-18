@@ -17,6 +17,7 @@ export default defineConfig({
       include: [
         'src/shared/adblock.ts',
         'src/shared/audiograph.ts',
+        'src/shared/cipher.ts',
         'src/shared/consent.ts',
         'src/shared/fallback-quality.ts',
         'src/shared/idle-nag.ts',

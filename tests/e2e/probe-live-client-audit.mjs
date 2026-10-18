@@ -8,13 +8,22 @@
  *
  * Method per video:
  *   1. GET the watch page once and extract the page's own INNERTUBE_API_KEY and VISITOR_DATA
- *      (env overrides: INNERTUBE_API_KEY, VISITOR_DATA).
+ *      (env overrides: INNERTUBE_API_KEY, VISITOR_DATA). The page HTML also yields the
+ *      `/s/player/.../base.js` URL, fetched once to recover the `signatureTimestamp` the
+ *      ciphered TVHTML5 client needs.
  *   2. For each persona: POST /youtubei/v1/player with no cookies (Node's fetch never sends any).
  *      The HTTP User-Agent defaults to a desktop Firefox UA with the persona only in the body:
  *      that is what the extension can actually send from page context (a page cannot set the
  *      User-Agent header). Set PROBE_HTTP_UA=persona to mirror yt-dlp instead and compare.
+ *      The tvhtml5 persona additionally sends the extension's exact extras
+ *      (`playbackContext.contentPlaybackContext.signatureTimestamp` + `thirdParty.embedUrl`),
+ *      so its row measures what the shipped client measures; without a parsable base.js the
+ *      extras are omitted and the row is marked `sts=none`.
  *   3. Range-GET the best direct audio URL up to min(contentLength, 32 MiB) or 8 MiB when the
- *      length is undeclared; record HTTP status, bytes, and a clean/error verdict.
+ *      length is undeclared; record HTTP status, bytes, and a clean/error verdict. Ciphered
+ *      TVHTML5 formats (which carry `signatureCipher` instead of `url` and are decoded
+ *      in-extension by src/shared/cipher.ts) are reported separately as `audio+cipher` so the
+ *      row distinguishes "client alive but ciphered" from "client dead".
  *
  * Privacy: signed media URLs are NEVER printed. Only ids, statuses, counts, and byte totals.
  *
@@ -71,10 +80,107 @@ export const PERSONAS = [
       gl: 'US',
     },
   },
+  {
+    id: 'ios',
+    client: {
+      clientName: 'IOS',
+      clientVersion: '21.26.4',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '18.3.2.22D82',
+      userAgent: 'com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    id: 'android',
+    client: {
+      clientName: 'ANDROID',
+      clientVersion: '21.26.364',
+      osName: 'Android',
+      osVersion: '11',
+      androidSdkVersion: 30,
+      userAgent: 'com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    id: 'mweb',
+    client: {
+      clientName: 'MWEB',
+      clientVersion: '2.20260708.05.00',
+      userAgent:
+        'Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
+  {
+    id: 'tvhtml5',
+    client: {
+      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+      clientVersion: '2.0',
+      hl: 'en',
+      gl: 'US',
+    },
+  },
 ];
 
 const videos = process.argv.slice(2).filter(Boolean);
 const VIDEO_IDS = videos.length ? videos : DEFAULT_VIDEOS;
+
+/** Embed origin the shipped TVHTML5 request carries (mirrors main-world.ts TVHTML5_EMBED_URL). */
+export const TVHTML5_EMBED_URL = 'https://www.youtube.com';
+
+/**
+ * Player-script path extractor, kept in lockstep with `extractPlayerJsUrl` in
+ * src/shared/cipher.ts (see tests/unit/probe-tvhtml5-sync.test.mjs). The probe runs under plain
+ * Node with no build step, so the pattern lives here as a copy, not an import.
+ */
+export function extractProbePlayerJsUrl(source) {
+  if (typeof source !== 'string' || source.length === 0) return null;
+  const match = /(\/s\/player\/[A-Za-z0-9_-]{6,}\/[A-Za-z0-9_./-]*base\.js)/.exec(source);
+  return match?.[1] ?? null;
+}
+
+/**
+ * `signatureTimestamp` extractor, kept in lockstep with `extractSignatureTimestamp` in
+ * src/shared/cipher.ts (same sync test). A null return simply omits the TVHTML5 extras.
+ */
+export function extractProbeSignatureTimestamp(baseJs) {
+  if (typeof baseJs !== 'string') return null;
+  const match = /signatureTimestamp[:=](\d{3,7})/.exec(baseJs);
+  if (!match?.[1]) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Credentialless player body builder, kept in lockstep with `buildPlayerRequest` in
+ * src/shared/innertube.ts (same sync test asserts deep equality). `extras` carries only the
+ * TVHTML5 ciphered-client fields; every other persona sends the identical body the extension
+ * sends for it.
+ */
+export function buildPlayerBody(persona, videoId, extras = {}) {
+  const { visitorData = null, signatureTimestamp = null, embedUrl = null } = extras;
+  const client = visitorData ? { ...persona.client, visitorData } : { ...persona.client };
+  const body = {
+    context: {
+      client,
+      ...(embedUrl ? { thirdParty: { embedUrl } } : {}),
+    },
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  };
+  if (typeof signatureTimestamp === 'number' && Number.isFinite(signatureTimestamp)) {
+    body.playbackContext = { contentPlaybackContext: { signatureTimestamp } };
+  }
+  return body;
+}
 
 function truncate(value, max = 80) {
   const text = String(value ?? '');
@@ -98,11 +204,47 @@ async function extractPageConfig(videoId) {
         'set INNERTUBE_API_KEY/VISITOR_DATA env vars or run from a residential network'
     );
   }
-  return { apiKey: key, visitorData };
+  return {
+    apiKey: key,
+    visitorData: visitorData ?? null,
+    playerJsUrl: extractProbePlayerJsUrl(html),
+  };
 }
 
-async function playerRequest({ apiKey, visitorData }, persona, videoId) {
-  const client = visitorData ? { ...persona.client, visitorData } : { ...persona.client };
+async function resolveTvSignatureTimestamp(playerJsUrl, videoId) {
+  let path = playerJsUrl;
+  if (!path) {
+    // Env-key setup path: no watch HTML was fetched, so grab the page once for the player
+    // script URL only. Every step fails open to null (extras omitted, row marked sts=none).
+    try {
+      const page = await fetch(`${WATCH_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`, {
+        headers: { 'user-agent': BROWSER_UA, 'accept-language': 'en-US,en;q=0.9' },
+      });
+      if (page.ok) path = extractProbePlayerJsUrl(await page.text());
+    } catch {
+      path = null;
+    }
+  }
+  if (!path) return null;
+  try {
+    const absolute = new URL(path, WATCH_ORIGIN).toString();
+    const response = await fetch(absolute, { headers: { 'user-agent': BROWSER_UA } });
+    if (!response.ok) return null;
+    return extractProbeSignatureTimestamp(await response.text());
+  } catch {
+    return null;
+  }
+}
+
+async function playerRequest({ apiKey, visitorData }, persona, videoId, tvExtras = null) {
+  // The extras ride only when a signatureTimestamp was recovered: without one the extension
+  // skips the ciphered client entirely, so the probe sends the plain body and marks the row
+  // sts=none instead of sending a half-mirrored request the extension never makes.
+  const sts = tvExtras?.signatureTimestamp;
+  const extras =
+    persona.id === 'tvhtml5' && typeof sts === 'number' && Number.isFinite(sts)
+      ? { visitorData, signatureTimestamp: sts, embedUrl: TVHTML5_EMBED_URL }
+      : { visitorData };
   const response = await fetch(
     `${WATCH_ORIGIN}/youtubei/v1/player?key=${encodeURIComponent(apiKey)}&prettyPrint=false`,
     {
@@ -113,12 +255,7 @@ async function playerRequest({ apiKey, visitorData }, persona, videoId) {
         referer: `${WATCH_ORIGIN}/watch?v=${encodeURIComponent(videoId)}`,
         'user-agent': httpUserAgent(persona),
       },
-      body: JSON.stringify({
-        context: { client },
-        videoId,
-        contentCheckOk: true,
-        racyCheckOk: true,
-      }),
+      body: JSON.stringify(buildPlayerBody(persona, videoId, extras)),
     }
   );
   if (!response.ok) return { httpStatus: response.status, data: null };
@@ -227,10 +364,19 @@ async function main() {
   );
 
   const perVideo = [];
+  const tvSignatureTimestamp = await resolveTvSignatureTimestamp(
+    setup.playerJsUrl ?? null,
+    VIDEO_IDS[0]
+  );
+  console.log(
+    `TVHTML5 extras: signatureTimestamp=${tvSignatureTimestamp ?? 'none'} embedUrl=${TVHTML5_EMBED_URL}`
+  );
   for (const videoId of VIDEO_IDS) {
     const rows = [];
     for (const persona of PERSONAS) {
-      const result = await playerRequest(setup, persona, videoId).catch((error) => ({
+      const result = await playerRequest(setup, persona, videoId, {
+        signatureTimestamp: tvSignatureTimestamp,
+      }).catch((error) => ({
         httpStatus: 0,
         data: null,
         error: truncate(error?.message || error, 60),
@@ -244,6 +390,10 @@ async function main() {
       const audioWithUrl = adaptive.filter(
         (f) => typeof f?.url === 'string' && String(f?.mimeType || '').startsWith('audio/')
       );
+      const audioWithCipher = adaptive.filter(
+        (f) =>
+          typeof f?.signatureCipher === 'string' && String(f?.mimeType || '').startsWith('audio/')
+      );
       const best = bestAudio(adaptive);
       const download = best?.url ? await rangedDownload(best.url, httpUserAgent(persona)) : null;
       rows.push({
@@ -254,6 +404,8 @@ async function main() {
         reason,
         formats: adaptive.length,
         audioWithUrl: audioWithUrl.length,
+        audioWithCipher: audioWithCipher.length,
+        signatureTimestamp: persona.id === 'tvhtml5' ? (tvSignatureTimestamp ?? null) : null,
         itag: best?.itag ?? null,
         download,
       });
@@ -274,7 +426,9 @@ async function main() {
         : 'download=none';
       console.log(
         `  ${row.persona.padEnd(11)} http=${row.httpStatus} status=${row.status} ` +
-          `formats=${row.formats} audio+url=${row.audioWithUrl} itag=${row.itag ?? '-'} ${downloadText}` +
+          `formats=${row.formats} audio+url=${row.audioWithUrl} audio+cipher=${row.audioWithCipher} itag=${row.itag ?? '-'}` +
+          (row.persona === 'tvhtml5' ? ` sts=${row.signatureTimestamp ?? 'none'}` : '') +
+          ` ${downloadText}` +
           (row.requestError ? ` requestError=${row.requestError}` : '') +
           (row.reason ? ` reason="${row.reason}"` : '')
       );
