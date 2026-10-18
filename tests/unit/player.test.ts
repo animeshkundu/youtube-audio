@@ -49,7 +49,11 @@ describe('PlayerHandle', () => {
     const media = new FakeMedia();
 
     expect(
-      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+      handle.attach(
+        media as unknown as HTMLMediaElement,
+        'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+        generation
+      )
     ).toBe(false);
     expect(media.src).toBe('blob:native');
   });
@@ -60,9 +64,15 @@ describe('PlayerHandle', () => {
     const media = new FakeMedia();
 
     expect(
-      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+      handle.attach(
+        media as unknown as HTMLMediaElement,
+        'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+        generation
+      )
     ).toBe(true);
-    expect(media.src).toBe('https://media.example/audio');
+    expect(media.src).toBe(
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1'
+    );
     expect(media.currentTime).toBe(12);
     expect(media.playbackRate).toBe(1.25);
     expect(media.volume).toBe(0.7);
@@ -77,7 +87,7 @@ describe('PlayerHandle', () => {
     expect(
       handle.attach(
         media as unknown as HTMLMediaElement,
-        'https://media.example/audio',
+        'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
         generation,
         {
           currentTime: 45,
@@ -97,7 +107,11 @@ describe('PlayerHandle', () => {
     media.loop = true;
 
     expect(
-      handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation)
+      handle.attach(
+        media as unknown as HTMLMediaElement,
+        'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+        generation
+      )
     ).toBe(true);
     // The snapshot captured loop=true and restorePlaybackState re-applied it after the swap.
     expect(media.loop).toBe(true);
@@ -107,7 +121,11 @@ describe('PlayerHandle', () => {
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
     const generation = handle.navigate();
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
 
     handle.setLoop(true);
     expect(media.loop).toBe(true);
@@ -116,7 +134,7 @@ describe('PlayerHandle', () => {
     // captured at the original attach.
     handle.attach(
       media as unknown as HTMLMediaElement,
-      'https://media.example/audio',
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
       handle.navigate()
     );
     expect(media.loop).toBe(true);
@@ -134,7 +152,11 @@ describe('PlayerHandle', () => {
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
     const generation = handle.navigate();
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
 
     // Deliver the registered ratechange listener as Firefox would after a user speed change.
     const rateHandler = (media.addEventListener as ReturnType<typeof vi.fn>).mock.calls.find(
@@ -145,7 +167,7 @@ describe('PlayerHandle', () => {
 
     handle.attach(
       media as unknown as HTMLMediaElement,
-      'https://media.example/audio',
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
       handle.navigate()
     );
     expect(media.playbackRate).toBe(1.75);
@@ -156,11 +178,17 @@ describe('PlayerHandle', () => {
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype, maxReassertions: 2 });
     const generation = handle.navigate();
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
 
     media.src = 'blob:first';
     media.src = 'blob:second';
-    expect(media.src).toBe('https://media.example/audio');
+    expect(media.src).toBe(
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1'
+    );
     srcSetter.mockClear();
     media.src = 'blob:third';
 
@@ -176,20 +204,28 @@ describe('PlayerHandle', () => {
     handle.onRelease((record, reason) => released.push({ record, reason }));
     const generation = handle.navigate();
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
 
     handle.disable();
 
     // restore() must NOT reassign the stale native blob (that silently stalls the element at
     // readyState 0); it leaves our audio url in place for the reclaim coordinator to replace via the
     // player API, and hands over the live release record.
-    expect(media.src).toBe('https://media.example/audio');
+    expect(media.src).toBe(
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1'
+    );
     expect(handle.getMediaElement()).toBeNull();
     expect(released).toHaveLength(1);
     const [entry] = released;
     if (!entry) throw new Error('expected a release record');
     expect(entry.reason).toBe('disable');
-    expect(entry.record.ownedUrl).toBe('https://media.example/audio');
+    expect(entry.record.ownedUrl).toBe(
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1'
+    );
     expect(entry.record.element).toBe(media as unknown as HTMLMediaElement);
     expect(entry.record.currentTime).toBe(12);
     expect(entry.record.paused).toBe(false);
@@ -201,7 +237,11 @@ describe('PlayerHandle', () => {
     handle.onRelease((_record, reason) => reasons.push(reason));
     const generation = handle.navigate(); // no active hijack yet -> no release fired
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
     handle.navigate(); // tears down the active hijack -> release('navigate')
 
     expect(reasons).toEqual(['navigate']);
@@ -211,7 +251,11 @@ describe('PlayerHandle', () => {
     const handle = new PlayerHandle({ mediaPrototype: FakeMedia.prototype });
     const generation = handle.navigate();
     const media = new FakeMedia();
-    handle.attach(media as unknown as HTMLMediaElement, 'https://media.example/audio', generation);
+    handle.attach(
+      media as unknown as HTMLMediaElement,
+      'https://rr1---sn-abc123.googlevideo.com/videoplayback?expire=1&audio=1',
+      generation
+    );
 
     const foreignGetter = () => 'blob:foreign';
     Object.defineProperty(FakeMedia.prototype, 'src', {

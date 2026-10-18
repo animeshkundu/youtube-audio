@@ -277,9 +277,16 @@ export default defineContentScript({
       document.addEventListener(SPONSOR_REQUEST_EVENT, (event) => {
         void handleSponsorRequest(event, bridgeNonce);
       });
-      // Hand the per-load nonce to the MAIN-world script, which reads and clears it on load.
-      document.documentElement.dataset.ytaBridge = bridgeNonce;
-      await injectScript('/main-world.js');
+      // Hand the per-load nonce to the MAIN-world script via the injection hook, which runs
+      // immediately before the script element is appended (MV2 then executes synchronously and
+      // reads + clears it). Writing it here instead of ahead of the async fetch keeps the
+      // page-visible window at ~zero on the shipping target.
+      await injectScript('/main-world.js', {
+        modifyScript: async () => {
+          document.documentElement.dataset.ytaBridge = bridgeNonce;
+        },
+      });
+      delete document.documentElement.dataset.ytaBridge;
       // The MAIN-world message listener only exists now that the injected script has evaluated, so
       // every push the consent/scope callbacks above dispatched was posted into the void. Forget
       // the diff baseline so this first post-injection push is never suppressed (SPEC-020): the

@@ -116,4 +116,31 @@ describe('audio media assembly', () => {
       )
     ).rejects.toThrow('exceeds');
   });
+
+  it('fails closed when a range response redirects off the media CDN', async () => {
+    const redirected = response(Uint8Array.from([1, 2]), 206, {
+      'Content-Range': 'bytes 0-1/2',
+      'Content-Type': 'audio/webm',
+    });
+    Object.defineProperty(redirected, 'url', { value: 'https://attacker.example/stolen' });
+    await expect(
+      assembleAudioMedia('https://r1.googlevideo.com/videoplayback', async () => redirected)
+    ).rejects.toThrow('redirect');
+  });
+
+  it('follows redirects that stay on the media CDN', async () => {
+    const source = Uint8Array.from([1, 2]);
+    const redirected = response(source, 206, {
+      'Content-Range': 'bytes 0-1/2',
+      'Content-Type': 'audio/webm',
+    });
+    Object.defineProperty(redirected, 'url', {
+      value: 'https://r2.googlevideo.com/videoplayback?redirected=1',
+    });
+    const result = await assembleAudioMedia(
+      'https://r1.googlevideo.com/videoplayback',
+      async () => redirected
+    );
+    expect(Array.from(result.bytes)).toEqual([1, 2]);
+  });
 });

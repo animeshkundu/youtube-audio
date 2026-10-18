@@ -17,6 +17,7 @@
     "entrypoints/**/*.tsx",
     "src/**/*.ts",
     "tests/unit/**/*.ts",
+    "tests/unit/**/*.tsx",
     "wxt.config.ts",
     "vitest.config.ts"
   ]

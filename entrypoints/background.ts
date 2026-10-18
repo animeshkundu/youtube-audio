@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   initializeSettings,
   getSettings,
+  setAdBlockEnabled,
   subscribeSettings,
   watchSettings,
   type ExtensionSettings,
@@ -404,7 +405,11 @@ async function downloadAudio(
   if (!(await downloadsPermissionGranted())) return { ok: false };
   let objectUrl: string | null = null;
   try {
-    const media = await assembleAudioMedia(request.url);
+    const media = await assembleAudioMedia(
+      request.url,
+      fetch,
+      request.benchOrigin ? { benchOrigin: request.benchOrigin } : {}
+    );
     objectUrl = URL.createObjectURL(new Blob([media.bytes], { type: media.mimeType }));
     const downloadId = await browser.downloads.download({
       url: objectUrl,
@@ -684,6 +689,9 @@ export default defineBackground({
           if (type === SET_TAB_SCOPE_MESSAGE) {
             const scopeSet = parseTabScopeSetMessage(message);
             if (!scopeSet) return undefined;
+            // Top-frame only: an embedded player in a subframe (SPEC-015) must never flip the
+            // tab's scope. The popup (no sender frame) sets the active tab instead.
+            if (sender.frameId !== undefined && sender.frameId !== 0) return undefined;
             const senderTabId = sender.tab?.id;
             if (typeof senderTabId === 'number') {
               // A content script may set only its own tab's scope (the in-player quick control):
@@ -739,13 +747,74 @@ export default defineBackground({
         if (command !== TOGGLE_AUDIO_ONLY_COMMAND) return;
         void toggleActiveTabAudioOnly();
       });
-      browser.webRequest.onBeforeRequest.addListener(blockTelemetry, { urls: YOUTUBE_REQUESTS }, [
-        'blocking',
-      ]);
-      browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
-        urls: PLAYER_RESPONSE_REQUESTS,
-        types: ['xmlhttprequest'],
-      });
+      // Network-filter listeners need the optional `webRequest` + `webRequestBlocking` grants
+      // (ADR-0018): registering a blocking listener without the permission throws, so sync
+      // registration with the live grants and with runtime grant/revoke events. The handlers read
+      // `settings` per request and no-op while it is still unset, so early registration cannot act
+      // on unloaded values. BENCH builds declare the permissions as required, so the listeners
+      // attach unconditionally there.
+      let networkListenersActive = false;
+      const syncNetworkListeners = async (): Promise<void> => {
+        let granted = __BENCH__;
+        if (!granted) {
+          try {
+            granted = await browser.permissions.contains({
+              permissions: ['webRequest', 'webRequestBlocking'],
+            });
+          } catch {
+            granted = false;
+          }
+        }
+        if (granted === networkListenersActive) return;
+        networkListenersActive = granted;
+        try {
+          if (granted) {
+            browser.webRequest.onBeforeRequest.addListener(
+              blockTelemetry,
+              { urls: YOUTUBE_REQUESTS },
+              ['blocking']
+            );
+            browser.webRequest.onBeforeRequest.addListener(filterPlayerResponse, {
+              urls: PLAYER_RESPONSE_REQUESTS,
+              types: ['xmlhttprequest'],
+            });
+          } else {
+            if (browser.webRequest.onBeforeRequest.hasListener(blockTelemetry)) {
+              browser.webRequest.onBeforeRequest.removeListener(blockTelemetry);
+            }
+            if (browser.webRequest.onBeforeRequest.hasListener(filterPlayerResponse)) {
+              browser.webRequest.onBeforeRequest.removeListener(filterPlayerResponse);
+            }
+          }
+        } catch {
+          networkListenersActive = false;
+        }
+      };
+      try {
+        browser.permissions.onAdded?.addListener(() => void syncNetworkListeners());
+        browser.permissions.onRemoved?.addListener((removed) => {
+          void syncNetworkListeners();
+          // A revoke must never leave the UI claiming blocking that cannot run: turn the setting
+          // off, but ONLY when a network-filter grant was actually removed. Revoking an unrelated
+          // grant (downloads, SponsorBlock origin) must not kill ad blocking while its listeners
+          // are intact. Fail-closed on storage errors.
+          try {
+            const gone = (removed as { permissions?: unknown })?.permissions;
+            const lostNetwork =
+              !Array.isArray(gone) ||
+              gone.includes('webRequest') ||
+              gone.includes('webRequestBlocking');
+            if (lostNetwork && getSettings().adBlockEnabled) {
+              void setAdBlockEnabled(false).catch(() => undefined);
+            }
+          } catch {
+            // Fail open: the listeners are already re-synced above.
+          }
+        });
+      } catch {
+        // Permissions events unavailable: sync once below and rely on startup state.
+      }
+      void syncNetworkListeners();
       try {
         settings = await initializeSettings();
       } catch (error) {

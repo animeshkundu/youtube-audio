@@ -68,6 +68,7 @@ const APPLY_ERROR = "Couldn't apply that change. Try again.";
 // SPEC-013: a denied or failed optional-permission gesture keeps the feature off and says why.
 const SPONSOR_PERMISSION_ERROR = "SponsorBlock access wasn't granted.";
 const DOWNLOAD_PERMISSION_ERROR = "Download access wasn't granted.";
+const NETWORK_PERMISSION_ERROR = "Ad-blocking access wasn't granted.";
 
 const OPTION_LABELS = {
   autoplay: 'Disable autoplay next',
@@ -76,7 +77,7 @@ const OPTION_LABELS = {
   fallbackQuality: 'Low-quality fallback',
   ads: 'Block ads',
   ghost: 'Ghost mode',
-  aggressive: 'Aggressive telemetry blocking',
+  aggressive: 'Block watch-time stats',
   skip: 'Skip segments',
   shorts: 'Hide Shorts',
   recommendations: 'Hide recommendations',
@@ -120,6 +121,8 @@ export type OptionsActions = {
   sponsorPermissionGranted: () => Promise<boolean>;
   requestDownloadsPermission: () => Promise<boolean>;
   downloadsPermissionGranted: () => Promise<boolean>;
+  requestNetworkPermission: () => Promise<boolean>;
+  networkPermissionGranted: () => Promise<boolean>;
   /** The downloads API is absent on Firefox for Android; the row hides entirely there. */
   downloadsAvailable: () => boolean;
 };
@@ -173,6 +176,24 @@ export const defaultOptionsActions: OptionsActions = {
   downloadsPermissionGranted: async () => {
     try {
       return await browser.permissions.contains({ permissions: [DOWNLOADS_PERMISSION] });
+    } catch {
+      return false;
+    }
+  },
+  requestNetworkPermission: async () => {
+    try {
+      return await browser.permissions.request({
+        permissions: ['webRequest', 'webRequestBlocking'],
+      });
+    } catch {
+      return false;
+    }
+  },
+  networkPermissionGranted: async () => {
+    try {
+      return await browser.permissions.contains({
+        permissions: ['webRequest', 'webRequestBlocking'],
+      });
     } catch {
       return false;
     }
@@ -244,6 +265,7 @@ export function Options({
   const [consentGranted, setConsentGranted] = useState<boolean | null>(null);
   const [sponsorPermission, setSponsorPermission] = useState<boolean | null>(null);
   const [downloadsPermission, setDownloadsPermission] = useState<boolean | null>(null);
+  const [networkPermission, setNetworkPermission] = useState<boolean | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const requestIds = useRef<Record<string, number>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -253,6 +275,7 @@ export function Options({
     void actions.resolveDataConsent().then((consent) => setConsentGranted(consent.granted));
     void actions.sponsorPermissionGranted().then(setSponsorPermission);
     void actions.downloadsPermissionGranted().then(setDownloadsPermission);
+    void actions.networkPermissionGranted().then(setNetworkPermission);
     return () => {
       if (toastTimer.current !== null) clearTimeout(toastTimer.current);
     };
@@ -373,7 +396,7 @@ export function Options({
   const adBlockDescription = stateDescription(
     adBlockEnabledSignal.value,
     'Blocks ads before they play.',
-    'YouTube may play ads normally.'
+    'Off by default. Turn on to block ads before they play.'
   );
   const ghostDescription = stateDescription(
     ghostEnabledSignal.value,
@@ -383,8 +406,8 @@ export function Options({
   const aggressiveDescription = ghostEnabledSignal.value
     ? stateDescription(
         aggressiveTelemetrySignal.value,
-        'Also blocks watch-time stats.',
-        'Watch history and resume can update normally.'
+        'Also blocks watch-time stats (aggressive telemetry blocking).',
+        'Watch history and resume can update normally (aggressive telemetry blocking stays off).'
       )
     : `${aggressiveTelemetrySignal.value ? 'On' : 'Off'}, unavailable. Turn on Ghost mode to use this.`;
   const skipDescription = stateDescription(
@@ -601,7 +624,7 @@ export function Options({
             <a
               key={id}
               href={`#${id}`}
-              aria-current={currentSection === id ? 'true' : undefined}
+              aria-current={currentSection === id ? 'page' : undefined}
               onClick={() => setActiveSection(id)}
             >
               <span class="nav-indicator" aria-hidden="true">
@@ -730,11 +753,54 @@ export function Options({
                     label={OPTION_LABELS.ads}
                     description={adBlockDescription}
                     error={errors.ads}
-                    consequence="May rarely affect playback."
+                    {...(adBlockEnabledSignal.value
+                      ? { consequence: 'May rarely affect playback.' }
+                      : {})}
                     checked={adBlockEnabledSignal.value}
-                    onChange={(checked) => apply('ads', () => actions.setAdBlockEnabled(checked))}
+                    onChange={(checked) => {
+                      if (!checked) {
+                        apply('ads', () => actions.setAdBlockEnabled(false));
+                        return;
+                      }
+                      // ADR-0018: network permissions are requested in this same gesture; the
+                      // setting persists only on grant. Denial keeps blocking off with a notice.
+                      applyPermissionRequest(
+                        'ads',
+                        actions.requestNetworkPermission,
+                        NETWORK_PERMISSION_ERROR,
+                        async () => {
+                          setNetworkPermission(true);
+                          await actions.setAdBlockEnabled(true);
+                          showToast({ kind: 'ok', message: 'Ad blocking on.' });
+                        }
+                      );
+                    }}
                     highImpact
                   />
+                )}
+                {adBlockVisible && adBlockEnabledSignal.value && networkPermission === false && (
+                  <div class="action-row permission-notice-row">
+                    <span>
+                      <strong>Ad-blocking access isn't granted</strong>
+                      <small>Blocking is on but can't filter traffic until you grant access.</small>
+                    </span>
+                    <div class="action-buttons">
+                      <button
+                        type="button"
+                        class="secondary-action"
+                        onClick={() =>
+                          applyPermissionRequest(
+                            'ads',
+                            actions.requestNetworkPermission,
+                            NETWORK_PERMISSION_ERROR,
+                            () => setNetworkPermission(true)
+                          )
+                        }
+                      >
+                        Grant access
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {ghostVisible && (
                   <SettingRow
@@ -743,9 +809,49 @@ export function Options({
                     description={ghostDescription}
                     error={errors.ghost}
                     checked={ghostEnabledSignal.value}
-                    onChange={(checked) => apply('ghost', () => actions.setGhostEnabled(checked))}
+                    onChange={(checked) => {
+                      if (!checked) {
+                        apply('ghost', () => actions.setGhostEnabled(false));
+                        return;
+                      }
+                      // Ghost rides the same network-filter grants as ad blocking (ADR-0018):
+                      // request them in this same gesture so "Ghost on" always means filtering.
+                      applyPermissionRequest(
+                        'ghost',
+                        actions.requestNetworkPermission,
+                        NETWORK_PERMISSION_ERROR,
+                        async () => {
+                          setNetworkPermission(true);
+                          await actions.setGhostEnabled(true);
+                        }
+                      );
+                    }}
                     recommended
                   />
+                )}
+                {ghostVisible && ghostEnabledSignal.value && networkPermission === false && (
+                  <div class="action-row permission-notice-row">
+                    <span>
+                      <strong>Ghost access isn't granted</strong>
+                      <small>Ghost is on but can't filter traffic until you grant access.</small>
+                    </span>
+                    <div class="action-buttons">
+                      <button
+                        type="button"
+                        class="secondary-action"
+                        onClick={() =>
+                          applyPermissionRequest(
+                            'ghost',
+                            actions.requestNetworkPermission,
+                            NETWORK_PERMISSION_ERROR,
+                            () => setNetworkPermission(true)
+                          )
+                        }
+                      >
+                        Grant access
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {aggressiveVisible && (
                   <SettingRow

@@ -151,4 +151,28 @@ describe('showArtworkOverlay', () => {
     cleanup();
     expect(player.querySelector(`.${AUDIO_ARTWORK_CLASS}`)).toBeNull();
   });
+
+  it('refuses artwork from non-image-CDN hosts', () => {
+    expect(
+      pickArtworkUrl({
+        videoDetails: {
+          thumbnail: {
+            thumbnails: [
+              { url: 'https://attacker.example/track.jpg', width: 1280, height: 720 },
+              { url: 'https://i.ytimg.com/vi/x/maxresdefault.jpg', width: 640, height: 360 },
+            ],
+          },
+        },
+      })
+    ).toBe('https://i.ytimg.com/vi/x/maxresdefault.jpg');
+    expect(
+      pickArtworkUrl({
+        videoDetails: {
+          thumbnail: {
+            thumbnails: [{ url: 'https://attacker.example/track.jpg', width: 100, height: 100 }],
+          },
+        },
+      })
+    ).toBeNull();
+  });
 });

@@ -309,10 +309,15 @@ function finiteOr(value: number, fallback: number): number {
 function isSafeMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url, location.href);
-    if (parsed.protocol === 'https:') return true;
+    if (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname === 'googlevideo.com' || parsed.hostname.endsWith('.googlevideo.com'))
+    ) {
+      return true;
+    }
     // The hermetic bench serves fixture media over http://127.0.0.1 / http://localhost. This
     // branch is compiled out of production (`__BENCH__` is `false`), so a real build only ever
-    // hijacks an https media url.
+    // hijacks a googlevideo media url.
     return __BENCH__ && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
   } catch {
     return false;

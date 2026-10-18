@@ -12,6 +12,7 @@ import {
   backgroundPlayEnabledSignal,
   equalizerEnabledSignal,
   fallbackQualityCapEnabledSignal,
+  ghostEnabledSignal,
   segmentSkipEnabledSignal,
 } from '../../../src/shared/settings-signals';
 
@@ -22,6 +23,8 @@ function actions(): OptionsActions {
     setBackgroundPlayEnabled: vi.fn(async () => undefined),
     setIdleNagDefeatEnabled: vi.fn(async () => undefined),
     setFallbackQualityCapEnabled: vi.fn(async () => undefined),
+    setVolumeBoostEnabled: vi.fn(async () => undefined),
+    setVolumeBoostAmount: vi.fn(async () => undefined),
     setAdBlockEnabled: vi.fn(async () => undefined),
     setGhostEnabled: vi.fn(async () => undefined),
     setSegmentSkipEnabled: vi.fn(async () => undefined),
@@ -36,7 +39,7 @@ function actions(): OptionsActions {
     resolveDataConsent: vi.fn(async () => ({
       granted: true,
       sponsorBlockAllowed: false,
-      source: 'custom',
+      source: 'custom' as const,
       pending: false,
     })),
     revokeDataConsent: vi.fn(async () => undefined),
@@ -48,6 +51,8 @@ function actions(): OptionsActions {
     sponsorPermissionGranted: vi.fn(async () => true),
     requestDownloadsPermission: vi.fn(async () => true),
     downloadsPermissionGranted: vi.fn(async () => true),
+    requestNetworkPermission: vi.fn(async () => true),
+    networkPermissionGranted: vi.fn(async () => true),
     downloadsAvailable: vi.fn(() => true),
   };
 }
@@ -120,7 +125,7 @@ describe('Options', () => {
     expect(switches.every((control) => control.hasAttribute('aria-label'))).toBe(true);
     expect(switches.every((control) => control.hasAttribute('aria-checked'))).toBe(true);
     expect(container.querySelectorAll('.setting-description')).toHaveLength(29);
-    expect(container.querySelector('.settings-nav a[aria-current="true"]')?.textContent).toContain(
+    expect(container.querySelector('.settings-nav a[aria-current="page"]')?.textContent).toContain(
       'Quick Controls'
     );
   });
@@ -186,7 +191,7 @@ describe('Options', () => {
     ).toHaveLength(0);
   });
 
-  it('marks Block ads and Aggressive telemetry as high impact with text chips', () => {
+  it('marks Block ads and watch-time stats as high impact with text chips', () => {
     aggressiveTelemetrySignal.value = true;
     const container = mount(<Options actions={actions()} />);
     const highImpactRows = container.querySelectorAll('.setting-row.is-high-impact');
@@ -253,6 +258,35 @@ describe('Options', () => {
     expect(container.querySelector('#option-skip [role="alert"]')?.textContent).toBe(
       "SponsorBlock access wasn't granted."
     );
+  });
+
+  it('keeps Ghost off when the network permission is denied', async () => {
+    ghostEnabledSignal.value = false;
+    const optionsActions = actions();
+    optionsActions.requestNetworkPermission = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+
+    click(container.querySelector('#option-ghost [role="switch"]'));
+    await flushPromises();
+
+    expect(optionsActions.setGhostEnabled).not.toHaveBeenCalled();
+    expect(container.querySelector('#option-ghost [role="alert"]')?.textContent).toBe(
+      "Ad-blocking access wasn't granted."
+    );
+    ghostEnabledSignal.value = true;
+  });
+
+  it('offers a one-gesture re-grant when Ghost is on without its permission', async () => {
+    adBlockEnabledSignal.value = false;
+    ghostEnabledSignal.value = true;
+    const optionsActions = actions();
+    optionsActions.networkPermissionGranted = vi.fn(async () => false);
+    const container = mount(<Options actions={optionsActions} />);
+    await flushPromises();
+
+    const notice = container.querySelector('#privacy-blocking .permission-notice-row');
+    expect(notice?.textContent).toContain("Ghost access isn't granted");
+    adBlockEnabledSignal.value = true;
   });
 
   it('offers a one-gesture re-grant when skipping is on without its permission', async () => {

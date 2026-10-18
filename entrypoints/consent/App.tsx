@@ -61,6 +61,10 @@ export function ConsentPage({ actions = defaultConsentActions }: { actions?: Con
             To play just the audio of a video, YouTube Audio needs your permission to ask YouTube
             for that video's audio track. Nothing is sent until you choose Allow.
           </p>
+          <p class="plain-words">
+            In plain words: the video ID and a standard player handshake go to YouTube; the audio
+            comes from Google's media servers. Anonymous, no cookies, no account.
+          </p>
         </div>
 
         <div class="data-flow" aria-label="Required data transmissions">
@@ -123,7 +127,12 @@ export function ConsentPage({ actions = defaultConsentActions }: { actions?: Con
           </p>
         )}
 
-        <div class="consent-actions">
+        <div class="consent-actions" aria-busy={busy}>
+          {busy && (
+            <p class="visually-hidden" role="status">
+              Working…
+            </p>
+          )}
           <button
             type="button"
             class="consent-primary"

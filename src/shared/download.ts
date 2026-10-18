@@ -78,7 +78,7 @@ async function readCompleteResponse(
 export async function assembleAudioMedia(
   url: string,
   fetcher: AudioFetch = fetch,
-  options: { chunkSize?: number; maxBytes?: number } = {}
+  options: { chunkSize?: number; maxBytes?: number; benchOrigin?: string } = {}
 ): Promise<AssembledAudioMedia> {
   const chunkSize = options.chunkSize ?? AUDIO_RANGE_CHUNK_SIZE;
   const maxBytes = options.maxBytes ?? MAX_ASSEMBLED_AUDIO_BYTES;
@@ -98,6 +98,17 @@ export async function assembleAudioMedia(
       credentials: 'omit',
       headers: { Range: `bytes=${start}-${end}` },
     });
+    // Redirect guard: fetch follows redirects, so validate the final URL after every hop.
+    // A googlevideo URL that redirects off-CDN (or to an attacker host) fails closed instead of
+    // downloading cross-origin bytes into a user-saved file.
+    if (
+      typeof response.url === 'string' &&
+      response.url !== '' &&
+      response.url !== url &&
+      !isAllowedAudioUrl(response.url, options.benchOrigin)
+    ) {
+      throw new Error('Audio redirect left the allowed media origin');
+    }
     if (response.status === 200 && start === 0) return readCompleteResponse(response, maxBytes);
     if (response.status !== 206)
       throw new Error(`Audio range request failed with status ${response.status}`);
@@ -105,6 +116,14 @@ export async function assembleAudioMedia(
     const contentRange = parseContentRange(response.headers.get('Content-Range'));
     if (!contentRange && start === 0) {
       const fullResponse = await fetcher(url, { credentials: 'omit' });
+      if (
+        typeof fullResponse.url === 'string' &&
+        fullResponse.url !== '' &&
+        fullResponse.url !== url &&
+        !isAllowedAudioUrl(fullResponse.url, options.benchOrigin)
+      ) {
+        throw new Error('Audio redirect left the allowed media origin');
+      }
       return readCompleteResponse(fullResponse, maxBytes);
     }
     if (!contentRange || contentRange.start !== start || contentRange.end > end) {

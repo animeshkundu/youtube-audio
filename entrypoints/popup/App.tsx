@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 
 import { setBackgroundPlayEnabled, setEnabled } from '../../src/shared/config';
 import {
@@ -30,6 +30,7 @@ export type PopupActions = {
    * options page keeps editing the global default.
    */
   setTabAudioOnly: (enabled: boolean) => Promise<void>;
+  openBlockingSettings: () => void;
 };
 
 export const defaultActions: PopupActions = {
@@ -40,6 +41,10 @@ export const defaultActions: PopupActions = {
   openConsentSettings: () =>
     void browser.tabs.create({ url: browser.runtime.getURL('/options.html#data-consent') }),
   setTabAudioOnly: setActiveTabAudioOnly,
+  openBlockingSettings: () =>
+    void browser.tabs.create({
+      url: browser.runtime.getURL('/options.html#privacy-blocking'),
+    }),
 };
 
 function heroStatusCopy(
@@ -48,7 +53,7 @@ function heroStatusCopy(
 ): string {
   switch (status.kind) {
     case 'active':
-      return 'Audio-only on. Video muted, battery saved.';
+      return 'Audio-only on. No video loaded, data saved.';
     case 'connecting':
       return 'Checking this tab...';
     case 'fallback':
@@ -72,13 +77,16 @@ function heroStatusCopy(
   }
 }
 
-function protectionCopy(): string {
-  if (adBlockEnabledSignal.value && ghostEnabledSignal.value) {
+function protectionCopy(
+  adBlockingActive: boolean,
+  ghostActive: boolean,
+  ghostSetting: boolean
+): string {
+  if (adBlockingActive && ghostActive) {
     return 'Ads and trackers blocked. Ghost on.';
   }
-  return `${adBlockEnabledSignal.value ? 'Ads blocked.' : 'Ad blocking off.'} ${
-    ghostEnabledSignal.value ? 'Ghost on.' : 'Ghost off.'
-  }`;
+  const ghostCopy = ghostActive ? 'Ghost on.' : ghostSetting ? 'Ghost needs access.' : 'Ghost off.';
+  return `${adBlockingActive ? 'Ads blocked.' : 'Ads play normally. Turn on ad blocking.'} ${ghostCopy}`;
 }
 
 function PopupHeader({
@@ -110,9 +118,10 @@ function ConsentCard({ onOpenConsent }: { onOpenConsent: () => void }) {
   // so the popup renders this card instead.
   return (
     <section class="popup-empty-state popup-consent-state" aria-labelledby="popup-consent-title">
-      <h1 id="popup-consent-title">Consent needed</h1>
+      <h1 id="popup-consent-title">Almost there</h1>
       <p class="popup-consent-copy">
-        YouTube Audio can't play audio until you allow data transmission.
+        To play audio without video, YouTube Audio needs to ask YouTube for the audio stream.
+        Nothing is sent until you say so.
       </p>
       <button class="primary-action" type="button" onClick={onOpenConsent}>
         Review data &amp; consent
@@ -152,7 +161,7 @@ function PlaybackHero({
             Audio-only
             <span class="popup-scope-tag">This tab</span>
           </h1>
-          <span class="popup-hero-status" id={statusId}>
+          <span class="popup-hero-status" id={statusId} aria-live="polite" aria-atomic="true">
             {active && <span class="now-playing" aria-hidden="true" />}
             <span>{heroStatusCopy(displayStatus, fallbackCapEngaged)}</span>
           </span>
@@ -165,12 +174,29 @@ function PlaybackHero({
 
 export function Popup({ actions = defaultActions }: { actions?: PopupActions }) {
   const [error, setError] = useState<string | null>(null);
+  const [networkGranted, setNetworkGranted] = useState<boolean | null>(null);
   const apply = (operation: () => Promise<void>) => {
     setError(null);
     void operation().catch(() => setError("Couldn't apply that change. Try again."));
   };
   const playbackStatus = playbackStatusSignal.value;
   const consent = consentSignal.value;
+  useEffect(() => {
+    try {
+      void browser.permissions
+        .contains({ permissions: ['webRequest', 'webRequestBlocking'] })
+        .then(setNetworkGranted)
+        .catch(() => setNetworkGranted(false));
+    } catch {
+      setNetworkGranted(false);
+    }
+  }, []);
+  // Ad blocking is only real when the setting is on AND the network permission is granted
+  // (ADR-0018): the background flips the setting off on revoke, but AND-ing here covers the
+  // transient window so the popup never over-claims. Ghost rides the same network grants, so its
+  // display is AND-ed too: a fresh install has Ghost on with no grants yet.
+  const adBlockingActive = adBlockEnabledSignal.value && networkGranted === true;
+  const ghostActive = ghostEnabledSignal.value && networkGranted === true;
 
   // Consent is resolved over a message round trip; until it lands, show only the header so a
   // denied install never flashes controls that could not take effect.
@@ -236,8 +262,14 @@ export function Popup({ actions = defaultActions }: { actions?: PopupActions }) 
           />
         </section>
 
-        <button type="button" class="popup-protection-line" onClick={actions.openOptions}>
-          <span>{protectionCopy()}</span>
+        <button
+          type="button"
+          class="popup-protection-line"
+          onClick={() =>
+            adBlockingActive ? actions.openOptions() : actions.openBlockingSettings()
+          }
+        >
+          <span>{protectionCopy(adBlockingActive, ghostActive, ghostEnabledSignal.value)}</span>
           <span aria-hidden="true">›</span>
         </button>
 
