@@ -210,6 +210,7 @@ export default defineUnlistedScript(() => {
   let segmentSkipCleanup: () => void = () => undefined;
   let qualityOfLifeCleanup: () => void = () => undefined;
   let stallRetryCount = 0;
+  let stallBudgetVideoId: string | null = null;
   let stallListenerCleanup: () => void = () => undefined;
   let scriptletGeneration = 0;
   let segmentSkipGeneration = 0;
@@ -416,6 +417,10 @@ export default defineUnlistedScript(() => {
 
     const operation = startPlaybackOperation();
     disposeAudioGraph();
+    // A settings-driven media restart is a fresh user intent: reset the per-video stall budget
+    // so a prior stall episode on the same video cannot suppress retries for the new attempt.
+    stallRetryCount = 0;
+    stallBudgetVideoId = operation.videoId;
     if (!next.enabled) {
       stallListenerCleanup();
       stallListenerCleanup = () => undefined;
@@ -701,10 +706,16 @@ export default defineUnlistedScript(() => {
 
   observeYouTubeSpa(() => {
     log('spa.rearm');
-    stallRetryCount = 0;
     stallListenerCleanup();
     stallListenerCleanup = () => undefined;
     const operation = startPlaybackOperation();
+    // Same-video element swaps (player-change) must not replenish the stall budget: only a
+    // different video (or a fresh settings intent) resets it, so a persistently stalling video
+    // cannot loop re-walks across re-arms.
+    if (operation.videoId !== stallBudgetVideoId) {
+      stallRetryCount = 0;
+      stallBudgetVideoId = operation.videoId;
+    }
     restartSegmentSkipping();
     qualityOfLifeCleanup();
     qualityOfLifeCleanup = applyQualityOfLife(settings);
@@ -913,11 +924,19 @@ export default defineUnlistedScript(() => {
           });
         }
         emitStatus('active', operation);
-        // Bounded stall retry + media-error fail-open: if the hijacked audio stalls, re-fetch and
-        // re-attach at most twice; if the element raises a hard `error` (expired/rejected URL, decode
-        // failure), release immediately and let YouTube's native player take over. Never reacts to
-        // `ended` or `pause` (those are normal, not failures).
-        stallRetryCount = 0;
+        // Bounded stall retry + media-error fail-open: if the hijacked audio raises `stalled`
+        // (no data for ~3s) or a hard `error` (expired/rejected URL, decode failure), retry the
+        // fetch at most twice PER VIDEO, then release and let YouTube's native player take over.
+        // `waiting` is deliberately NOT a retry trigger: it fires during normal buffering
+        // (seeks, quality switches, slow start), so retrying on it would re-fetch and re-attach
+        // on routine playback. Never reacts to `ended` or `pause` (those are normal, not failures).
+        // The budget resets only when a different video is hijacked (or on a fresh settings/SPA
+        // intent above): a successful re-attach of the SAME video does not replenish it, so a
+        // persistently stalling stream cannot loop re-walks forever.
+        if (stallBudgetVideoId !== videoId) {
+          stallBudgetVideoId = videoId;
+          stallRetryCount = 0;
+        }
         stallListenerCleanup();
         const media = mediaElement;
         const stallVideoId = operation.videoId;
@@ -939,6 +958,10 @@ export default defineUnlistedScript(() => {
             }
             stallRetryCount += 1;
             log('error', { where: 'page.stall-retry' });
+            // Detach the old element's listeners before the async re-walk so a burst of
+            // `stalled` events cannot stack concurrent activations; the new attach arms fresh
+            // listeners for the new operation.
+            stallListenerCleanup();
             const retryOperation = startPlaybackOperation();
             void activateEnhancements(retryOperation);
           } catch {
@@ -948,12 +971,10 @@ export default defineUnlistedScript(() => {
           }
         };
         media.addEventListener('stalled', onMediaFailure);
-        media.addEventListener('waiting', onMediaFailure);
         media.addEventListener('error', onMediaFailure);
         stallListenerCleanup = () => {
           try {
             media.removeEventListener('stalled', onMediaFailure);
-            media.removeEventListener('waiting', onMediaFailure);
             media.removeEventListener('error', onMediaFailure);
           } catch {
             // Fail open.

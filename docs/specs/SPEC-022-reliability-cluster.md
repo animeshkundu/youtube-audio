@@ -57,15 +57,20 @@ Eliminate the reliability regressions that drive the 3.74 AMO rating: playlist/q
 
 ### 3.4 Stall/auto-restart (#56, #44, #39)
 
-**Root cause:** When the hijacked audio stalls (network, expired URL), the media element fires `stalled`/`waiting`. Without handling, playback stops. YouTube's native player would have handled this, but our src swap bypasses that.
+**Root cause:** When the hijacked audio stalls (network, expired URL), the media element fires `stalled`. Without handling, playback stops. YouTube's native player would have handled this, but our src swap bypasses that.
 
-**Fix (partially done):**
+**Fix:**
 
-- Add `stalled` and `waiting` event listeners on the media element (already implemented).
-- Bounded retry: max 2 retries. Each retry re-fetches the player response and re-attaches.
+- Add a `stalled` event listener on the media element. `waiting` is deliberately NOT a retry trigger: it fires during normal buffering (seeks, slow start), so reacting to it would re-fetch on routine playback.
+- Bounded retry: max 2 retries PER VIDEO. Each retry re-fetches the player response and re-attaches. The budget resets only on a different video (or a fresh settings/SPA intent); a same-video re-attach never replenishes it.
+- Detach the old element's listeners before the async re-walk so a burst of `stalled` events cannot stack concurrent activations.
 - Generation guard: only retry if `videoId` and `generation` are unchanged.
 - After 2 retries, emit `fallback` and let YouTube handle it.
-- Never retry on `ended` or `pause` (those are normal, not stalls).
+- Never retry on `ended`, `pause`, or `waiting` (those are normal, not stalls).
+- Deliberate trade-off: a wedge that manifests as `waiting` forever with `stalled` never firing
+  has no recovery trigger. In practice a dead network progresses `waiting` to `stalled` (~3s of
+  no data) and expired URLs surface as `error`, both of which are covered; a `waiting`-only
+  wedge is out of scope because reacting to `waiting` at all re-fetches on routine buffering.
 
 **Fail-open:** If retry fails or generation changes, emit `fallback`. Native playback takes over.
 
